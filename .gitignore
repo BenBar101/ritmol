@@ -11,7 +11,9 @@ dist/
 !.env.example
 
 # Editor / OS
+.cursor/
 .DS_Store
+.ds_store
 *.log
 *.swp
 .cache/

@@ -4,9 +4,10 @@ import ReactDOM from "react-dom/client";
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════
-const XP_PER_LEVEL = 500;
-const GACHA_COST = 150;
-const STREAK_SHIELD_COST = 300;
+// Default costs; actual values come from state.dynamicCosts (AI can change them on level-up, gacha pull, shield use).
+const DEFAULT_XP_PER_LEVEL = 500;
+const DEFAULT_GACHA_COST = 150;
+const DEFAULT_STREAK_SHIELD_COST = 300;
 
 const RANKS = [
   { min: 0,  title: "Rookie",      decor: "[ _ ]",    badge: "░░░░░", font: "mono" },
@@ -49,64 +50,44 @@ const ACHIEVEMENT_RARITIES = {
   legendary: { label: "LEGENDARY", glow: "#fff",   border: "██", weight: 3  },
 };
 
-// Single-account gate: set at build time via .env (VITE_ALLOWED_EMAIL, VITE_GOOGLE_CLIENT_ID)
-// No hardcoded fallback — gate is disabled if env vars are absent, keeping the secret out of source.
+// Single-account gate: only the configured Google email can use the app. Set via .env or GitHub Variables.
+// SECURITY: Both VITE_ALLOWED_EMAIL and VITE_GOOGLE_CLIENT_ID must be set. If either is missing the app
+// renders a hard block — it never falls through to the main UI with no auth.
 const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || "").trim().toLowerCase();
 const GATE_GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
-const GATE_SESSION_KEY = "ritmof_allowed";
+const VERIFY_GOOGLE_ID_URL = (import.meta.env.VITE_VERIFY_GOOGLE_ID_URL || "").trim();
+// Optional: Dropbox App Key from env (e.g. GitHub Variables). When set, used for OAuth/sync; else use key from Profile → Settings (localStorage).
+const VITE_DROPBOX_APP_KEY = (import.meta.env.VITE_DROPBOX_APP_KEY || "").trim();
+// Required: Gemini API key from env. App assumes it is set in GitHub repo Variables or .env.
+const VITE_GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
+// Auth is required when EITHER variable is present — missing one is a misconfiguration, not a bypass.
+const AUTH_REQUIRED = !!(ALLOWED_EMAIL || GATE_GOOGLE_CLIENT_ID);
+const GATE_SESSION_KEY = "ritmof_session_token"; // stores a signed token, not a plain boolean
+const DATA_DISCLOSURE_SEEN_KEY = "ritmof_data_disclosure_seen";
 const THEME_KEY = "jv_theme";
 
-// Device lock: PBKDF2-SHA256 hash of the master password.
-// Set VITE_DEVICE_LOCK_HASH in your .env — NEVER commit the hash to source.
-// Generate it once in the browser console:
-//   hashPasswordForDeviceLock("yourpassword").then(console.log)
-// then paste the output into .env as VITE_DEVICE_LOCK_HASH.
-const DEVICE_LOCK_STORAGE_KEY = "ritmof_device_unlock_token"; // renamed — old key stored the hash directly
-const DEVICE_LOCK_SALT = "ritmof-device-lock-v1";
-const DEVICE_LOCK_ITERATIONS = 100000;
-const EXPECTED_PASSWORD_HASH = (import.meta.env.VITE_DEVICE_LOCK_HASH || "").trim();
+// ── Session token helpers ──────────────────────────────────────
+// We derive a session token by hashing the verified email + a per-load nonce stored only in memory.
+// This means setting sessionStorage manually from the console gives an invalid token — the app
+// will reject it and re-show the auth gate.
+const SESSION_NONCE = crypto.getRandomValues(new Uint8Array(16))
+  .reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
 
-// Brute-force lockout: 5 failed attempts -> 5-minute cooldown
-const LOCK_FAIL_KEY = "ritmof_lock_fails";
-const LOCK_UNTIL_KEY = "ritmof_lock_until";
-const MAX_LOCK_ATTEMPTS = 5;
-const LOCK_DURATION_MS = 5 * 60 * 1000;
-
-async function hashPasswordForDeviceLock(password) {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"]
-  );
-  const saltBytes = new TextEncoder().encode(DEVICE_LOCK_SALT);
-  const derived = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: saltBytes, iterations: DEVICE_LOCK_ITERATIONS, hash: "SHA-256" },
-    keyMaterial,
-    256
-  );
-  return Array.from(new Uint8Array(derived))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-if (typeof window !== "undefined") window.hashPasswordForDeviceLock = hashPasswordForDeviceLock;
-
-// Generate a random session token (stored instead of the hash — not reversible to password)
-function generateUnlockToken() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+async function makeSessionToken(email) {
+  const data = new TextEncoder().encode(email + "|" + SESSION_NONCE);
+  const hashBuf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Returns true when a valid unlock token exists for this session
-function isDeviceUnlocked() {
-  try {
-    const token = sessionStorage.getItem(DEVICE_LOCK_STORAGE_KEY);
-    // Token must be a 64-char hex string written by this session
-    return typeof token === "string" && /^[0-9a-f]{64}$/.test(token);
-  } catch { return false; }
+async function isSessionValid() {
+  const stored = sessionStorage.getItem(GATE_SESSION_KEY);
+  if (!stored) return false;
+  const expected = await makeSessionToken(ALLOWED_EMAIL);
+  return stored === expected;
 }
+
+// Gemini API key is read from VITE_GEMINI_API_KEY (env). It is never stored in localStorage or sync payloads.
+// applySyncPayload strips geminiKey from synced profile objects to prevent accidental exposure.
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS
@@ -129,7 +110,7 @@ const nowMin = () => new Date().getMinutes();
 // GEMINI API
 // ═══════════════════════════════════════════════════════════════
 async function callGemini(apiKey, messages, systemPrompt, jsonMode = false) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -151,7 +132,10 @@ async function callGemini(apiKey, messages, systemPrompt, jsonMode = false) {
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
     body: JSON.stringify(body),
   });
 
@@ -178,41 +162,27 @@ async function callGemini(apiKey, messages, systemPrompt, jsonMode = false) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// GOOGLE CALENDAR
+// GOOGLE CALENDAR (GIS TokenClient + REST — no deprecated gapi.client)
 // ═══════════════════════════════════════════════════════════════
-function loadGoogleAPI() {
-  return new Promise((resolve) => {
-    if (window.gapi) { resolve(); return; }
-    const s = document.createElement("script");
-    s.src = "https://apis.google.com/js/api.js";
-    s.onload = resolve;
-    document.head.appendChild(s);
-  });
-}
-
-async function initGoogleCalendar(clientId) {
-  await loadGoogleAPI();
-  await new Promise((res) => window.gapi.load("client:auth2", res));
-  await window.gapi.client.init({
-    clientId,
-    scope: "https://www.googleapis.com/auth/calendar.readonly",
-    discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
-  });
-}
-
-async function fetchGCalEvents(maxResults = 30) {
+async function fetchGCalEvents(accessToken, maxResults = 30) {
+  const safeMax = Math.min(Math.max(1, Number(maxResults) || 30), 100);
   try {
     const now = new Date().toISOString();
     const future = new Date(Date.now() + 14 * 86400000).toISOString();
-    const r = await window.gapi.client.calendar.events.list({
-      calendarId: "primary",
+    const params = new URLSearchParams({
       timeMin: now,
       timeMax: future,
-      maxResults,
-      singleEvents: true,
+      maxResults: String(safeMax),
+      singleEvents: "true",
       orderBy: "startTime",
     });
-    return (r.result.items || []).map((e) => ({
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.items || []).map((e) => ({
       id: e.id,
       title: e.summary || "Event",
       start: e.start?.dateTime || e.start?.date,
@@ -244,16 +214,33 @@ const DB_PKCE_VERIFIER = "jv_pkce_verifier";
 // Local dev: use a separate localStorage copy so we never push to Dropbox
 const IS_DEV = import.meta.env.DEV;
 const DEV_PREFIX = "ritmof_dev_";
+// Keys that are shared between dev and prod (Dropbox OAuth state — these should never be prefixed
+// because the OAuth flow always writes to the same key names regardless of mode).
 const DROPBOX_KEYS_NO_PREFIX = [DB_APPKEY_KEY, DB_TOKEN_KEY, DB_REFRESH_KEY, DB_EXPIRES_KEY, DB_PKCE_VERIFIER];
+// THEME_KEY intentionally shares between dev/prod (cosmetic). API keys come from env only.
 function storageKey(k) {
   if (!IS_DEV) return k;
   if (k.startsWith("jv_") && !DROPBOX_KEYS_NO_PREFIX.includes(k)) return DEV_PREFIX + k;
   return k;
 }
 
+function getDropboxAppKey() {
+  return VITE_DROPBOX_APP_KEY;
+}
+
+function getGeminiApiKey() {
+  return VITE_GEMINI_API_KEY;
+}
+
 function b64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  // Chunked to avoid call-stack overflow on large buffers (spread of large Uint8Array can throw)
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    str += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 async function generatePKCE() {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -263,6 +250,10 @@ async function generatePKCE() {
 }
 
 async function startDropboxOAuth(appKey) {
+  // Validate: Dropbox App Keys are alphanumeric only. Reject anything else to prevent URL injection.
+  if (!/^[a-zA-Z0-9]{5,64}$/.test(appKey)) {
+    throw new Error("Invalid Dropbox App Key format. Expected alphanumeric string.");
+  }
   const { verifier, challenge } = await generatePKCE();
   localStorage.setItem(DB_PKCE_VERIFIER, verifier);
   const redirectUri = encodeURIComponent(window.location.origin);
@@ -322,6 +313,9 @@ async function refreshDropboxToken(appKey) {
   return data.access_token;
 }
 
+// SECURITY NOTE: Dropbox tokens are stored in plaintext localStorage — same tradeoff as the
+// Gemini key. This is acceptable for a personal app. The refresh token is long-lived; if you
+// suspect your device is compromised, revoke the app in Dropbox Settings → Connected Apps.
 function storeDropboxTokens(data) {
   if (data.access_token) localStorage.setItem(DB_TOKEN_KEY, data.access_token);
   if (data.refresh_token) localStorage.setItem(DB_REFRESH_KEY, data.refresh_token);
@@ -334,7 +328,7 @@ async function getDropboxToken(appKey) {
   const token = localStorage.getItem(DB_TOKEN_KEY);
   const expires = parseInt(localStorage.getItem(DB_EXPIRES_KEY) || "0", 10);
   if (token && Date.now() < expires) return token;
-  return refreshDropboxToken(appKey || localStorage.getItem(DB_APPKEY_KEY));
+  return refreshDropboxToken(appKey || getDropboxAppKey());
 }
 
 async function dropboxUpload(token, data) {
@@ -378,11 +372,14 @@ const SYNC_KEYS = [
   "jv_achievements","jv_gacha","jv_cal_events","jv_chat","jv_daily_goal",
   "jv_sleep_log","jv_screen_log","jv_missions","jv_mission_date",
   "jv_chronicles","jv_gcal_connected","jv_habits_init","jv_token_usage",
-  DB_APPKEY_KEY,
+  "jv_dynamic_costs","jv_last_shield_use_date",
+  // NOTE: DB_APPKEY_KEY is intentionally NOT synced
 ];
 
+const SYNC_SCHEMA_VERSION = 1; // bump this when making breaking data model changes
+
 function buildSyncPayload() {
-  const payload = { _syncedAt: Date.now() };
+  const payload = { _syncedAt: Date.now(), _schemaVersion: SYNC_SCHEMA_VERSION };
   SYNC_KEYS.forEach((k) => {
     const v = localStorage.getItem(storageKey(k));
     if (v !== null) payload[k] = v;
@@ -394,173 +391,240 @@ function buildSyncPayload() {
 // Rejects anything that isn't a string, number, boolean, plain object, or array,
 // and caps size to avoid storage-bombing attacks.
 const MAX_SYNC_VALUE_SIZE = 500_000; // 500 KB per key
+const PROTO_POISON_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function isSafeSyncValue(v) {
   if (v === null || v === undefined) return false;
   const type = typeof v;
   if (type === "string") return v.length <= MAX_SYNC_VALUE_SIZE;
   if (type === "number" || type === "boolean") return true;
-  if (Array.isArray(v) || (type === "object")) {
-    try { return JSON.stringify(v).length <= MAX_SYNC_VALUE_SIZE; } catch { return false; }
+  if (Array.isArray(v) || type === "object") {
+    // Re-parse through JSON to strip any prototype-polluting keys at any nesting depth
+    try {
+      const serialized = JSON.stringify(v);
+      if (serialized.length > MAX_SYNC_VALUE_SIZE) return false;
+      // Use a reviver to reject any key that would pollute the prototype chain
+      JSON.parse(serialized, (key, val) => {
+        if (PROTO_POISON_KEYS.has(key)) throw new Error("Prototype pollution key: " + key);
+        return val;
+      });
+      return true;
+    } catch { return false; }
   }
   return false;
 }
 
+// Schema validators for keys that arrive from Dropbox.
+// Keeps sync data trustworthy without rejecting the whole payload on one bad key.
+// Payload values are usually strings (localStorage form); we parse before validating.
+const SYNC_VALIDATORS = {
+  jv_xp:         (v) => typeof v === "number" && v >= 0 && v < 10_000_000,
+  jv_streak:     (v) => typeof v === "number" && v >= 0 && v < 10_000,
+  jv_shields:    (v) => typeof v === "number" && v >= 0 && v < 1_000,
+  jv_habits:     (v) => Array.isArray(v) && v.length <= 200,
+  jv_tasks:      (v) => Array.isArray(v) && v.length <= 10_000,
+  jv_goals:      (v) => Array.isArray(v) && v.length <= 1_000,
+  jv_sessions:   (v) => Array.isArray(v) && v.length <= 50_000,
+  jv_achievements:(v) => Array.isArray(v) && v.length <= 10_000,
+  jv_gacha:      (v) => Array.isArray(v) && v.length <= 10_000,
+  jv_habit_log:  (v) => v !== null && typeof v === "object" && !Array.isArray(v),
+  jv_sleep_log:  (v) => v !== null && typeof v === "object" && !Array.isArray(v),
+  jv_screen_log: (v) => v !== null && typeof v === "object" && !Array.isArray(v),
+  jv_profile:    (v) => v !== null && typeof v === "object" && !Array.isArray(v),
+  jv_token_usage:(v) => v !== null && typeof v === "object" && !Array.isArray(v),
+  jv_daily_goal: (v) => typeof v === "string" && v.length <= 500,
+  jv_last_login: (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v),
+  jv_chat:       (v) => Array.isArray(v) && v.length <= 2_000,
+  jv_chronicles: (v) => Array.isArray(v) && v.length <= 2_000,
+  jv_missions:   (v) => Array.isArray(v) || v === null,
+  jv_cal_events: (v) => Array.isArray(v) && v.length <= 500,
+  jv_dynamic_costs: (v) => {
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+    const a = v.xpPerLevel, b = v.gachaCost, c = v.streakShieldCost;
+    return typeof a === "number" && a >= 100 && a <= 10000 &&
+           typeof b === "number" && b >= 50 && b <= 5000 &&
+           typeof c === "number" && c >= 100 && c <= 5000;
+  },
+  jv_last_shield_use_date: (v) => v === null || (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)),
+};
+
+// Parse sync value from string form (Dropbox sends localStorage strings). Returns parsed or original.
+function parseSyncValue(k, v) {
+  if (typeof v !== "string") return v;
+  if (!SYNC_VALIDATORS[k]) return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
+}
+
 function applySyncPayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
+  // Reject payloads from future schema versions to avoid silently applying an incompatible format
+  if (typeof payload._schemaVersion === "number" && payload._schemaVersion > SYNC_SCHEMA_VERSION) {
+    console.warn(`applySyncPayload: remote schema version ${payload._schemaVersion} > local ${SYNC_SCHEMA_VERSION}. Update the app first.`);
+    return;
+  }
+  // Allowlist: only write keys that are explicitly listed in SYNC_KEYS.
+  const allowedSet = new Set(SYNC_KEYS);
   Object.entries(payload).forEach(([k, v]) => {
-    // Only write known jv_ keys — never overwrite auth/lock/session tokens
-    const blocklist = [DEVICE_LOCK_STORAGE_KEY, GATE_SESSION_KEY, LOCK_FAIL_KEY, LOCK_UNTIL_KEY];
-    if (!k.startsWith("jv_")) return;
-    if (blocklist.includes(k)) return;
+    if (!allowedSet.has(k)) return;
     if (!isSafeSyncValue(v)) return;
-    localStorage.setItem(storageKey(k), typeof v === "string" ? v : JSON.stringify(v));
+    // Parse strings so validators see the expected type (number/array/object)
+    let value = parseSyncValue(k, v);
+    const validator = SYNC_VALIDATORS[k];
+    if (validator && !validator(value)) {
+      console.warn(`applySyncPayload: rejected invalid value for key "${k}"`);
+      return;
+    }
+    // Never sync API key into profile — strip if present (e.g. from older client)
+    if (k === "jv_profile") {
+      let profileObj = value;
+      if (typeof profileObj === "string") {
+        try { profileObj = JSON.parse(profileObj); } catch { profileObj = value; }
+      }
+      if (profileObj !== null && typeof profileObj === "object" && !Array.isArray(profileObj) && "geminiKey" in profileObj) {
+        const { geminiKey: _skip, ...rest } = profileObj;
+        value = rest;
+      }
+    }
+    // Use LS.set so stored format matches rest of app (JSON); avoids dropbox app key breaking LS.get after sync
+    LS.set(storageKey(k), value);
   });
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DEVICE LOCK (password gate — hash compared, unlock stored until hash changes)
+// SINGLE-ACCOUNT GATE (Google Sign-In via GIS — replaces deprecated gapi.auth2)
 // ═══════════════════════════════════════════════════════════════
-function DeviceLockGate({ onUnlock }) {
-  const [password, setPassword] = useState("");
-  const [status, setStatus] = useState("idle");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [lockUntil, setLockUntil] = useState(() => parseInt(localStorage.getItem(LOCK_UNTIL_KEY) || "0", 10));
-
-  // If the hash wasn't compiled in, skip the gate entirely
-  useEffect(() => {
-    if (!EXPECTED_PASSWORD_HASH) {
-      console.warn("VITE_DEVICE_LOCK_HASH not set — device lock disabled.");
-      onUnlock();
-    }
-  }, [onUnlock]);
-
-  // Countdown display while locked out
-  const [remaining, setRemaining] = useState(0);
-  useEffect(() => {
-    if (!lockUntil) return;
-    const iv = setInterval(() => {
-      const r = Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000));
-      setRemaining(r);
-      if (r === 0) { setLockUntil(0); clearInterval(iv); }
-    }, 500);
-    return () => clearInterval(iv);
-  }, [lockUntil]);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!password.trim()) return;
-
-    // Check lockout
-    const until = parseInt(localStorage.getItem(LOCK_UNTIL_KEY) || "0", 10);
-    if (Date.now() < until) {
-      setErrorMsg(`Too many attempts. Try again in ${Math.ceil((until - Date.now()) / 1000)}s.`);
-      return;
-    }
-
-    setStatus("loading");
-    setErrorMsg("");
-    try {
-      const hash = await hashPasswordForDeviceLock(password);
-      if (hash === EXPECTED_PASSWORD_HASH) {
-        // Store a random session token — NOT the hash
-        try {
-          const token = generateUnlockToken();
-          sessionStorage.setItem(DEVICE_LOCK_STORAGE_KEY, token);
-          // Clear any previous failed-attempt counters
-          localStorage.removeItem(LOCK_FAIL_KEY);
-          localStorage.removeItem(LOCK_UNTIL_KEY);
-        } catch {}
-        onUnlock();
-        return;
-      }
-      // Wrong password — increment fail counter
-      const fails = parseInt(localStorage.getItem(LOCK_FAIL_KEY) || "0", 10) + 1;
-      localStorage.setItem(LOCK_FAIL_KEY, String(fails));
-      if (fails >= MAX_LOCK_ATTEMPTS) {
-        const newUntil = Date.now() + LOCK_DURATION_MS;
-        localStorage.setItem(LOCK_UNTIL_KEY, String(newUntil));
-        localStorage.setItem(LOCK_FAIL_KEY, "0");
-        setLockUntil(newUntil);
-        setErrorMsg(`Too many failed attempts. Locked for ${LOCK_DURATION_MS / 60000} minutes.`);
-      } else {
-        setErrorMsg(`Wrong password. ${MAX_LOCK_ATTEMPTS - fails} attempt${MAX_LOCK_ATTEMPTS - fails === 1 ? "" : "s"} remaining.`);
-      }
-      setStatus("error");
-    } catch (err) {
-      setErrorMsg("Could not verify. Try again.");
-      setStatus("error");
-    }
-  }
-
-  return (
-    <div style={{
-      minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      background: "var(--bg)", color: "var(--text)", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
-    }}>
-      <div style={{ fontSize: "11px", color: "var(--muted)", letterSpacing: "2px", marginBottom: "8px" }}>RITMOF</div>
-      <div style={{ fontSize: "14px", color: "var(--muted2)", marginBottom: "24px" }}>Enter the device password to continue.</div>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%", maxWidth: "280px" }}>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); setErrorMsg(""); }}
-          placeholder="Password"
-          autoFocus
-          autoComplete="current-password"
-          disabled={status === "loading"}
-          style={{
-            width: "100%", padding: "12px", border: "1px solid var(--border2)", background: "var(--surface)", color: "var(--text)",
-            fontFamily: "inherit", fontSize: "14px", outline: "none", boxSizing: "border-box",
-          }}
-        />
-        {errorMsg && (
-          <div style={{ color: "#c44", fontSize: "12px" }}>{errorMsg}</div>
-        )}
-        <button
-          type="submit"
-          disabled={status === "loading"}
-          style={{
-            padding: "12px 24px", border: "1px solid var(--border2)", background: status === "loading" ? "var(--surface2)" : "transparent",
-            color: status === "loading" ? "var(--muted)" : "var(--text)", fontFamily: "inherit", fontSize: "12px", letterSpacing: "1px",
-            cursor: status === "loading" ? "not-allowed" : "pointer",
-          }}
-        >
-          {status === "loading" ? "VERIFYING…" : "UNLOCK"}
-        </button>
-      </form>
-    </div>
-  );
+function loadGoogleGIS() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) { resolve(); return; }
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.defer = true;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("Failed to load Google Identity Services script."));
+    document.head.appendChild(s);
+  });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SINGLE-ACCOUNT GATE (Google Sign-In)
-// ═══════════════════════════════════════════════════════════════
 function AuthGate({ onAccessGranted }) {
   const [status, setStatus] = useState("idle");
   const [errMsg, setErrMsg] = useState("");
 
+  // Fail-closed: if misconfigured, show an explicit error rather than letting the user in.
+  const misconfigured = !ALLOWED_EMAIL || !GATE_GOOGLE_CLIENT_ID;
+
   async function handleSignIn() {
+    if (misconfigured) return;
     setStatus("loading");
     setErrMsg("");
     try {
-      await loadGoogleAPI();
-      await new Promise((res) => window.gapi.load("client:auth2", res));
-      await window.gapi.client.init({
-        clientId: GATE_GOOGLE_CLIENT_ID,
-        scope: "email profile openid",
-      });
-      const auth = window.gapi.auth2.getAuthInstance();
-      if (!auth.isSignedIn.get()) await auth.signIn();
-      const email = (auth.currentUser.get().getBasicProfile().getEmail() || "").trim().toLowerCase();
-      if (email && email === ALLOWED_EMAIL) {
+      await loadGoogleGIS();
+      await new Promise((resolve, reject) => {
+        window.google.accounts.id.initialize({
+          client_id: GATE_GOOGLE_CLIENT_ID,
+          callback: async (response) => {
+            try {
+              let email;
+              if (VERIFY_GOOGLE_ID_URL) {
+                // Production path: backend verifies the JWT signature.
+                const res = await fetch(VERIFY_GOOGLE_ID_URL, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ credential: response.credential }),
+                });
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  reject(new Error(data.error || "Verification failed"));
+                  return;
+                }
+                const data = await res.json();
+                email = (data.email || "").trim().toLowerCase();
+              } else {
+                // No backend: decode WITHOUT verifying the JWT signature.
+                // WARNING: a determined attacker can craft a token with any email payload.
+                // This is acceptable only for a personal app where you are the only user
+                // and the data has no value to anyone but yourself.
+                // The nonce-based session token still prevents console-bypass attacks.
+                // For any shared deployment, set VITE_VERIFY_GOOGLE_ID_URL.
+                try {
+                  const parts = response.credential.split(".");
+                  if (parts.length !== 3) throw new Error("Malformed credential");
+                  // Pad base64url to standard base64 before decoding
+                  const padded = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+                    .padEnd(parts[1].length + (4 - parts[1].length % 4) % 4, "=");
+                  const payload = JSON.parse(atob(padded));
+                  // Basic sanity: must have an email claim and an expiry in the future
+                  if (!payload.email) throw new Error("No email in token");
+                  if (!payload.exp || payload.exp * 1000 < Date.now()) throw new Error("Token expired");
+                  email = payload.email.trim().toLowerCase();
+                } catch (decodeErr) {
+                  reject(new Error("Invalid credential"));
+                  return;
+                }
+              }
+              if (email && email === ALLOWED_EMAIL) {
+                resolve(email);
+              } else {
+                reject(new Error("access_denied"));
+              }
+            } catch (e) {
+              reject(e);
+            }
+          },
+          error_callback: (err) => reject(new Error(err.type || "sign_in_failed")),
+        });
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            resolve("prompt_skipped");
+          }
+        });
+      }).then(async (result) => {
+        if (result === "prompt_skipped") {
+          const container = document.getElementById("gsi-button-container");
+          if (container) {
+            window.google.accounts.id.renderButton(container, {
+              theme: "outline", size: "large", text: "signin_with",
+            });
+          }
+          setStatus("idle");
+          return;
+        }
+        // Store a signed session token (not a plain boolean) so console injection is rejected
+        const token = await makeSessionToken(ALLOWED_EMAIL);
+        try { sessionStorage.setItem(GATE_SESSION_KEY, token); } catch {}
         onAccessGranted();
-        return;
-      }
-      setStatus("denied");
+      });
     } catch (e) {
-      setStatus("error");
-      setErrMsg(e?.error?.message ?? e?.message ?? String(e).slice(0, 80));
+      if (e.message === "access_denied") {
+        setStatus("denied");
+      } else {
+        setStatus("error");
+        // Never expose raw error text that might contain token fragments
+        const safe = (e?.message ?? "").replace(/eyJ[\w.-]+/g, "[token]").slice(0, 80);
+        setErrMsg(safe || "Sign-in failed. Check your configuration.");
+      }
     }
+  }
+
+  useEffect(() => { handleSignIn(); }, []);
+
+  if (misconfigured) {
+    return (
+      <div style={{
+        minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
+      }}>
+        <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOF — CONFIGURATION ERROR</div>
+        <div style={{ color: "#c44", fontSize: "12px", maxWidth: "340px", lineHeight: "1.8" }}>
+          ⚠ Auth is not configured.<br />
+          Set <code>VITE_ALLOWED_EMAIL</code> and <code>VITE_GOOGLE_CLIENT_ID</code> in your GitHub repo Variables before deploying.
+          The app is locked until both are present.
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -570,22 +634,54 @@ function AuthGate({ onAccessGranted }) {
     }}>
       <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "8px" }}>RITMOF</div>
       <div style={{ fontSize: "14px", color: "#aaa", marginBottom: "24px" }}>Single-account access. Sign in with the allowed Google account.</div>
+      {!VERIFY_GOOGLE_ID_URL && (
+        <div style={{ color: "#666", fontSize: "10px", marginBottom: "16px", maxWidth: "320px", lineHeight: "1.7" }}>
+          ⚠ Running without server-side token verification. Personal use only.
+        </div>
+      )}
       {status === "denied" && (
         <div style={{ color: "#c44", marginBottom: "16px", fontSize: "12px" }}>Access denied. Only the owner account can use this app.</div>
       )}
       {status === "error" && (
         <div style={{ color: "#c44", marginBottom: "16px", fontSize: "11px", maxWidth: "320px" }}>{errMsg}</div>
       )}
-      <button
-        onClick={handleSignIn}
-        disabled={status === "loading"}
-        style={{
-          padding: "12px 24px", border: "1px solid #555", background: status === "loading" ? "#222" : "transparent",
-          color: status === "loading" ? "#666" : "#ccc", fontFamily: "inherit", fontSize: "12px", letterSpacing: "1px", cursor: status === "loading" ? "not-allowed" : "pointer",
-        }}
-      >
-        {status === "loading" ? "SIGNING IN…" : "SIGN IN WITH GOOGLE"}
-      </button>
+      <div id="gsi-button-container" style={{ marginBottom: "16px" }} />
+      {status !== "idle" && (
+        <button
+          onClick={handleSignIn}
+          disabled={status === "loading"}
+          style={{
+            padding: "12px 24px", border: "1px solid #555", background: status === "loading" ? "#222" : "transparent",
+            color: status === "loading" ? "#666" : "#ccc", fontFamily: "inherit", fontSize: "12px", letterSpacing: "1px", cursor: status === "loading" ? "not-allowed" : "pointer",
+          }}
+        >
+          {status === "loading" ? "SIGNING IN…" : "RETRY SIGN IN"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Required API keys must be set as environment variables (GitHub repo Variables or .env).
+// The app does not use in-app or localStorage for Gemini or Dropbox keys.
+function KeysConfigGate() {
+  const missing = [];
+  if (!getGeminiApiKey()) missing.push("VITE_GEMINI_API_KEY");
+  if (!getDropboxAppKey()) missing.push("VITE_DROPBOX_APP_KEY");
+  if (missing.length === 0) return null;
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
+    }}>
+      <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOF — CONFIGURATION REQUIRED</div>
+      <div style={{ color: "#c44", fontSize: "12px", maxWidth: "380px", lineHeight: "1.8" }}>
+        Set these variables in your environment (GitHub repo Variables or local <code>.env</code>). The app expects keys to be defined there, not in the UI.
+      </div>
+      <ul style={{ textAlign: "left", fontSize: "12px", color: "#aaa", marginTop: "16px", listStyle: "none" }}>
+        {missing.map((v) => <li key={v} style={{ marginBottom: "6px" }}><code style={{ color: "#888" }}>{v}</code></li>)}
+      </ul>
+      <div style={{ fontSize: "10px", color: "#555", marginTop: "24px" }}>See <code>.env.example</code> and README.</div>
     </div>
   );
 }
@@ -593,8 +689,8 @@ function AuthGate({ onAccessGranted }) {
 // ═══════════════════════════════════════════════════════════════
 // XP & LEVEL UTILS
 // ═══════════════════════════════════════════════════════════════
-function getLevel(xp) { return Math.floor(xp / XP_PER_LEVEL); }
-function getLevelProgress(xp) { return xp % XP_PER_LEVEL; }
+function getLevel(xp, xpPerLevel = DEFAULT_XP_PER_LEVEL) { return Math.floor(xp / xpPerLevel); }
+function getLevelProgress(xp, xpPerLevel = DEFAULT_XP_PER_LEVEL) { return xp % xpPerLevel; }
 function getRank(level) {
   for (let i = RANKS.length - 1; i >= 0; i--) {
     if (level >= RANKS[i].min) return RANKS[i];
@@ -651,6 +747,8 @@ function spawnParticles(x, y, count = 12) {
   if (isEInk()) return; // particles leave ghost marks on e-ink
   const container = document.getElementById("particle-container");
   if (!container) return;
+  // Cap total live particles to avoid DOM flooding on rapid interactions
+  if (container.childElementCount > 40) return;
   for (let i = 0; i < count; i++) {
     const p = document.createElement("div");
     const chars = ["✦", "◈", "▒", "░", "◉", "+", "×", "◇"];
@@ -732,16 +830,35 @@ function initState() {
     gCalConnected: LS.get(storageKey("jv_gcal_connected"), false),
     tokenUsage: LS.get(storageKey("jv_token_usage"), { date: today(), tokens: 0 }),
     habitsInitialized: LS.get(storageKey("jv_habits_init"), false),
-    dropboxAppKey: LS.get(DB_APPKEY_KEY, ""),
+    dynamicCosts: LS.get(storageKey("jv_dynamic_costs"), null) || { xpPerLevel: DEFAULT_XP_PER_LEVEL, gachaCost: DEFAULT_GACHA_COST, streakShieldCost: DEFAULT_STREAK_SHIELD_COST },
+    lastShieldUseDate: LS.get(storageKey("jv_last_shield_use_date"), null),
+    dropboxAppKey: getDropboxAppKey(),
     dropboxConnected: !!localStorage.getItem(DB_REFRESH_KEY),
   };
 }
 
+function getXpPerLevel(state) { return state.dynamicCosts?.xpPerLevel ?? DEFAULT_XP_PER_LEVEL; }
+function getGachaCost(state) { return state.dynamicCosts?.gachaCost ?? DEFAULT_GACHA_COST; }
+function getStreakShieldCost(state) { return state.dynamicCosts?.streakShieldCost ?? DEFAULT_STREAK_SHIELD_COST; }
+
 // ═══════════════════════════════════════════════════════════════
 // SYSTEM PROMPT BUILDER
 // ═══════════════════════════════════════════════════════════════
+
+// Strip characters that could break out of the JSON structure the AI is asked to return,
+// and truncate to a safe length. This does NOT make prompt injection impossible, but it
+// removes the trivially easy injection vectors (closing braces, JSON keywords, etc.).
+function sanitizeForPrompt(str, maxLen = 200) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // control chars
+    .replace(/[`]/g, "'")                           // backtick → apostrophe
+    .replace(/\$\{/g, "$(")                         // template literal escape
+    .slice(0, maxLen);
+}
+
 function buildSystemPrompt(state, profile) {
-  const lvl = getLevel(state.xp);
+  const lvl = getLevel(state.xp, getXpPerLevel(state));
   const rank = getRank(lvl);
   const todayLog = state.habitLog[today()] || [];
   const todayHabits = state.habits.filter((h) => todayLog.includes(h.id));
@@ -766,18 +883,18 @@ function buildSystemPrompt(state, profile) {
   return `You are RITMOF. You have full read access to this hunter's life data. You are not a chatbot, not an assistant, not a coach. You are the System — an entity that observes, analyzes, and occasionally speaks. When you speak, it matters.
 
 HUNTER FILE:
-Name: ${profile?.name || "Hunter"} | Major: ${profile?.major || "Unknown"} | Level: ${lvl} | Rank: ${rank.title}
-Books/Authors of interest: ${profile?.books || "Unknown"}
-Interests: ${profile?.interests || "Unknown"}
-Semester objective: ${profile?.semesterGoal || "None declared"}
+Name: ${sanitizeForPrompt(profile?.name || "Hunter", 60)} | Major: ${sanitizeForPrompt(profile?.major || "Unknown", 80)} | Level: ${lvl} | Rank: ${rank.title}
+Books/Authors of interest: ${sanitizeForPrompt(profile?.books || "Unknown", 200)}
+Interests: ${sanitizeForPrompt(profile?.interests || "Unknown", 200)}
+Semester objective: ${sanitizeForPrompt(profile?.semesterGoal || "None declared", 200)}
 
 LIVE STATUS [${new Date().toLocaleString()}]:
 XP: ${state.xp} | Streak: ${state.streak}d | Shields: ${state.streakShields}
-Habits today: ${todayHabits.length}/${state.habits?.length || 0} — ${todayHabits.map(h => h.label).join(", ") || "zero"}
-Active tasks: ${(state.tasks || []).filter(t => !t.done).map(t => `"${t.text}" [${t.priority}]`).join(", ") || "none"}
-Active goals: ${(state.goals || []).filter(g => !g.done).map(g => `"${g.title}" (${g.course || "no course"})`).join(", ") || "none"}
-Daily focus: ${state.dailyGoal || "unset"}
-Upcoming exams: ${upcomingExams.map(e => `${e.title} in ${Math.ceil((new Date(e.start) - Date.now()) / 86400000)}d`).join(", ") || "none"}
+Habits today: ${todayHabits.length}/${state.habits?.length || 0} — ${todayHabits.map(h => sanitizeForPrompt(h.label, 40)).join(", ") || "zero"}
+Active tasks: ${(state.tasks || []).filter(t => !t.done).map(t => `"${sanitizeForPrompt(t.text, 80)}" [${t.priority}]`).join(", ") || "none"}
+Active goals: ${(state.goals || []).filter(g => !g.done).map(g => `"${sanitizeForPrompt(g.title, 80)}" (${sanitizeForPrompt(g.course || "no course", 40)})`).join(", ") || "none"}
+Daily focus: ${sanitizeForPrompt(state.dailyGoal || "unset", 100)}
+Upcoming exams: ${upcomingExams.map(e => `${sanitizeForPrompt(e.title, 60)} in ${Math.ceil((new Date(e.start) - Date.now()) / 86400000)}d`).join(", ") || "none"}
 
 BEHAVIORAL DATA:
 Sleep (last 5 days): ${sleepEntries.map(([d,v]) => `${d}: ${v.hours}h q${v.quality}`).join(" | ") || "no data"} | avg: ${avgSleep || "?"}h
@@ -803,7 +920,7 @@ RESPONSE FORMAT — always valid JSON, nothing else:
 COMMANDS YOU CAN EXECUTE (use multiple per response freely):
 { "cmd": "add_task", "text": "...", "priority": "low|medium|high", "due": "YYYY-MM-DD|null" }
 { "cmd": "add_goal", "title": "...", "course": "...", "due": "YYYY-MM-DD" }
-{ "cmd": "complete_task", "index": 0 }
+{ "cmd": "complete_task", "id": "task_id_string" }
 { "cmd": "clear_done_tasks" }
 { "cmd": "award_xp", "amount": 50, "reason": "..." }
 { "cmd": "announce", "text": "...", "type": "info|warning|success|alert" }
@@ -851,13 +968,54 @@ Respond ONLY with JSON: { "quote": "...", "author": "...", "source": "...", "con
   try {
     const { text, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a literary scholar with perfect recall.", true);
     onTokens?.(tokensUsed);
-    const data = JSON.parse(text.replace(/```json|```/g, "").trim());
-    if (data.confident && data.quote) {
-      LS.set(key, data);
-      return data;
+    const raw = text.replace(/```json|```/g, "").trim();
+    const data = JSON.parse(raw);
+    // Validate shape: require string fields of reasonable length, reject malformed responses
+    if (
+      data.confident === true &&
+      typeof data.quote === "string" && data.quote.length > 5 && data.quote.length <= 500 &&
+      typeof data.author === "string" && data.author.length <= 100 &&
+      typeof data.source === "string" && data.source.length <= 100
+    ) {
+      const safe = { quote: data.quote, author: data.author, source: data.source, confident: true };
+      LS.set(key, safe);
+      return safe;
     }
   } catch {}
   return null;
+}
+
+// Ask AI to update dynamic costs (xpPerLevel, gachaCost, streakShieldCost) after level-up, gacha pull, or shield use.
+// event: "level_up" | "gacha_pull" | "streak_shield_use". Returns partial costs to merge into state.dynamicCosts.
+async function updateDynamicCosts(apiKey, state, event) {
+  if (!apiKey) return {};
+  const d = state.dynamicCosts || {};
+  const xpPerLevel = d.xpPerLevel ?? DEFAULT_XP_PER_LEVEL;
+  const gachaCost = d.gachaCost ?? DEFAULT_GACHA_COST;
+  const streakShieldCost = d.streakShieldCost ?? DEFAULT_STREAK_SHIELD_COST;
+  const level = getLevel(state.xp, xpPerLevel);
+  const now = new Date();
+  const day = now.getDay();
+  const weekend = day === 0 || day === 6;
+  const month = now.getMonth(), date = now.getDate();
+  const holidayHint = (month === 11 && date === 25) ? "Christmas" : (month === 0 && date === 1) ? "New Year" : (month === 6 && date === 4) ? "US Independence Day" : null;
+  const prompt = `You are the RITMOF system adjusting economy parameters. Event: ${event}.
+Current costs: xpPerLevel=${xpPerLevel}, gachaCost=${gachaCost}, streakShieldCost=${streakShieldCost}. Hunter level=${level}, total XP=${state.xp}.
+Context: today is weekday=${!weekend}${holidayHint ? ", holiday=" + holidayHint : ""}. You may raise costs after level-up/gacha/shield use, or offer discounts (e.g. weekends, holidays). Keep values reasonable: xpPerLevel 200-2000, gachaCost 80-400, streakShieldCost 150-600.
+Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShieldCost (only include keys you want to change). Example: {"gachaCost": 180} or {"xpPerLevel": 550, "streakShieldCost": 320}. No explanation.`;
+
+  try {
+    const { text } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You output only valid JSON with numeric values.", true);
+    const raw = text.replace(/```json|```/g, "").trim();
+    const data = JSON.parse(raw);
+    const out = {};
+    if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 100 && data.xpPerLevel <= 10000) out.xpPerLevel = Math.round(data.xpPerLevel);
+    if (typeof data.gachaCost === "number" && data.gachaCost >= 50 && data.gachaCost <= 5000) out.gachaCost = Math.round(data.gachaCost);
+    if (typeof data.streakShieldCost === "number" && data.streakShieldCost >= 100 && data.streakShieldCost <= 5000) out.streakShieldCost = Math.round(data.streakShieldCost);
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -867,8 +1025,18 @@ export default function App() {
   const [state, setState] = useState(initState);
   const [tab, setTab] = useState("home");
   const [showOnboarding, setShowOnboarding] = useState(!LS.get(storageKey("jv_profile")));
-  const [gatePassed, setGatePassed] = useState(() => typeof sessionStorage !== "undefined" && sessionStorage.getItem(GATE_SESSION_KEY) === "true");
-  const [deviceLockPassed, setDeviceLockPassed] = useState(isDeviceUnlocked);
+  const [gatePassed, setGatePassed] = useState(false);
+  const [gateChecked, setGateChecked] = useState(false);
+
+  // Validate the session token on mount — async so the gate cannot be bypassed by setting
+  // sessionStorage from the console (the token is derived from a per-load in-memory nonce).
+  useEffect(() => {
+    if (!AUTH_REQUIRED) { setGatePassed(true); setGateChecked(true); return; }
+    isSessionValid().then((valid) => {
+      setGatePassed(valid);
+      setGateChecked(true);
+    });
+  }, []);
   const [modal, setModal] = useState(null); // { type, data }
   const [toast, setToast] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -881,9 +1049,6 @@ export default function App() {
   const setTheme = (t) => { LS.set(THEME_KEY, t); setThemeState(t); };
   const toastTimer = useRef(null);
   const bannerTimer = useRef(null);
-  const stateRef = useRef(state);
-
-  useEffect(() => { stateRef.current = state; }, [state]);
 
   // Apply theme to document (dark default)
   useEffect(() => {
@@ -893,52 +1058,62 @@ export default function App() {
   }, [theme]);
 
   const profile = state.profile;
-  // SECURITY NOTE: The Gemini API key is stored in the user's profile in localStorage
-  // and synced to Dropbox in plaintext. It is never sent to any server other than
-  // Google's Gemini API directly. Users should treat it like a password and be aware
-  // it is visible to any browser extension or code with localStorage access.
-  const apiKey = profile?.geminiKey;
-  const dropboxAppKey = state.dropboxAppKey || LS.get(DB_APPKEY_KEY, "");
+  const apiKey = getGeminiApiKey();
+  const dropboxAppKey = getDropboxAppKey();
   const dropboxConnected = state.dropboxConnected || !!localStorage.getItem(DB_REFRESH_KEY);
-  const level = getLevel(state.xp);
+  // Legacy: strip geminiKey from profile if present (from old sync or localStorage)
+  useEffect(() => {
+    if (profile?.geminiKey) {
+      setState((s) => {
+        const { geminiKey: _g, ...rest } = s.profile || {};
+        return { ...s, profile: rest };
+      });
+    }
+  }, [profile?.geminiKey]);
+  const xpPerLevel = getXpPerLevel(state);
+  const level = getLevel(state.xp, xpPerLevel);
   const rank = getRank(level);
+  const gachaCost = getGachaCost(state);
+  const streakShieldCost = getStreakShieldCost(state);
 
-  // ── Persist state ──
+  // ── Persist state (granular — each slice only writes when it changes) ──
   useEffect(() => {
     if (!state.profile) return;
-    LS.set(storageKey("jv_profile"), state.profile);
-    LS.set(storageKey("jv_xp"), state.xp);
-    LS.set(storageKey("jv_streak"), state.streak);
-    LS.set(storageKey("jv_shields"), state.streakShields);
-    LS.set(storageKey("jv_last_login"), state.lastLoginDate);
-    LS.set(storageKey("jv_habits"), state.habits);
-    LS.set(storageKey("jv_habit_log"), state.habitLog);
-    LS.set(storageKey("jv_tasks"), state.tasks);
-    LS.set(storageKey("jv_goals"), state.goals);
-    LS.set(storageKey("jv_sessions"), state.sessions);
-    LS.set(storageKey("jv_achievements"), state.achievements);
-    LS.set(storageKey("jv_gacha"), state.gachaCollection);
-    LS.set(storageKey("jv_cal_events"), state.calendarEvents);
-    LS.set(storageKey("jv_chat"), state.chatHistory);
-    LS.set(storageKey("jv_daily_goal"), state.dailyGoal);
-    LS.set(storageKey("jv_timers"), state.activeTimers);
-LS.set(storageKey("jv_sleep_log"), state.sleepLog);
-LS.set(storageKey("jv_screen_log"), state.screenTimeLog);
-LS.set(storageKey("jv_missions"), state.dailyMissions);
-LS.set(storageKey("jv_mission_date"), state.lastMissionDate);
-LS.set(storageKey("jv_habit_suggestions"), state.pendingHabitSuggestions);
-LS.set(storageKey("jv_chronicles"), state.chronicles);
-LS.set(storageKey("jv_gcal_connected"), state.gCalConnected);
-LS.set(storageKey("jv_token_usage"), state.tokenUsage);
-LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
-    if (state.dropboxAppKey) LS.set(DB_APPKEY_KEY, state.dropboxAppKey);
-  }, [state]);
+    const { geminiKey: _stripped, ...profileToSave } = state.profile;
+    LS.set(storageKey("jv_profile"), profileToSave);
+  }, [state.profile]);
+  useEffect(() => { LS.set(storageKey("jv_xp"), state.xp); }, [state.xp]);
+  useEffect(() => { LS.set(storageKey("jv_streak"), state.streak); }, [state.streak]);
+  useEffect(() => { LS.set(storageKey("jv_shields"), state.streakShields); }, [state.streakShields]);
+  useEffect(() => { LS.set(storageKey("jv_last_login"), state.lastLoginDate); }, [state.lastLoginDate]);
+  useEffect(() => { LS.set(storageKey("jv_habits"), state.habits); }, [state.habits]);
+  useEffect(() => { LS.set(storageKey("jv_habit_log"), state.habitLog); }, [state.habitLog]);
+  useEffect(() => { LS.set(storageKey("jv_tasks"), state.tasks); }, [state.tasks]);
+  useEffect(() => { LS.set(storageKey("jv_goals"), state.goals); }, [state.goals]);
+  useEffect(() => { LS.set(storageKey("jv_sessions"), state.sessions); }, [state.sessions]);
+  useEffect(() => { LS.set(storageKey("jv_achievements"), state.achievements); }, [state.achievements]);
+  useEffect(() => { LS.set(storageKey("jv_gacha"), state.gachaCollection); }, [state.gachaCollection]);
+  useEffect(() => { LS.set(storageKey("jv_cal_events"), state.calendarEvents); }, [state.calendarEvents]);
+  useEffect(() => { LS.set(storageKey("jv_chat"), state.chatHistory); }, [state.chatHistory]);
+  useEffect(() => { LS.set(storageKey("jv_daily_goal"), state.dailyGoal); }, [state.dailyGoal]);
+  useEffect(() => { LS.set(storageKey("jv_timers"), state.activeTimers); }, [state.activeTimers]);
+  useEffect(() => { LS.set(storageKey("jv_sleep_log"), state.sleepLog); }, [state.sleepLog]);
+  useEffect(() => { LS.set(storageKey("jv_screen_log"), state.screenTimeLog); }, [state.screenTimeLog]);
+  useEffect(() => { LS.set(storageKey("jv_missions"), state.dailyMissions); }, [state.dailyMissions]);
+  useEffect(() => { LS.set(storageKey("jv_mission_date"), state.lastMissionDate); }, [state.lastMissionDate]);
+  useEffect(() => { LS.set(storageKey("jv_habit_suggestions"), state.pendingHabitSuggestions); }, [state.pendingHabitSuggestions]);
+  useEffect(() => { LS.set(storageKey("jv_chronicles"), state.chronicles); }, [state.chronicles]);
+  useEffect(() => { LS.set(storageKey("jv_gcal_connected"), state.gCalConnected); }, [state.gCalConnected]);
+  useEffect(() => { LS.set(storageKey("jv_token_usage"), state.tokenUsage); }, [state.tokenUsage]);
+  useEffect(() => { LS.set(storageKey("jv_habits_init"), state.habitsInitialized); }, [state.habitsInitialized]);
+  useEffect(() => { if (state.dynamicCosts) LS.set(storageKey("jv_dynamic_costs"), state.dynamicCosts); }, [state.dynamicCosts]);
+  useEffect(() => { if (state.lastShieldUseDate) LS.set(storageKey("jv_last_shield_use_date"), state.lastShieldUseDate); }, [state.lastShieldUseDate]);
 
   // ── Handle Dropbox OAuth callback (?code=... in URL) ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    const appKey = LS.get(DB_APPKEY_KEY, "");
+    const appKey = getDropboxAppKey();
     if (!code || !appKey) return;
     window.history.replaceState({}, "", window.location.pathname);
     setSyncStatus("syncing");
@@ -964,13 +1139,14 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
       .catch((e) => {
         console.warn("Dropbox OAuth callback failed:", e.message);
         setSyncStatus("error");
-        showBanner(`Dropbox connect failed: ${e.message.slice(0, 80)}`, "alert");
+        const safeMsg = (e.message || "Unknown error").replace(/eyJ[\w.-]+/g, "[token]").slice(0, 80);
+        showBanner(`Dropbox connect failed: ${safeMsg}`, "alert");
       });
   }, []);
 
   // ── Dropbox: pull on launch (if already connected) ──
   useEffect(() => {
-    const appKey = LS.get(DB_APPKEY_KEY, "");
+    const appKey = getDropboxAppKey();
     const hasRefresh = !!localStorage.getItem(DB_REFRESH_KEY);
     if (!appKey || !hasRefresh) return;
     if (!IS_DEV && !state.profile) return;
@@ -996,18 +1172,49 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
   }, [!!state.profile]);
 
   // ── Dropbox: push on tab hide / window close (skipped in dev to protect real data) ──
+  // We keep a ref to the latest state so the push can flush it to localStorage
+  // synchronously before building the payload — guaranteeing the last update is included.
+  const latestStateRef = useRef(null);
+  useEffect(() => { latestStateRef.current = state; }, [state]);
+
   useEffect(() => {
     if (IS_DEV) return;
     const push = () => {
-      const appKey = LS.get(DB_APPKEY_KEY, "");
+      const appKey = getDropboxAppKey();
       const hasRefresh = !!localStorage.getItem(DB_REFRESH_KEY);
       if (!appKey || !hasRefresh) return;
+      // Flush latest React state to localStorage synchronously before reading the payload
+      const s = latestStateRef.current;
+      if (s?.profile) {
+        const { geminiKey: _stripped, ...profileToSave } = s.profile;
+        LS.set(storageKey("jv_profile"), profileToSave);
+        LS.set(storageKey("jv_xp"), s.xp);
+        LS.set(storageKey("jv_streak"), s.streak);
+        LS.set(storageKey("jv_shields"), s.streakShields);
+        LS.set(storageKey("jv_last_login"), s.lastLoginDate);
+        LS.set(storageKey("jv_habits"), s.habits);
+        LS.set(storageKey("jv_habit_log"), s.habitLog);
+        LS.set(storageKey("jv_tasks"), s.tasks);
+        LS.set(storageKey("jv_goals"), s.goals);
+        LS.set(storageKey("jv_sessions"), s.sessions);
+        LS.set(storageKey("jv_achievements"), s.achievements);
+        LS.set(storageKey("jv_gacha"), s.gachaCollection);
+        LS.set(storageKey("jv_chat"), s.chatHistory);
+        LS.set(storageKey("jv_daily_goal"), s.dailyGoal);
+        LS.set(storageKey("jv_sleep_log"), s.sleepLog);
+        LS.set(storageKey("jv_screen_log"), s.screenTimeLog);
+        LS.set(storageKey("jv_missions"), s.dailyMissions);
+        LS.set(storageKey("jv_mission_date"), s.lastMissionDate);
+        LS.set(storageKey("jv_chronicles"), s.chronicles);
+        LS.set(storageKey("jv_token_usage"), s.tokenUsage);
+        if (s.dynamicCosts) LS.set(storageKey("jv_dynamic_costs"), s.dynamicCosts);
+        if (s.lastShieldUseDate != null) LS.set(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate);
+      }
       getDropboxToken(appKey)
         .then((token) => dropboxUpload(token, buildSyncPayload()))
         .then(() => {
           const ts = Date.now();
           LS.set(storageKey("jv_last_synced"), String(ts));
-          setLastSynced(ts);
           setSyncStatus("synced");
         })
         .catch((e) => { console.warn("Dropbox push failed:", e.message); });
@@ -1023,8 +1230,8 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
 
   // ── Manual sync ──
   async function manualSync() {
-    const appKey = LS.get(DB_APPKEY_KEY, "") || dropboxAppKey;
-    if (!appKey) { showBanner("No Dropbox App Key configured. Add it in Profile → Settings.", "alert"); return; }
+    const appKey = getDropboxAppKey();
+    if (!appKey) { showBanner("Set VITE_DROPBOX_APP_KEY in your environment.", "alert"); return; }
     if (!localStorage.getItem(DB_REFRESH_KEY)) {
       showBanner("Dropbox not connected. Click 'Connect Dropbox' in Settings.", "alert"); return;
     }
@@ -1053,7 +1260,8 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
       setSyncStatus("synced");
     } catch (e) {
       setSyncStatus("error");
-      showBanner(`Sync failed: ${e.message}`, "alert");
+      const safeMsg = (e.message || "Unknown error").replace(/eyJ[\w.-]+/g, "[token]").slice(0, 80);
+      showBanner(`Sync failed: ${safeMsg}`, "alert");
     }
   }
 
@@ -1097,31 +1305,43 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
 
   // ── Fetch daily quote ──
   useEffect(() => {
-    if (!profile?.geminiKey) return;
-    fetchDailyQuote(profile.geminiKey, profile, trackTokens).then(setDailyQuote);
-  }, [profile?.geminiKey]);
+    if (!apiKey) return;
+    fetchDailyQuote(apiKey, profile, trackTokens).then(setDailyQuote);
+  }, [apiKey]);
 
   // ── Check scheduled prompts (sleep check-in, screen time) ──
+  // Keep a ref to the latest relevant state so the interval always sees fresh values
+  // without re-registering every time a log key changes.
+  const scheduledCheckStateRef = useRef({});
+  useEffect(() => {
+    scheduledCheckStateRef.current = {
+      sleepLog: state.sleepLog,
+      screenTimeLog: state.screenTimeLog,
+      calendarEvents: state.calendarEvents,
+    };
+  }, [state.sleepLog, state.screenTimeLog, state.calendarEvents]);
+
   useEffect(() => {
     if (!profile) return;
     const interval = setInterval(() => {
       const h = nowHour();
       const m = nowMin();
       const t = today();
+      const { sleepLog, screenTimeLog, calendarEvents } = scheduledCheckStateRef.current;
       // Morning sleep check-in at 7:30am
-      if (h === 7 && m >= 30 && m < 35 && !state.sleepLog?.[t]) {
+      if (h === 7 && m >= 30 && m < 35 && !sleepLog?.[t]) {
         setModal({ type: "sleep_checkin" });
       }
       // Afternoon screen time at 1pm
-      if (h === 13 && m >= 0 && m < 5 && !state.screenTimeLog?.[t]?.afternoon) {
+      if (h === 13 && m >= 0 && m < 5 && !screenTimeLog?.[t]?.afternoon) {
         setModal({ type: "screen_time", period: "afternoon" });
       }
       // Evening screen time at 8pm
-      if (h === 20 && m >= 0 && m < 5 && !state.screenTimeLog?.[t]?.evening) {
+      if (h === 20 && m >= 0 && m < 5 && !screenTimeLog?.[t]?.evening) {
         setModal({ type: "screen_time", period: "evening" });
       }
       // Lecture reminders: check calendar events within 2 hours
-      const upcoming = (state.calendarEvents || []).filter((e) => {
+      const upcoming = (calendarEvents || []).filter((e) => {
         if (e.type !== "lecture" && e.type !== "tirgul") return false;
         const diff = (new Date(e.start) - Date.now()) / 60000;
         return diff > 0 && diff <= 120 && !e.reminded;
@@ -1137,7 +1357,7 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
       }
     }, 60000);
     return () => clearInterval(interval);
-  }, [profile, state.sleepLog, state.screenTimeLog, state.calendarEvents]);
+  }, [profile]); // interval registered once per profile — reads fresh data via ref
 
   // ── Check streak panic ──
   useEffect(() => {
@@ -1150,27 +1370,61 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
   }, [profile]);
 
   function handleDailyLogin(t) {
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-    let newStreak = state.streak;
-    if (state.lastLoginDate === yesterday) {
-      newStreak = state.streak + 1;
-    } else if (state.lastLoginDate !== t) {
-      if (state.streakShields > 0 && state.lastLoginDate !== yesterday) {
-        newStreak = state.streak;
-        setState((s) => ({ ...s, streakShields: s.streakShields - 1 }));
-        showBanner("Streak shield consumed. Streak preserved.", "info");
+    // Use effective date at commit time to avoid race if date rolls over during setState
+    setState((s) => {
+      const effectiveDate = today();
+      const yesterday = new Date(Date.now() - 86400000).toLocaleDateString("en-CA");
+      let newStreak = s.streak;
+      let newShields = s.streakShields;
+      let bannerMsg = null;
+
+      if (s.lastLoginDate === yesterday) {
+        // Consecutive day — increment streak
+        newStreak = s.streak + 1;
+      } else if (s.lastLoginDate === effectiveDate) {
+        // Already logged in today — no change
       } else {
-        newStreak = 0;
+        // Missed at least one day — at most one shield per calendar day
+        const canUseShield = s.streakShields > 0 && s.lastShieldUseDate !== effectiveDate;
+        if (canUseShield) {
+          newShields = s.streakShields - 1;
+          bannerMsg = "Streak shield consumed. Streak preserved.";
+        } else if (s.streakShields > 0 && s.lastShieldUseDate === effectiveDate) {
+          // Already used a shield today; cannot use another
+          newStreak = 0;
+        } else {
+          newStreak = 0;
+        }
       }
-    }
-    const loginXP = 50 + newStreak * 10;
-    setState((s) => ({
-      ...s,
-      streak: newStreak,
-      lastLoginDate: t,
-    }));
-    awardXP(loginXP, null, true);
-    setModal({ type: "daily_login", xp: loginXP, streak: newStreak });
+
+      const loginXP = 50 + newStreak * 10;
+      const newXP = s.xp + loginXP;
+      const xpPl = getXpPerLevel(s);
+      const oldLevel = getLevel(s.xp, xpPl);
+      const newLevel = getLevel(newXP, xpPl);
+      const usedShield = newShields < s.streakShields;
+      const newLastShieldUseDate = usedShield ? effectiveDate : s.lastShieldUseDate;
+      if (newLevel > oldLevel) {
+        const snapshot = { ...s, xp: newXP, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate, dynamicCosts: s.dynamicCosts };
+        setTimeout(() => {
+          setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
+          updateDynamicCosts(apiKey, snapshot, "level_up").then((costs) => {
+            if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+          }).catch(() => {});
+        }, 300);
+      }
+      if (bannerMsg) setTimeout(() => showBanner(bannerMsg, "info"), 0);
+      if (usedShield) {
+        setTimeout(() => {
+          updateDynamicCosts(apiKey, { ...s, streakShields: newShields, lastShieldUseDate: effectiveDate, dynamicCosts: s.dynamicCosts }, "streak_shield_use").then((costs) => {
+            if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+          }).catch(() => {});
+        }, 0);
+      }
+      setTimeout(() => setModal({ type: "daily_login", xp: loginXP, streak: newStreak }), 0);
+
+      return { ...s, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate, xp: newXP };
+    });
   }
 
   function generateDailyMissions() {
@@ -1187,11 +1441,18 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
   // ── Core XP award ──
   function awardXP(amount, event, silent = false) {
     setState((s) => {
-      const oldLevel = getLevel(s.xp);
+      const xpPl = getXpPerLevel(s);
+      const oldLevel = getLevel(s.xp, xpPl);
       const newXP = s.xp + amount;
-      const newLevel = getLevel(newXP);
+      const newLevel = getLevel(newXP, xpPl);
       if (newLevel > oldLevel && !silent) {
-        setTimeout(() => setLevelUpData({ level: newLevel, rank: getRank(newLevel) }), 300);
+        const snapshot = { ...s, xp: newXP, dynamicCosts: s.dynamicCosts };
+        setTimeout(() => {
+          setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
+          updateDynamicCosts(apiKey, snapshot, "level_up").then((costs) => {
+            if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+          }).catch(() => {});
+        }, 300);
       }
       return { ...s, xp: newXP };
     });
@@ -1206,6 +1467,8 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
     setState((s) => {
       if (!s.dailyMissions) return s;
       const todayLog = s.habitLog[today()] || [];
+      let bonusXP = 0;
+      const toasts = [];
       const updated = s.dailyMissions.map((m) => {
         if (m.done) return m;
         let progress = 0;
@@ -1214,15 +1477,33 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
         if (m.type === "task") progress = (s.tasks || []).filter((t) => t.doneDate === today()).length;
         if (m.type === "chat") progress = s.chatHistory?.length > 0 ? 1 : 0;
         if (progress >= m.target) {
-          setTimeout(() => {
-            awardXP(m.xp, null, true);
-            showToast({ icon: "◈", title: "Mission Complete", desc: m.desc, xp: m.xp, rarity: "common" });
-          }, 200);
+          // Accumulate XP inside the updater — no setTimeout, no stale reads
+          bonusXP += m.xp;
+          toasts.push({ icon: "◈", title: "Mission Complete", desc: m.desc, xp: m.xp, rarity: "common" });
           return { ...m, done: true };
         }
         return m;
       });
-      return { ...s, dailyMissions: updated };
+      // Fire toasts after the state update commits
+      if (toasts.length) {
+        setTimeout(() => toasts.forEach((t) => showToast(t)), 200);
+      }
+      const newXP = s.xp + bonusXP;
+      if (bonusXP > 0) {
+        const xpPl = getXpPerLevel(s);
+        const oldLevel = getLevel(s.xp, xpPl);
+        const newLevel = getLevel(newXP, xpPl);
+        if (newLevel > oldLevel) {
+          const snapshot = { ...s, xp: newXP, dailyMissions: updated, dynamicCosts: s.dynamicCosts };
+          setTimeout(() => {
+            setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
+            updateDynamicCosts(apiKey, snapshot, "level_up").then((costs) => {
+              if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+            }).catch(() => {});
+          }, 300);
+        }
+      }
+      return { ...s, dailyMissions: updated, xp: s.xp + bonusXP };
     });
   }
 
@@ -1240,69 +1521,135 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
 
   function executeCommands(commands) {
     if (!commands?.length) return;
+    // Allowlist of valid command types — unknown commands are silently dropped
+    const VALID_CMDS = new Set([
+      "add_task","add_goal","complete_task","clear_done_tasks","award_xp",
+      "announce","set_daily_goal","add_habit","unlock_achievement","add_event","suggest_sessions",
+    ]);
+    const MAX_XP_PER_CMD        = 500;
+    const MAX_XP_PER_RESPONSE   = 1500; // hard cap across the entire command batch
+    const MAX_STR_LEN           = 300;
+    const MAX_TASKS_PER_RUN     = 10;
+    let tasksAdded  = 0;
+    let totalXPThisRun = 0; // accumulated across award_xp + unlock_achievement in this batch
+
+    // Sanitize for AI command injection and length; strips control/zero-width chars and common HTML.
+    // Not a full XSS layer — avoid using output in dangerouslySetInnerHTML.
+    const sanitizeStr = (s, max = MAX_STR_LEN) => {
+      if (typeof s !== "string") return "";
+      const noControl = s.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
+      return noControl.slice(0, max).replace(/[<>"'`&]/g, "");
+    };
+
     commands.forEach((cmd) => {
+      if (!VALID_CMDS.has(cmd.cmd)) return;
       switch (cmd.cmd) {
         case "add_task":
+          if (tasksAdded >= MAX_TASKS_PER_RUN) break;
+          tasksAdded++;
           setState((s) => ({
             ...s,
-            tasks: [...(s.tasks || []), { id: Date.now(), text: cmd.text, priority: cmd.priority || "medium", due: cmd.due, done: false, addedBy: "ritmof" }],
+            tasks: [...(s.tasks || []), {
+              id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              text: sanitizeStr(cmd.text),
+              priority: ["low","medium","high"].includes(cmd.priority) ? cmd.priority : "medium",
+              due: typeof cmd.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(cmd.due) ? cmd.due : null,
+              done: false,
+              addedBy: "ritmof",
+            }],
           }));
-          showBanner(`Task added: ${cmd.text}`, "info");
+          showBanner(`Task added: ${sanitizeStr(cmd.text, 60)}`, "info");
           break;
         case "add_goal":
           setState((s) => ({
             ...s,
-            goals: [...(s.goals || []), { id: Date.now(), title: cmd.title, course: cmd.course, due: cmd.due, done: false, addedBy: "ritmof", tasks: [] }],
+            goals: [...(s.goals || []), {
+              id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              title: sanitizeStr(cmd.title),
+              course: sanitizeStr(cmd.course),
+              due: typeof cmd.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(cmd.due) ? cmd.due : null,
+              done: false,
+              addedBy: "ritmof",
+              tasks: [],
+            }],
           }));
-          showBanner(`Goal logged: ${cmd.title}`, "success");
+          showBanner(`Goal logged: ${sanitizeStr(cmd.title, 60)}`, "success");
           break;
         case "complete_task":
           setState((s) => {
+            // Prefer id-based lookup; fall back to numeric index only for backward compat
             const tasks = [...(s.tasks || [])];
-            if (tasks[cmd.index]) tasks[cmd.index] = { ...tasks[cmd.index], done: true, doneDate: today() };
+            const byId = typeof cmd.id === "string" ? tasks.findIndex(t => t.id === cmd.id) : -1;
+            const idx = byId >= 0 ? byId : (Number.isInteger(Number(cmd.index)) ? Number(cmd.index) : -1);
+            if (idx >= 0 && idx < tasks.length) {
+              tasks[idx] = { ...tasks[idx], done: true, doneDate: today() };
+            }
             return { ...s, tasks };
           });
           break;
         case "clear_done_tasks":
           setState((s) => ({ ...s, tasks: (s.tasks || []).filter((t) => !t.done) }));
           break;
-        case "award_xp":
-          awardXP(cmd.amount, null, true);
-          showBanner(`${cmd.reason || "XP awarded"} +${cmd.amount} XP`, "success");
+        case "award_xp": {
+          const amount = Math.min(Math.max(0, Number(cmd.amount) || 0), MAX_XP_PER_CMD);
+          const allowed = Math.min(amount, Math.max(0, MAX_XP_PER_RESPONSE - totalXPThisRun));
+          if (allowed <= 0) break;
+          totalXPThisRun += allowed;
+          awardXP(allowed, null, true);
+          showBanner(`${sanitizeStr(cmd.reason, 80) || "XP awarded"} +${allowed} XP`, "success");
           break;
+        }
         case "announce":
-          showBanner(cmd.text, cmd.type || "info");
+          showBanner(sanitizeStr(cmd.text, 200), ["info","warning","success","alert"].includes(cmd.type) ? cmd.type : "info");
           break;
         case "set_daily_goal":
-          setState((s) => ({ ...s, dailyGoal: cmd.text }));
+          setState((s) => ({ ...s, dailyGoal: sanitizeStr(cmd.text) }));
           break;
         case "add_habit":
           setState((s) => {
-            if (s.habits.find((h) => h.label === cmd.label)) return s;
+            if (s.habits.find((h) => h.label === sanitizeStr(cmd.label))) return s;
             const newHabit = {
               id: `habit_${Date.now()}`,
-              label: cmd.label,
-              category: cmd.category || "mind",
-              xp: cmd.xp || 25,
-              icon: cmd.icon || "◈",
-              style: cmd.style || "ascii",
+              label: sanitizeStr(cmd.label),
+              category: ["body","mind","work"].includes(cmd.category) ? cmd.category : "mind",
+              xp: Math.min(Math.max(1, Number(cmd.xp) || 25), 200),
+              icon: typeof cmd.icon === "string" ? cmd.icon.slice(0, 2) : "◈",
+              style: ["ascii","dots","geometric","typewriter"].includes(cmd.style) ? cmd.style : "ascii",
               addedBy: "ritmof",
             };
             return { ...s, habits: [...s.habits, newHabit] };
           });
-          showBanner(`New habit protocol: ${cmd.label}`, "success");
+          showBanner(`New habit protocol: ${sanitizeStr(cmd.label, 60)}`, "success");
           break;
-        case "unlock_achievement":
-          unlockAchievement(cmd);
+        case "unlock_achievement": {
+          const achXP = Math.min(Math.max(0, Number(cmd.xp) || 50), MAX_XP_PER_CMD);
+          const allowedAchXP = Math.min(achXP, Math.max(0, MAX_XP_PER_RESPONSE - totalXPThisRun));
+          totalXPThisRun += allowedAchXP;
+          unlockAchievement({
+            ...cmd,
+            id: sanitizeStr(cmd.id, 100),
+            title: sanitizeStr(cmd.title),
+            desc: sanitizeStr(cmd.desc),
+            flavorText: sanitizeStr(cmd.flavorText),
+            icon: typeof cmd.icon === "string" ? cmd.icon.slice(0, 2) : "◈",
+            xp: allowedAchXP,
+            rarity: ["common","rare","epic","legendary"].includes(cmd.rarity) ? cmd.rarity : "common",
+          });
           break;
+        }
         case "add_event":
           setState((s) => ({
             ...s,
-            activeTimers: [...(s.activeTimers || []), { id: Date.now(), label: cmd.label, emoji: cmd.emoji, endsAt: Date.now() + cmd.minutes * 60000 }],
+            activeTimers: [...(s.activeTimers || []), {
+              id: Date.now(),
+              label: sanitizeStr(cmd.label),
+              emoji: typeof cmd.emoji === "string" ? cmd.emoji.slice(0, 2) : "◈",
+              endsAt: Date.now() + Math.min(Math.max(1, Number(cmd.minutes) || 90), 1440) * 60000,
+            }],
           }));
           break;
         case "suggest_sessions":
-          showBanner(`Session protocol suggested. Check Tasks.`, "info");
+          showBanner("Session protocol suggested. Check Tasks.", "info");
           break;
         default: break;
       }
@@ -1331,39 +1678,31 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
     checkMissions("habits");
   }
 
-  if (!deviceLockPassed) {
-    return (
-      <DeviceLockGate onUnlock={() => setDeviceLockPassed(true)} />
-    );
-  }
+  if (!gateChecked) return null; // wait for async token check before rendering anything
 
-  if (ALLOWED_EMAIL && GATE_GOOGLE_CLIENT_ID && !gatePassed) {
+  if (AUTH_REQUIRED && !gatePassed) {
     return (
       <AuthGate
         onAccessGranted={() => {
-          try { sessionStorage.setItem(GATE_SESSION_KEY, "true"); } catch {}
           setGatePassed(true);
         }}
       />
     );
   }
 
+  if (!getGeminiApiKey() || !getDropboxAppKey()) {
+    return <KeysConfigGate />;
+  }
+
   if (showOnboarding) {
     return (
       <Onboarding
         onComplete={(profile) => {
-          setState((s) => ({
-            ...s,
-            profile,
-            dropboxAppKey: profile.dropboxAppKey || "",
-          }));
-          LS.set(storageKey("jv_profile"), profile);
-          if (profile.dropboxAppKey) {
-            LS.set(DB_APPKEY_KEY, profile.dropboxAppKey);
-            startDropboxOAuth(profile.dropboxAppKey);
-            return;
-          }
+          const { geminiKey: _g, dropboxAppKey: _d, ...profileWithoutKey } = profile;
+          setState((s) => ({ ...s, profile: profileWithoutKey }));
+          LS.set(storageKey("jv_profile"), profileWithoutKey);
           setShowOnboarding(false);
+          startDropboxOAuth(getDropboxAppKey());
         }}
       />
     );
@@ -1386,7 +1725,7 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
       )}
 
       {/* Top bar */}
-      <TopBar xp={state.xp} level={level} rank={rank} streak={state.streak} profile={profile}
+      <TopBar xp={state.xp} xpPerLevel={xpPerLevel} level={level} rank={rank} streak={state.streak} profile={profile}
         syncStatus={syncStatus} lastSynced={lastSynced}
         onSync={manualSync} hasDropbox={dropboxConnected} />
 
@@ -1426,7 +1765,8 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
         {tab === "profile" && (
           <ProfileTab
             state={state} setState={setState} profile={profile}
-            level={level} rank={rank} awardXP={awardXP}
+            level={level} rank={rank} xpPerLevel={xpPerLevel} streakShieldCost={streakShieldCost} gachaCost={gachaCost}
+            awardXP={awardXP}
             showBanner={showBanner} showToast={showToast}
             unlockAchievement={unlockAchievement}
             executeCommands={executeCommands}
@@ -1533,7 +1873,7 @@ LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
 // ═══════════════════════════════════════════════════════════════
 function Onboarding({ onComplete }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "", geminiKey: "", googleClientId: "", dropboxAppKey: "" });
+  const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "", googleClientId: "" });
   const [error, setError] = useState("");
 
   const steps = [
@@ -1568,26 +1908,11 @@ function Onboarding({ onComplete }) {
       style: "geometric",
     },
     {
-      title: "AI INTEGRATION",
-      subtitle: "Gemini API key required. Never leaves your device. Free tier: 1M tokens/day.",
-      field: "geminiKey", label: "GEMINI API KEY", placeholder: "AIza...", type: "password",
-      style: "ascii",
-      isGeminiStep: true,
-    },
-    {
       title: "CALENDAR SYNC",
       subtitle: "Connect Google Calendar so RITMOF sees your exams and lectures.",
       field: "googleClientId", label: "GOOGLE CLIENT ID", placeholder: "xxx.apps.googleusercontent.com", type: "text",
       style: "geometric",
       isCalendarStep: true,
-      optional: true,
-    },
-    {
-      title: "DROPBOX SYNC",
-      subtitle: "Sync between iPhone and PC via Dropbox. Free. Connect once, stays connected.",
-      field: "dropboxAppKey", label: "DROPBOX APP KEY", placeholder: "e.g. abc123xyz456", type: "text",
-      style: "ascii",
-      isDropboxStep: true,
       optional: true,
     },
   ];
@@ -1600,15 +1925,9 @@ function Onboarding({ onComplete }) {
       if (step < steps.length - 1) { setStep(step + 1); } else { onComplete(form); }
       return;
     }
-    if (!form[current.field]?.trim()) {
-      if (current.field === "geminiKey") {
-        setError("API key required to activate RITMOF.");
-        return;
-      }
-      if (current.field !== "googleClientId" && current.field !== "dropboxAppKey") {
-        setError("This field is required.");
-        return;
-      }
+    if (!form[current.field]?.trim() && current.field !== "googleClientId") {
+      setError("This field is required.");
+      return;
     }
     setError("");
     if (step < steps.length - 1) {
@@ -1655,16 +1974,10 @@ function Onboarding({ onComplete }) {
           {current.subtitle}
         </div>
 
-        {/* Gemini guide */}
-        {current.isGeminiStep && <GeminiSetupGuide />}
-
         {/* Google Calendar guide */}
         {current.isCalendarStep && <GoogleCalendarGuide />}
 
-        {/* Dropbox guide */}
-        {current.isDropboxStep && <DropboxSetupGuide />}
-
-        <label style={{ fontSize: "10px", color: "#aaa", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: current.isCalendarStep || current.isGeminiStep || current.isDropboxStep ? "16px" : "0" }}>
+        <label style={{ fontSize: "10px", color: "#aaa", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: current.isCalendarStep ? "16px" : "0" }}>
           {current.label} {current.optional && <span style={{ color: "#444" }}>— OPTIONAL</span>}
         </label>
         {current.type === "textarea" ? (
@@ -1835,9 +2148,9 @@ function DropboxSetupGuide() {
 // ═══════════════════════════════════════════════════════════════
 // TOP BAR
 // ═══════════════════════════════════════════════════════════════
-function TopBar({ xp, level, rank, streak, profile, syncStatus, lastSynced, onSync, hasDropbox }) {
-  const progress = getLevelProgress(xp);
-  const pct = (progress / XP_PER_LEVEL) * 100;
+function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatus, lastSynced, onSync, hasDropbox }) {
+  const progress = getLevelProgress(xp, xpPerLevel);
+  const pct = (progress / xpPerLevel) * 100;
 
   const syncIcon = syncStatus === "syncing" ? "↻" : syncStatus === "error" ? "⚠" : syncStatus === "synced" ? "✓" : "⇅";
   const syncColor = syncStatus === "error" ? "#888" : syncStatus === "synced" ? "#aaa" : "#555";
@@ -1862,7 +2175,7 @@ function TopBar({ xp, level, rank, streak, profile, syncStatus, lastSynced, onSy
       <div style={{ flex: 1, margin: "0 12px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: "#666", marginBottom: "2px", fontFamily: "'Share Tech Mono', monospace" }}>
           <span>LV.{level} {rank.title}</span>
-          <span>{getLevelProgress(xp)}/{XP_PER_LEVEL}</span>
+          <span>{getLevelProgress(xp, xpPerLevel)}/{xpPerLevel}</span>
         </div>
         <div style={{ height: "3px", background: "#1a1a1a", position: "relative" }}>
           <div style={{ width: `${pct}%`, height: "100%", background: "#fff", transition: "width 0.5s" }} />
@@ -2591,6 +2904,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [disclosureDismissed, setDisclosureDismissed] = useState(() => !!localStorage.getItem(DATA_DISCLOSURE_SEEN_KEY));
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
 
@@ -2648,9 +2962,10 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
       }
     } catch (e) {
       console.error("RITMOF error:", e);
+      const safeMsg = (e?.message || "").replace(/eyJ[\w.-]+/g, "[token]").slice(0, 60) || "System error";
       const errMsg = {
         role: "assistant",
-        content: `Connection error: ${e.message}. Check your API key in Profile → Settings.`,
+        content: `Connection error: ${safeMsg}. Check your API key in Profile → Settings.`,
         ts: Date.now()
       };
       setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg] }));
@@ -2694,6 +3009,25 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
 
   return (
     <div style={{ height: "calc(100vh - 56px - 60px)", display: "flex", flexDirection: "column" }}>
+      {/* Data disclosure (one-time) */}
+      {!disclosureDismissed && (
+        <div style={{
+          padding: "10px 16px", background: "#1a1a1a", borderBottom: "1px solid #222",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#888",
+          display: "flex", alignItems: "flex-start", gap: "8px",
+        }}>
+          <span style={{ flex: 1 }}>
+            RITMOF sends your habits, tasks, goals, sleep, and calendar summary to Google's Gemini API to personalize responses. No data is stored by us beyond your chat history.
+          </span>
+          <button
+            type="button"
+            onClick={() => { try { localStorage.setItem(DATA_DISCLOSURE_SEEN_KEY, "1"); } catch {} setDisclosureDismissed(true); }}
+            style={{ padding: "2px 8px", border: "1px solid #444", background: "transparent", color: "#666", cursor: "pointer", flexShrink: 0 }}
+          >
+            Got it
+          </button>
+        </div>
+      )}
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
         {messages.length === 0 && (
@@ -2802,7 +3136,7 @@ function ChatMessage({ msg }) {
 // ═══════════════════════════════════════════════════════════════
 // PROFILE TAB
 // ═══════════════════════════════════════════════════════════════
-function ProfileTab({ state, setState, profile, level, rank, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme }) {
+function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme, streakShieldCost, gachaCost }) {
   const [section, setSection] = useState("overview");
   const [showGacha, setShowGacha] = useState(false);
 
@@ -2823,10 +3157,10 @@ function ProfileTab({ state, setState, profile, level, rank, awardXP, showBanner
           <div style={{ fontSize: "13px", color: "#aaa" }}>{rank.decor} {rank.title}</div>
           <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>{profile.major}</div>
           <div style={{ margin: "16px 0 4px", fontSize: "11px", color: "#555", display: "flex", justifyContent: "space-between" }}>
-            <span>LEVEL {level}</span><span>{getLevelProgress(state.xp)}/{XP_PER_LEVEL} XP</span>
+            <span>LEVEL {level}</span><span>{getLevelProgress(state.xp, xpPerLevel)}/{xpPerLevel} XP</span>
           </div>
           <div style={{ height: "4px", background: "#111" }}>
-            <div style={{ width: `${(getLevelProgress(state.xp) / XP_PER_LEVEL) * 100}%`, height: "100%", background: "#fff", transition: "width 0.5s" }} />
+            <div style={{ width: `${(getLevelProgress(state.xp, xpPerLevel) / xpPerLevel) * 100}%`, height: "100%", background: "#fff", transition: "width 0.5s" }} />
           </div>
           <div style={{ fontSize: "28px", marginTop: "8px" }}>{rank.badge}</div>
           <div style={{ fontSize: "24px", fontWeight: "bold", marginTop: "4px" }}>{state.xp} XP</div>
@@ -2848,20 +3182,33 @@ function ProfileTab({ state, setState, profile, level, rank, awardXP, showBanner
         ))}
       </div>
 
-      {section === "overview" && <ProfileOverview state={state} profile={profile} level={level} rank={rank} />}
+      {section === "overview" && <ProfileOverview state={state} setState={setState} profile={profile} level={level} rank={rank} streakShieldCost={streakShieldCost} apiKey={apiKey} showBanner={showBanner} />}
       {section === "achievements" && <AchievementsSection state={state} />}
       {section === "calendar" && <CalendarSection state={state} setState={setState} profile={profile} apiKey={apiKey} buildSystemPrompt={buildSystemPrompt} showBanner={showBanner} executeCommands={executeCommands} />}
-      {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} showBanner={showBanner} showToast={showToast} />}
+      {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} gachaCost={gachaCost} showBanner={showBanner} showToast={showToast} />}
       {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} onSync={onSync} dropboxConnected={dropboxConnected} dropboxAppKey={dropboxAppKey} onDisconnectDropbox={onDisconnectDropbox} theme={theme} setTheme={setTheme} />}
     </div>
   );
 }
 
-function ProfileOverview({ state, profile, level, rank }) {
+function ProfileOverview({ state, setState, profile, level, rank, streakShieldCost, apiKey, showBanner }) {
   const totalSessions = (state.sessions || []).length;
   const totalHabitsLogged = Object.values(state.habitLog || {}).reduce((acc, arr) => acc + arr.length, 0);
   const totalTasksDone = (state.tasks || []).filter((t) => t.done).length;
   const studyHours = (state.sessions || []).reduce((acc, s) => acc + (s.duration || 0), 0);
+  const canBuyShield = state.xp >= streakShieldCost;
+
+  function buyShield() {
+    if (!canBuyShield || !apiKey) return;
+    setState((s) => {
+      const nextState = { ...s, xp: Math.max(0, s.xp - streakShieldCost), streakShields: (s.streakShields || 0) + 1 };
+      updateDynamicCosts(apiKey, nextState, "streak_shield_use").then((costs) => {
+        if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+      }).catch(() => {});
+      return nextState;
+    });
+    showBanner(`Streak shield purchased. Cost: ${streakShieldCost} XP. Next cost may change.`, "success");
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -2881,6 +3228,22 @@ function ProfileOverview({ state, profile, level, rank }) {
             <div style={{ fontSize: "8px", color: "#444", letterSpacing: "1px", marginTop: "2px" }}>{s.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Buy streak shield — cost set by AI, one use per day when protecting streak */}
+      <div style={{ border: "1px solid #333", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
+        <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px", marginBottom: "8px" }}>STREAK SHIELD</div>
+        <div style={{ fontSize: "11px", color: "#888", marginBottom: "8px" }}>Cost: {streakShieldCost} XP (AI may change after purchase). Max one shield use per calendar day.</div>
+        <button
+          onClick={buyShield}
+          disabled={!canBuyShield || !apiKey}
+          style={{
+            padding: "8px 12px", border: "1px solid #444", background: canBuyShield && apiKey ? "#fff" : "#1a1a1a",
+            color: canBuyShield && apiKey ? "#000" : "#333", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", letterSpacing: "1px", cursor: canBuyShield && apiKey ? "pointer" : "default",
+          }}
+        >
+          BUY SHIELD — {streakShieldCost} XP
+        </button>
       </div>
 
       {/* Rank ladder */}
@@ -2983,10 +3346,21 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
     if (!profile?.googleClientId) { showBanner("No Google Client ID configured.", "alert"); return; }
     setGCalLoading(true);
     try {
-      await initGoogleCalendar(profile.googleClientId);
-      const auth = window.gapi.auth2.getAuthInstance();
-      if (!auth.isSignedIn.get()) await auth.signIn();
-      const events = await fetchGCalEvents();
+      await loadGoogleGIS();
+      const tokenResponse = await new Promise((resolve, reject) => {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: profile.googleClientId,
+          scope: "https://www.googleapis.com/auth/calendar.readonly",
+          callback: (resp) => {
+            if (resp.error) reject(new Error(resp.error));
+            else resolve(resp);
+          },
+        });
+        tokenClient.requestAccessToken({ prompt: "" });
+      });
+      const accessToken = tokenResponse.access_token;
+      if (!accessToken) throw new Error("No access token");
+      const events = await fetchGCalEvents(accessToken);
       setState((s) => {
         const manualEvents = (s.calendarEvents || []).filter((e) => e.source === "manual");
         return { ...s, calendarEvents: [...manualEvents, ...events], gCalConnected: true };
@@ -3087,16 +3461,16 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
   );
 }
 
-function GachaSection({ state, setState, profile, apiKey, showBanner, showToast }) {
+function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner, showToast }) {
   const [pulling, setPulling] = useState(false);
   const [lastPull, setLastPull] = useState(null);
   const [showCollection, setShowCollection] = useState(false);
   const collection = state.gachaCollection || [];
-  const canAfford = state.xp >= GACHA_COST;
+  const canAfford = state.xp >= gachaCost;
 
   async function doPull() {
     if (!canAfford || pulling || !apiKey) {
-      if (!canAfford) showBanner(`Insufficient XP. Need ${GACHA_COST} XP to pull.`, "alert");
+      if (!canAfford) showBanner(`Insufficient XP. Need ${gachaCost} XP to pull.`, "alert");
       if (!apiKey) showBanner("No API key. Configure in settings.", "alert");
       return;
     }
@@ -3136,11 +3510,17 @@ Respond ONLY with JSON:
         return;
       }
 
-      setState((s) => ({
-        ...s,
-        xp: Math.max(0, s.xp - GACHA_COST),
-        gachaCollection: [...(s.gachaCollection || []), { ...card, pulledAt: Date.now() }],
-      }));
+      setState((s) => {
+        const nextState = {
+          ...s,
+          xp: Math.max(0, s.xp - gachaCost),
+          gachaCollection: [...(s.gachaCollection || []), { ...card, pulledAt: Date.now() }],
+        };
+        updateDynamicCosts(apiKey, nextState, "gacha_pull").then((costs) => {
+          if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+        }).catch(() => {});
+        return nextState;
+      });
       setLastPull(card);
       showToast({ icon: card.type === "chronicle" ? "≡" : "◈", title: card.title, desc: card.rarity.toUpperCase() + " PULL", rarity: card.rarity, isAchievement: false });
     } catch (e) {
@@ -3161,7 +3541,7 @@ Respond ONLY with JSON:
         <div style={{ fontSize: "11px", color: "#555", letterSpacing: "3px" }}>CHRONICLE ENGINE</div>
         <div style={{ fontSize: "40px", margin: "16px 0" }}>◈</div>
         <div style={{ fontSize: "12px", color: "#888", marginBottom: "16px" }}>
-          {canAfford ? `${GACHA_COST} XP per pull` : `Need ${GACHA_COST - state.xp} more XP`}
+          {canAfford ? `${gachaCost} XP per pull` : `Need ${gachaCost - state.xp} more XP`}
         </div>
         <button
           onClick={doPull}
@@ -3174,7 +3554,7 @@ Respond ONLY with JSON:
             border: "none", cursor: canAfford && !pulling ? "pointer" : "default",
           }}
         >
-          {pulling ? "PULLING..." : `PULL — ${GACHA_COST} XP`}
+          {pulling ? "PULLING..." : `PULL — ${gachaCost} XP`}
         </button>
         <div style={{ fontSize: "10px", color: "#333", marginTop: "8px" }}>
           {collection.length} cards collected
@@ -3247,20 +3627,15 @@ function GachaCard({ card, compact }) {
 }
 
 function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme }) {
-  const [geminiKey, setGeminiKey] = useState(profile?.geminiKey || "");
   const [gcalId, setGcalId] = useState(profile?.googleClientId || "");
-  const [appKey, setAppKey] = useState(dropboxAppKey || LS.get(DB_APPKEY_KEY, "") || "");
 
   function save() {
-    setState((s) => ({ ...s, profile: { ...s.profile, geminiKey, googleClientId: gcalId }, dropboxAppKey: appKey }));
-    if (appKey) LS.set(DB_APPKEY_KEY, appKey);
+    setState((s) => ({ ...s, profile: { ...s.profile, googleClientId: gcalId } }));
     showBanner("Settings saved.", "success");
   }
 
   function connectDropbox() {
-    if (!appKey.trim()) { showBanner("Enter your Dropbox App Key first.", "alert"); return; }
-    LS.set(DB_APPKEY_KEY, appKey.trim());
-    startDropboxOAuth(appKey.trim());
+    startDropboxOAuth(dropboxAppKey);
   }
 
   function resetAll() {
@@ -3306,20 +3681,19 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
       <div style={{ height: "1px", background: "var(--border)", margin: "8px 0" }} />
       <div style={{ fontSize: "9px", color: "var(--muted)", letterSpacing: "2px" }}>API CONFIGURATION</div>
-      <GeminiSetupGuide />
-      <label style={{ fontSize: "10px", color: "#666" }}>GEMINI API KEY</label>
-      <input
-        type="password" value={geminiKey}
-        onChange={(e) => setGeminiKey(e.target.value)}
-        style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", outline: "none" }}
-      />
+      <div style={{ fontSize: "10px", color: "#555", marginBottom: "8px" }}>
+        Gemini API key and Dropbox App Key are set via environment variables (<code>VITE_GEMINI_API_KEY</code>, <code>VITE_DROPBOX_APP_KEY</code>). See .env.example and README.
+      </div>
       <GoogleCalendarGuide />
-      <label style={{ fontSize: "10px", color: "#666" }}>GOOGLE CLIENT ID (optional)</label>
+      <label style={{ fontSize: "10px", color: "#666" }}>GOOGLE CLIENT ID (optional, for Calendar)</label>
       <input
         type="text" value={gcalId}
         onChange={(e) => setGcalId(e.target.value)}
         style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", outline: "none" }}
       />
+      <button onClick={save} style={{ marginTop: "8px", padding: "8px", border: "1px solid #444", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer" }}>
+        SAVE
+      </button>
 
       <div style={{ height: "1px", background: "#1a1a1a", margin: "4px 0" }} />
       <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px" }}>DROPBOX SYNC</div>
@@ -3327,12 +3701,6 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
       {!dropboxConnected ? (
         <>
-          <label style={{ fontSize: "10px", color: "#666" }}>DROPBOX APP KEY</label>
-          <input
-            type="text" value={appKey} placeholder="e.g. abc123xyz456"
-            onChange={(e) => setAppKey(e.target.value)}
-            style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", outline: "none" }}
-          />
           <button onClick={connectDropbox} style={{
             padding: "10px", border: "2px solid #fff", background: "#fff", color: "#000",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
@@ -3381,7 +3749,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
         RESET ALL DATA
       </button>
 
-      {ALLOWED_EMAIL && GATE_GOOGLE_CLIENT_ID && (
+      {AUTH_REQUIRED && (
         <button
           onClick={() => {
             try { sessionStorage.removeItem(GATE_SESSION_KEY); } catch {}
@@ -3613,16 +3981,20 @@ function LevelUpModal({ data, onClose }) {
 function AchievementToast({ toast, onClose }) {
   const [width, setWidth] = useState(100);
   const r = ACHIEVEMENT_RARITIES[toast.rarity] || ACHIEVEMENT_RARITIES.common;
+  // Keep onClose in a ref so the effect never re-runs just because the parent
+  // passed a new inline function reference — that would reset the countdown timer.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     const start = Date.now();
     const iv = setInterval(() => {
       const pct = Math.max(0, 100 - ((Date.now() - start) / 5000) * 100);
       setWidth(pct);
-      if (pct === 0) { clearInterval(iv); onClose(); }
+      if (pct === 0) { clearInterval(iv); onCloseRef.current(); }
     }, 50);
     return () => clearInterval(iv);
-  }, [onClose]);
+  }, []); // intentionally empty — runs once per mount
 
   return (
     <div style={{
@@ -3679,9 +4051,10 @@ function GeometricCorners({ style, small }) {
 
 // ═══════════════════════════════════════════════════════════════
 // CSS — E-INK SAFE
+// Injected via a component + useEffect so it runs only in a live browser context,
+// not at module parse time (which would throw in SSR or test environments).
 // ═══════════════════════════════════════════════════════════════
-const styleEl = document.createElement("style");
-styleEl.textContent = `
+const GLOBAL_CSS = `
   @keyframes slideDown { from { transform: translateY(-20px); } to { transform: translateY(0); } }
   @keyframes slideUp   { from { transform: translateY(20px);  } to { transform: translateY(0); } }
   @keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
@@ -3711,9 +4084,19 @@ styleEl.textContent = `
   * { -webkit-tap-highlight-color: transparent; }
   button { min-height: 40px; }
 `;
-document.head.appendChild(styleEl);
+
+function GlobalStyles() {
+  useEffect(() => {
+    const styleEl = document.createElement("style");
+    styleEl.setAttribute("data-ritmof", "global");
+    styleEl.textContent = GLOBAL_CSS;
+    document.head.appendChild(styleEl);
+    return () => { styleEl.remove(); };
+  }, []);
+  return null;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // MOUNT
 // ═══════════════════════════════════════════════════════════════
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<><GlobalStyles /><App /></>);

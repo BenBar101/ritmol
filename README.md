@@ -2,11 +2,39 @@
 
 A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser.
 
+**Access control:** The app is single-user. Only the Google account set in `ALLOWED_EMAIL` can use the app. Set this in your environment (e.g. `.env` or GitHub Actions Variables) and never commit secrets. The app expects **Google OAuth Client ID**, **Gemini API key** (`VITE_GEMINI_API_KEY`), and **Dropbox App Key** (`VITE_DROPBOX_APP_KEY`) to be set as **GitHub repo Variables** (or `.env` locally). Keys are not optional and are not entered in the UI — see `.env.example` and the deploy section.
+
+---
+
+## After cloning
+
+1. **Clone and enter the repo**
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/ritmof.git
+   cd ritmof
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Run locally**
+   ```bash
+   npm run dev
+   ```
+   Opens at `http://localhost:5173`. For single-account access, set `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID` in `.env` (see below). Example in docs uses a dummy email — use your own Google email in real config.
+
+4. **Required: local `.env`**  
+   Copy `.env.example` to `.env` and set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY`. Use a dummy email in documentation examples; never put real secrets in the repo.
+
 ---
 
 ## Deploy: GitHub Pages (recommended, free)
 
-**Checklist:** Push repo → enable Pages from GitHub Actions → (optional) add repo Variables for single-account gate and/or device lock → push again if you added Variables.
+**Checklist:** Push repo → enable Pages from GitHub Actions → add **GitHub repo Variables** for `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY` (and optionally a JWT verification endpoint URL if you add a backend).
+
+**Live site config:** Set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY` under **Settings → Secrets and variables → Actions → Variables**. No `.env` file is used for the deployed build.
 
 ### 1 — Push to GitHub
 
@@ -18,12 +46,12 @@ git remote add origin https://github.com/YOUR_USERNAME/ritmof.git
 git push -u origin main
 ```
 
-**If you rewrote history** (e.g. to remove a committed secret): use `git push --force origin main` so the remote matches your cleaned history. Only force-push when you’re sure no one else is building on the old history.
+**If you rewrote history** (e.g. to remove a committed secret): use `git push --force origin main` so the remote matches your cleaned history. Only force-push when you're sure no one else is building on the old history.
 
 ### 2 — Enable GitHub Pages
 
 1. Go to your repo → **Settings → Pages**
-2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not “Deploy from a branch”).
+2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not "Deploy from a branch").
 3. The workflow at `.github/workflows/deploy.yml` runs automatically on every push to `main`
 
 **If the page is blank and the console shows**  
@@ -34,42 +62,19 @@ git push -u origin main
 
 The workflow sets `VITE_BASE_PATH` from your repo name automatically, so the app is served at `https://YOUR_USERNAME.github.io/REPO_NAME/`. No change needed.
 
-### 4 — (Optional) Single-account gate
+### 4 — Restrict access (single Google account)
 
-You can restrict the app to a single Google account (e.g. only you can sign in). To enable it on the **deployed** site:
+Only the Google account in `VITE_ALLOWED_EMAIL` can use the app.
 
-1. Repo → **Settings** → **Secrets and variables** → **Actions** → **Variables** → **New repository variable**.
-2. Add:
-   - `VITE_ALLOWED_EMAIL` = the one Google email allowed (e.g. `you@gmail.com`)
-   - `VITE_GOOGLE_CLIENT_ID` = your Google OAuth Client ID (Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID). Add your GitHub Pages URL to **Authorized JavaScript origins**.
-3. Push a commit so the workflow rebuilds with these variables.
+1. Add **GitHub repository variables** (Settings → Secrets and variables → Actions → Variables):
+   - `VITE_ALLOWED_EMAIL`: your Google account email (e.g. `you@gmail.com`)
+   - `VITE_GOOGLE_CLIENT_ID`: your Google OAuth Client ID (Web application, with your GitHub Pages URL in Authorized JavaScript origins)
+   - `VITE_GEMINI_API_KEY`: your Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+   - `VITE_DROPBOX_APP_KEY`: your Dropbox App Key from [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps)
 
-For **local dev**, set the same in `.env` (see `.env.example`). Leave both empty to disable the gate.
+2. Push a commit so the workflow rebuilds. The app will show the Google sign-in gate; only the configured email can continue.
 
-
-
-### 5 — (Optional) Device lock (password gate)
-
-The app can show a password screen on first open. The password is never stored; only a hash is kept. Users enter the password once per device; access is remembered until you change the hash (e.g. when you set a new password).
-
-**Security:** The device-lock hash is read from **environment variables**, not from source code. This keeps the hash out of the repo and avoids leaking it in git history. **Never commit the hash** — use a `.env` file (see below) and ensure `.env` is in `.gitignore` (it is in this repo).
-
-**How to set or change the password:**
-
-1. Generate the hash in Terminal (replace `YourPassword` with your actual password):
-   ```bash
-   node -e "const c=require('crypto');console.log(c.pbkdf2Sync('YourPassword','ritmof-device-lock-v1',1e5,32,'sha256').toString('hex'));"
-   ```
-
-2. Put that hash in **two places** (same value both times):
-   - **Here (local):** In a `.env` file in the project root. Create it if needed (see `.env.example`). Add:
-     ```
-     VITE_DEVICE_LOCK_HASH=<paste the hex output>
-     ```
-     Used when you run `npm run dev` or `npm run build` on your machine. Never commit `.env` (it’s in `.gitignore`).
-   - **GitHub (deployed site):** Repo → **Settings** → **Secrets and variables** → **Actions** → **Variables** → **New repository variable**. Name: `VITE_DEVICE_LOCK_HASH`, Value: the same hex string. Used when GitHub Actions builds the app for GitHub Pages.
-
-3. Rebuild and redeploy. For the live site, push a commit so the workflow runs with the new variable. When the hash changes, all devices will be asked for the (new) password again.
+**Security note:** For production, add a small backend that verifies the Google ID token (JWT) and returns the email. Without server-side verification, a determined attacker could forge a token. The repo includes an example serverless function at `api/verify-google-id.js` (Vercel-style). Deploy it (e.g. to Vercel), set `GOOGLE_CLIENT_ID` in the function's environment, and set `VITE_VERIFY_GOOGLE_ID_URL` in your front-end env to the function URL. The client will then POST the credential there and only continue if the response email matches.
 
 ---
 
@@ -78,18 +83,19 @@ The app can show a password screen on first open. The password is never stored; 
 1. [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) → Create app → Scoped → App folder
 2. Permissions: enable `files.content.read` + `files.content.write` → Submit
 3. Settings → Redirect URIs → add your deployed URL (and `http://localhost:5173`)
-4. Copy the **App Key**
-5. RITMOF → Profile → Settings → paste App Key → **CONNECT DROPBOX**
+4. Copy the **App Key** and set **`VITE_DROPBOX_APP_KEY`** in GitHub repo Variables (or `.env` locally). The app requires this variable; it does not accept the key in the UI. Then in the app: Profile → Settings → **CONNECT DROPBOX** (OAuth uses the key from env).
 
 ---
 
 ## Local Dev
 
-Create a `.env` file in the project root for secrets (e.g. `VITE_DEVICE_LOCK_HASH`, `VITE_GOOGLE_CLIENT_ID`, `VITE_ALLOWED_EMAIL`). `.env` is in `.gitignore` — never commit it.
+The app requires `VITE_GEMINI_API_KEY` and `VITE_DROPBOX_APP_KEY` to be set (it shows a configuration screen otherwise). Run:
 
 ```bash
 npm install
 npm run dev   # → http://localhost:5173
 ```
 
-**Dev mode protects your real data:** When you run `npm run dev`, the app uses a **separate localStorage copy** (keys prefixed with `ritmof_dev_`). It will **pull** from Dropbox on launch (if connected) and store that data in this local copy. The app **never pushes to Dropbox** in dev, so you can experiment without affecting your real synced data. A yellow “DEV MODE” bar at the top reminds you. Use the sync button in dev to **refresh** the local copy from Dropbox (pull only).
+To run with **single-account access** and **sync**, create a `.env` from `.env.example` and set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY`. The app will not run without these keys (it shows a configuration screen until they are set).
+
+**Dev mode protects your real data:** When you run `npm run dev`, the app uses a **separate localStorage copy** (keys prefixed with `ritmof_dev_`). It will **pull** from Dropbox on launch (if connected) and store that data in this local copy. The app **never pushes to Dropbox** in dev, so you can experiment without affecting your real synced data. A yellow "DEV MODE" bar at the top reminds you. Use the sync button in dev to **refresh** the local copy from Dropbox (pull only).
