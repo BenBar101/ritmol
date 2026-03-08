@@ -1,6 +1,16 @@
 # RITMOL
 
-A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **localStorage**. Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
+A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **localStorage**. All application logic and UI live in **`src/App.jsx`**. Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
+
+### Project structure
+
+- **`src/App.jsx`** — all app logic, UI, sync, and auth.
+- **`index.html`** — entry point; includes SPA redirect handling for GitHub Pages.
+- **`vite.config.js`** — Vite config; `base` is set from `VITE_BASE_PATH` (e.g. repo name for GitHub Pages).
+- **`.github/workflows/deploy.yml`** — GitHub Actions workflow: build with repo Variables, deploy `dist` to Pages.
+- **`api/verify-google-id.js`** — optional serverless JWT verification (e.g. Vercel); used when `VITE_VERIFY_GOOGLE_ID_URL` is set.
+- **`manifest.json`**, **`sw.js`** — PWA manifest and service worker.
+- **`404.html`** — redirects 404s to the SPA so client-side routes and OAuth callbacks work on GitHub Pages.
 
 ## Design Philosophy & Security Model
 
@@ -79,10 +89,10 @@ Contributors and automated tools should **not** add server components or cloud s
    ```bash
    npm run dev
    ```
-   Copy `.env.example` to `.env` and set `VITE_GEMINI_API_KEY`. For **single-account access**, also set `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID`; to run **without the gate**, leave those two empty.
+   Copy `.env.example` to `.env` and set `VITE_GEMINI_API_KEY`. For **single-account access**, also set `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID`; to run **without the gate**, leave those two empty. Never put real secrets in the repo.
 
-4. **Local `.env`**  
-   Copy `.env.example` to `.env`. Set `VITE_GEMINI_API_KEY` so the app can run. For the sign-in gate, set both `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID`, or leave both empty in dev. Never put real secrets in the repo.
+4. **(Optional) Local `.env` reference**  
+   All config can live in `.env` for local dev. The deployed build uses **GitHub repo Variables** only (no `.env`). See `.env.example` for every variable.
 
 ---
 
@@ -106,9 +116,9 @@ The sync file must be **valid JSON** and may not exceed **10 MB**. If you Pull o
 
 The app applies a number of safeguards documented in code comments in `src/App.jsx`:
 
-- **Sync:** Corrupt or oversized sync files are rejected (no tab crash). Only allowlisted keys are written from sync; API keys are never synced. Timers and habit suggestions are included in the sync payload and in flush-to-storage. Dev and prod use separate localStorage prefixes and separate sync file handles.
-- **Auth:** Google JWT payload is validated (iss, aud, exp, email_verified); malformed tokens are rejected. Sign-in retry is rate-limited; the failure counter resets on success. Unlinking the sync file uses an in-app confirmation (no `window.confirm`) for PWA compatibility.
-- **AI safety:** Profile and prompt text are sanitized to reduce JSON/prompt injection. Token usage is capped per day; AI-awarded XP is capped per day to prevent runaway accumulation.
+- **Sync:** Corrupt or oversized sync files are rejected (no tab crash). Only allowlisted keys (`SYNC_KEYS`) are written from sync; API keys are never synced. Incoming payloads are validated with `SYNC_VALIDATORS` per key. Timers and habit suggestions are included in the sync payload and in flush-to-storage. Dev and prod use separate localStorage prefixes and **separate sync file handles** (different IndexedDB key); in dev you can link a test file and use **Pull** to refresh the dev copy without affecting production. Before each Push (manual or auto-push on tab hide), the app **flushes the latest in-memory state to localStorage** so the sync file always reflects current data. The sync file handle is stored in **IndexedDB**; the DB connection is **cached and reused** (and cleared on error so the next call retries) for reliability on low-end devices.
+- **Auth:** Google JWT payload is validated (iss, aud, exp, email_verified); malformed tokens are rejected. The in-app session (nonce in sessionStorage) is a **UX guard**, not a strong security boundary; the **trust anchor** is the Google-signed JWT verified above. Sign-in retry is rate-limited; the failure counter resets on success. Unlinking the sync file uses an in-app confirmation (no `window.confirm`) for PWA compatibility.
+- **AI safety:** All user-supplied and prompt data (profile, tasks, goals, habits, data tables sent to the AI) is **sanitized** to reduce JSON/prompt injection. Token usage is capped per day; AI-awarded XP is capped per day to prevent runaway accumulation.
 
 ### Onboarding (new device)
 
@@ -198,4 +208,6 @@ npm run dev   # → http://localhost:5173
 
 For **single-account access**, create a `.env` from `.env.example` and set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, and `VITE_GEMINI_API_KEY`. To run **without the sign-in gate**, leave `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID` empty; you still need the Gemini key.
 
-**Dev mode protects your real data:** When you run `npm run dev`, the app uses a **separate localStorage copy** for all its own keys (prefixed with `ritmol_dev_`). Caches and app data are isolated from production. A yellow **DEV MODE** bar at the top reminds you.
+To test the production build locally, run `npm run build` then `npm run preview`.
+
+**Dev mode protects your real data:** When you run `npm run dev`, the app uses a **separate localStorage copy** for all its own keys (prefixed with `ritmol_dev_`) and a **separate sync file handle** (stored under a different IndexedDB key). Caches and app data are isolated from production. Use **Pull** in Profile → Settings to refresh the dev copy from your Syncthing file. A yellow **DEV MODE** bar at the top reminds you.
