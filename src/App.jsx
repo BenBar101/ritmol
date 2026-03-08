@@ -55,6 +55,31 @@ const GATE_GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim
 const GATE_SESSION_KEY = "ritmof_allowed";
 const THEME_KEY = "jv_theme";
 
+// Device lock: PBKDF2-SHA256 hash of the master password (same salt/iterations as hashPasswordForDeviceLock)
+const DEVICE_LOCK_STORAGE_KEY = "ritmof_device_unlock";
+const DEVICE_LOCK_SALT = "ritmof-device-lock-v1";
+const DEVICE_LOCK_ITERATIONS = 100000;
+const EXPECTED_PASSWORD_HASH = "REMOVED";
+
+async function hashPasswordForDeviceLock(password) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const saltBytes = new TextEncoder().encode(DEVICE_LOCK_SALT);
+  const derived = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: saltBytes, iterations: DEVICE_LOCK_ITERATIONS, hash: "SHA-256" },
+    keyMaterial,
+    256
+  );
+  return Array.from(new Uint8Array(derived))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS
 // ═══════════════════════════════════════════════════════════════
@@ -331,6 +356,76 @@ function applySyncPayload(payload) {
       localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v));
     }
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEVICE LOCK (password gate — hash compared, unlock stored until hash changes)
+// ═══════════════════════════════════════════════════════════════
+function DeviceLockGate({ onUnlock }) {
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!password.trim()) return;
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      const hash = await hashPasswordForDeviceLock(password);
+      if (hash === EXPECTED_PASSWORD_HASH) {
+        try {
+          localStorage.setItem(DEVICE_LOCK_STORAGE_KEY, EXPECTED_PASSWORD_HASH);
+        } catch {}
+        onUnlock();
+        return;
+      }
+      setErrorMsg("Wrong password.");
+      setStatus("error");
+    } catch (err) {
+      setErrorMsg("Could not verify. Try again.");
+      setStatus("error");
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      background: "var(--bg)", color: "var(--text)", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
+    }}>
+      <div style={{ fontSize: "11px", color: "var(--muted)", letterSpacing: "2px", marginBottom: "8px" }}>RITMOF</div>
+      <div style={{ fontSize: "14px", color: "var(--muted2)", marginBottom: "24px" }}>Enter the device password to continue.</div>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%", maxWidth: "280px" }}>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => { setPassword(e.target.value); setErrorMsg(""); }}
+          placeholder="Password"
+          autoFocus
+          autoComplete="current-password"
+          disabled={status === "loading"}
+          style={{
+            width: "100%", padding: "12px", border: "1px solid var(--border2)", background: "var(--surface)", color: "var(--text)",
+            fontFamily: "inherit", fontSize: "14px", outline: "none", boxSizing: "border-box",
+          }}
+        />
+        {errorMsg && (
+          <div style={{ color: "#c44", fontSize: "12px" }}>{errorMsg}</div>
+        )}
+        <button
+          type="submit"
+          disabled={status === "loading"}
+          style={{
+            padding: "12px 24px", border: "1px solid var(--border2)", background: status === "loading" ? "var(--surface2)" : "transparent",
+            color: status === "loading" ? "var(--muted)" : "var(--text)", fontFamily: "inherit", fontSize: "12px", letterSpacing: "1px",
+            cursor: status === "loading" ? "not-allowed" : "pointer",
+          }}
+        >
+          {status === "loading" ? "VERIFYING…" : "UNLOCK"}
+        </button>
+      </form>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -669,6 +764,7 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [showOnboarding, setShowOnboarding] = useState(!LS.get("jv_profile"));
   const [gatePassed, setGatePassed] = useState(() => typeof sessionStorage !== "undefined" && sessionStorage.getItem(GATE_SESSION_KEY) === "true");
+  const [deviceLockPassed, setDeviceLockPassed] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem(DEVICE_LOCK_STORAGE_KEY) === EXPECTED_PASSWORD_HASH);
   const [modal, setModal] = useState(null); // { type, data }
   const [toast, setToast] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -1109,6 +1205,12 @@ export default function App() {
     setState((s) => ({ ...s, habitLog: { ...s.habitLog, [t]: todayLog } }));
     awardXP(habit.xp, event);
     checkMissions("habits");
+  }
+
+  if (!deviceLockPassed) {
+    return (
+      <DeviceLockGate onUnlock={() => setDeviceLockPassed(true)} />
+    );
   }
 
   if (ALLOWED_EMAIL && GATE_GOOGLE_CLIENT_ID && !gatePassed) {

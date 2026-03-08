@@ -30,24 +30,33 @@ git push -u origin main
 
 The workflow sets `VITE_BASE_PATH` from your repo name automatically, so the app is served at `https://YOUR_USERNAME.github.io/REPO_NAME/`. No change needed.
 
-### 4 — (Optional) Single-account access
 
-To restrict the app to one Google account, set **Repository variables** (repo → Settings → Secrets and variables → Actions → Variables):
 
-- `VITE_ALLOWED_EMAIL` — the only Google email that can sign in (e.g. `you@gmail.com`).
-- `VITE_GOOGLE_CLIENT_ID` — OAuth Web application Client ID from [Google Cloud Console](https://console.cloud.google.com/). Use the same app as for Calendar, or create one. Add your GitHub Pages URL to **Authorized JavaScript origins** (e.g. `https://YOUR_USERNAME.github.io`).
+### 4 — (Optional) Device lock (password gate)
 
-Leave both empty to allow anyone to use the app. After setting them, push to trigger a new build.
+The app can show a password screen on first open. The password is never stored; only a hash is kept. Users enter the password once per device; access is remembered until you change the hash (e.g. when you set a new password).
 
-Your app: `https://YOUR_USERNAME.github.io/REPO_NAME/`
+**How to set or change the password:**
 
----
+1. Generate the hash with Node (same algorithm as the app: PBKDF2-SHA256, 100k iterations, salt `ritmof-device-lock-v1`):
 
-## Deploy: Vercel (alternative)
+   ```bash
+   node -e "
+   const crypto = require('crypto');
+   const password = 'changeme';   // use your password
+   const salt = 'ritmof-device-lock-v1';
+   const hash = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex');
+   console.log(hash);
+   "
+   ```
 
-1. Push to GitHub → [vercel.com](https://vercel.com) → New Project → import
-2. Deploy — zero config (`vercel.json` handles SPA routing)
-3. Remove `VITE_BASE_PATH` env var if set (Vercel uses `/`)
+2. In `src/App.jsx`, find `EXPECTED_PASSWORD_HASH` and set it to the printed hex string.
+
+   Example: for the dumb password `changeme`, the hash is  
+   `3d94f22119c5691913e7fe6ba413c62362fca1233cd2bf729c1dd9842cc2d5bb`.  
+   Replace the current value of `EXPECTED_PASSWORD_HASH` with that to use `changeme` as the device password.
+
+3. Rebuild/redeploy. When the hash in code changes, all devices will be asked for the (new) password again.
 
 ---
 
