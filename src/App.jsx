@@ -70,6 +70,9 @@ const VITE_GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
 // Any production build with at least one var set will always enforce the gate.
 const AUTH_REQUIRED = !!(ALLOWED_EMAIL || GATE_GOOGLE_CLIENT_ID) || !import.meta.env.DEV;
 const GATE_SESSION_KEY = "ritmof_session_token"; // stores a signed token, not a plain boolean
+// Daily token budget. Gemini 2.5 Flash free tier is ~1 000 000 tokens/day per key.
+// Set conservatively so a runaway loop doesn't silently drain the quota.
+const DAILY_TOKEN_LIMIT = 50_000;
 const DATA_DISCLOSURE_SEEN_KEY = "ritmof_data_disclosure_seen";
 const THEME_KEY = "jv_theme";
 
@@ -187,7 +190,11 @@ async function fetchGCalEvents(accessToken, maxResults = 30) {
       `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    if (!res.ok) return [];
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("GCAL_TOKEN_EXPIRED");
+      console.warn(`fetchGCalEvents: HTTP ${res.status}`);
+      return [];
+    }
     const data = await res.json();
     return (data.items || []).map((e) => ({
       id: e.id,
@@ -299,7 +306,7 @@ async function exchangeDropboxCode(appKey, code) {
 }
 
 async function refreshDropboxToken(appKey) {
-  const refreshToken = localStorage.getItem(DB_REFRESH_KEY);
+  const refreshToken = sessionStorage.getItem(DB_REFRESH_KEY);
   if (!refreshToken) throw new Error("No refresh token stored.");
   const params = new URLSearchParams({
     grant_type: "refresh_token",
@@ -320,13 +327,17 @@ async function refreshDropboxToken(appKey) {
   return data.access_token;
 }
 
-// SECURITY NOTE: The short-lived access token is stored in sessionStorage (tab-scoped, cleared on close).
-// The refresh token must stay in localStorage for persistence across sessions — this is an accepted
-// tradeoff for a personal app. If you suspect your device is compromised, revoke the app in
-// Dropbox Settings → Connected Apps. The access token expiry check prevents stale tokens being used.
+// SECURITY NOTE: Both the short-lived access token and the refresh token are stored in
+// sessionStorage (tab-scoped, cleared on close). This means Dropbox sync requires
+// re-authorization when the browser is fully closed — an intentional tradeoff that keeps
+// OAuth credentials out of the persistent localStorage where any JS (including extensions)
+// could read them indefinitely. For a personal app on a trusted device, this is the right
+// balance between convenience and security.
+// If you need persistence across browser restarts, move DB_REFRESH_KEY to localStorage
+// and acknowledge that the token will survive until manually revoked.
 function storeDropboxTokens(data) {
-  if (data.access_token) sessionStorage.setItem(DB_TOKEN_KEY, data.access_token); // session-scoped
-  if (data.refresh_token) localStorage.setItem(DB_REFRESH_KEY, data.refresh_token); // persistent
+  if (data.access_token) sessionStorage.setItem(DB_TOKEN_KEY, data.access_token);
+  if (data.refresh_token) sessionStorage.setItem(DB_REFRESH_KEY, data.refresh_token);
   if (data.expires_in) {
     sessionStorage.setItem(DB_EXPIRES_KEY, String(Date.now() + data.expires_in * 1000 - 60000));
   }
@@ -389,8 +400,10 @@ const SYNC_SCHEMA_VERSION = 1; // bump this when making breaking data model chan
 function buildSyncPayload() {
   const payload = { _syncedAt: Date.now(), _schemaVersion: SYNC_SCHEMA_VERSION };
   SYNC_KEYS.forEach((k) => {
-    const v = localStorage.getItem(storageKey(k));
-    if (v !== null) payload[k] = v;
+    const raw = localStorage.getItem(storageKey(k));
+    if (raw === null) return;
+    // Store parsed values so the Dropbox file contains clean JSON, not double-encoded strings.
+    try { payload[k] = JSON.parse(raw); } catch { payload[k] = raw; }
   });
   return payload;
 }
@@ -648,16 +661,20 @@ function AuthGate({ onAccessGranted }) {
   useEffect(() => { handleSignIn(); }, []);
 
   if (misconfigured) {
+    // In production: both vars must be set — show a clear deployment error.
+    // In dev: this renders only if the developer set exactly one var (partial config).
+    const isProd = !import.meta.env.DEV;
     return (
       <div style={{
         minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
         background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
       }}>
         <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOF — CONFIGURATION ERROR</div>
-        <div style={{ color: "#c44", fontSize: "12px", maxWidth: "340px", lineHeight: "1.8" }}>
-          ⚠ Auth is not configured.<br />
-          Set <code>VITE_ALLOWED_EMAIL</code> and <code>VITE_GOOGLE_CLIENT_ID</code> in your GitHub repo Variables before deploying.
-          The app is locked until both are present.
+        <div style={{ color: "#c44", fontSize: "12px", maxWidth: "380px", lineHeight: "1.8" }}>
+          {isProd
+            ? <>⚠ Auth is misconfigured. Both <code>VITE_ALLOWED_EMAIL</code> and <code>VITE_GOOGLE_CLIENT_ID</code> must be set as GitHub repo Variables before deploying. The app is locked until both are present.</>
+            : <>⚠ Partial auth config detected. Either set <em>both</em> <code>VITE_ALLOWED_EMAIL</code> and <code>VITE_GOOGLE_CLIENT_ID</code> in your <code>.env</code>, or leave both empty to run without the gate in dev.</>
+          }
         </div>
       </div>
     );
@@ -869,7 +886,7 @@ function initState() {
     dynamicCosts: LS.get(storageKey("jv_dynamic_costs"), null) || { xpPerLevel: DEFAULT_XP_PER_LEVEL, gachaCost: DEFAULT_GACHA_COST, streakShieldCost: DEFAULT_STREAK_SHIELD_COST },
     lastShieldUseDate: LS.get(storageKey("jv_last_shield_use_date"), null),
     dropboxAppKey: getDropboxAppKey(),
-    dropboxConnected: !!localStorage.getItem(DB_REFRESH_KEY),
+    dropboxConnected: !!sessionStorage.getItem(DB_REFRESH_KEY),
   };
 }
 
@@ -890,6 +907,7 @@ function sanitizeForPrompt(str, maxLen = 200) {
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // control chars
     .replace(/[`]/g, "'")                           // backtick → apostrophe
     .replace(/\$\{/g, "$(")                         // template literal escape
+    .replace(/[{}]/g, "")                            // strip braces — prevents pre-formed JSON injection
     .slice(0, maxLen);
 }
 
@@ -1105,7 +1123,7 @@ export default function App() {
   const profile = state.profile;
   const apiKey = getGeminiApiKey();
   const dropboxAppKey = getDropboxAppKey();
-  const dropboxConnected = state.dropboxConnected || !!localStorage.getItem(DB_REFRESH_KEY);
+  const dropboxConnected = state.dropboxConnected || !!sessionStorage.getItem(DB_REFRESH_KEY);
   // Legacy: strip geminiKey from profile if present (from old sync or localStorage)
   useEffect(() => {
     if (profile?.geminiKey) {
@@ -1192,7 +1210,7 @@ export default function App() {
   // ── Dropbox: pull on launch (if already connected) ──
   useEffect(() => {
     const appKey = getDropboxAppKey();
-    const hasRefresh = !!localStorage.getItem(DB_REFRESH_KEY);
+    const hasRefresh = !!sessionStorage.getItem(DB_REFRESH_KEY);
     if (!appKey || !hasRefresh) return;
     if (!IS_DEV && !state.profile) return;
     setSyncStatus("syncing");
@@ -1226,7 +1244,7 @@ export default function App() {
     if (IS_DEV) return;
     const push = () => {
       const appKey = getDropboxAppKey();
-      const hasRefresh = !!localStorage.getItem(DB_REFRESH_KEY);
+      const hasRefresh = !!sessionStorage.getItem(DB_REFRESH_KEY);
       if (!appKey || !hasRefresh) return;
       // Flush latest React state to localStorage synchronously before reading the payload
       const s = latestStateRef.current;
@@ -1281,7 +1299,7 @@ export default function App() {
   async function manualSync() {
     const appKey = getDropboxAppKey();
     if (!appKey) { showBanner("Set VITE_DROPBOX_APP_KEY in your environment.", "alert"); return; }
-    if (!localStorage.getItem(DB_REFRESH_KEY)) {
+    if (!sessionStorage.getItem(DB_REFRESH_KEY)) {
       showBanner("Dropbox not connected. Click 'Connect Dropbox' in Settings.", "alert"); return;
     }
     setSyncStatus("syncing");
@@ -1296,8 +1314,12 @@ export default function App() {
             setState(initState);
             LS.set(storageKey("jv_last_synced"), String(remote._syncedAt));
             setLastSynced(remote._syncedAt);
+            showBanner("Dev copy refreshed from Dropbox. Real data not modified.", "success");
+          } else {
+            showBanner("Dev copy is already up to date.", "info");
           }
-          showBanner("Dev copy refreshed from Dropbox. Real data not modified.", "success");
+        } else {
+          showBanner("Nothing to pull — no sync file found on Dropbox yet.", "info");
         }
       } else {
         await dropboxUpload(token, buildSyncPayload());
@@ -1315,10 +1337,20 @@ export default function App() {
   }
 
   // ── Disconnect Dropbox ──
-  function disconnectDropbox() {
+  async function disconnectDropbox() {
     if (!window.confirm("Disconnect Dropbox? Your local data is safe.")) return;
+    // Best-effort token revocation — revoke at Dropbox before clearing local state so the
+    // token cannot be reused even if extracted from sessionStorage before this point.
+    try {
+      const token = sessionStorage.getItem(DB_TOKEN_KEY);
+      if (token) {
+        await fetch("https://api.dropboxapi.com/2/auth/token/revoke", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    } catch { /* ignore — network failure; user can revoke manually in Dropbox Settings */ }
     [DB_TOKEN_KEY, DB_REFRESH_KEY, DB_EXPIRES_KEY].forEach(k => {
-      localStorage.removeItem(k);
       sessionStorage.removeItem(k);
     });
     setState((s) => ({ ...s, dropboxConnected: false }));
@@ -1345,19 +1377,47 @@ export default function App() {
   }, [profile, state.lastMissionDate]);
 
   // ── Token tracker ──
+  // Thresholds at which we warn the user (as fraction of DAILY_TOKEN_LIMIT).
+  const TOKEN_WARN_THRESHOLDS = [0.5, 0.8, 0.99];
   function trackTokens(amount) {
     setState((s) => {
       const usage = s.tokenUsage || { date: today(), tokens: 0 };
-      const fresh = usage.date !== today() ? { date: today(), tokens: 0 } : usage;
-      const updated = { ...fresh, tokens: fresh.tokens + amount };
+      const fresh = usage.date !== today() ? { date: today(), tokens: 0, warnedAt: [] } : usage;
+      const prevTokens = fresh.tokens;
+      const newTokens = prevTokens + amount;
+      const updated = { ...fresh, tokens: newTokens };
+
+      // Fire threshold banners — each fires only once per day per threshold.
+      const warnedAt = fresh.warnedAt || [];
+      const newWarned = [...warnedAt];
+      TOKEN_WARN_THRESHOLDS.forEach((threshold) => {
+        const pct = Math.round(threshold * 100);
+        if (!warnedAt.includes(pct) && prevTokens < DAILY_TOKEN_LIMIT * threshold && newTokens >= DAILY_TOKEN_LIMIT * threshold) {
+          newWarned.push(pct);
+          if (threshold >= 0.99) {
+            setTimeout(() => showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert"), 0);
+          } else {
+            setTimeout(() => showBanner(`SYSTEM: Neural energy at ${pct}%. ${threshold >= 0.8 ? "Conserve wisely." : ""}`, "warning"), 0);
+          }
+        }
+      });
+      updated.warnedAt = newWarned;
+
       LS.set(storageKey("jv_token_usage"), updated);
       return { ...s, tokenUsage: updated };
     });
   }
 
+  // Returns true if the daily token budget has not been exhausted.
+  function canCallGemini() {
+    const usage = state.tokenUsage;
+    if (!usage || usage.date !== today()) return true; // new day, budget reset
+    return usage.tokens < DAILY_TOKEN_LIMIT;
+  }
+
   // ── Fetch daily quote ──
   useEffect(() => {
-    if (!apiKey) return;
+    if (!apiKey || !canCallGemini()) return;
     fetchDailyQuote(apiKey, profile, trackTokens).then(setDailyQuote);
   }, [apiKey]);
 
@@ -1437,16 +1497,22 @@ export default function App() {
       } else if (s.lastLoginDate === effectiveDate) {
         // Already logged in today — no change
       } else {
-        // Missed at least one day — at most one shield per calendar day
-        const canUseShield = s.streakShields > 0 && s.lastShieldUseDate !== effectiveDate;
+        // Missed at least one day.
+        // A shield can only cover a single missed day (the day immediately before today).
+        // If the user was absent for 2+ days the streak resets regardless of shields held.
+        const daysSinceLast = s.lastLoginDate
+          ? Math.round((new Date(effectiveDate) - new Date(s.lastLoginDate)) / 86400000)
+          : Infinity;
+        const missedMoreThanOneDay = daysSinceLast > 2; // >2 means at least 2 full days missed
+        const canUseShield = !missedMoreThanOneDay && s.streakShields > 0 && s.lastShieldUseDate !== effectiveDate;
         if (canUseShield) {
           newShields = s.streakShields - 1;
           bannerMsg = "Streak shield consumed. Streak preserved.";
-        } else if (s.streakShields > 0 && s.lastShieldUseDate === effectiveDate) {
-          // Already used a shield today; cannot use another
-          newStreak = 0;
         } else {
           newStreak = 0;
+          if (missedMoreThanOneDay && s.streakShields > 0) {
+            bannerMsg = "Gap too large for a shield. Streak reset.";
+          }
         }
       }
 
@@ -1826,6 +1892,7 @@ export default function App() {
             dropboxConnected={dropboxConnected} dropboxAppKey={dropboxAppKey}
             onDisconnectDropbox={disconnectDropbox}
             theme={theme} setTheme={setTheme}
+            trackTokens={trackTokens}
           />
         )}
       </div>
@@ -2583,6 +2650,8 @@ function HabitsTab({ state, setState, logHabit, awardXP, showBanner, profile, ap
   // First-open: ask RITMOF to generate personalized habits
   useEffect(() => {
     if (state.habitsInitialized || !apiKey || !profile || initializing) return;
+    const usage = state.tokenUsage;
+    if (usage && usage.date === today() && usage.tokens >= DAILY_TOKEN_LIMIT) return;
     setInitializing(true);
 
     const prompt = `You are RITMOF initializing a personalized habit protocol for a new hunter.
@@ -2970,6 +3039,11 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
   async function sendMessage(text) {
     if (!text.trim() || loading) return;
     if (!apiKey) { showBanner("No Gemini API key configured.", "alert"); return; }
+    const usage = state.tokenUsage;
+    if (usage && usage.date === today() && usage.tokens >= DAILY_TOKEN_LIMIT) {
+      showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
+      return;
+    }
 
     const userMsg = { role: "user", content: text, ts: Date.now() };
     const newHistory = [...messages, userMsg];
@@ -3187,7 +3261,7 @@ function ChatMessage({ msg }) {
 // ═══════════════════════════════════════════════════════════════
 // PROFILE TAB
 // ═══════════════════════════════════════════════════════════════
-function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme, streakShieldCost, gachaCost }) {
+function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme, streakShieldCost, gachaCost, trackTokens }) {
   const [section, setSection] = useState("overview");
   const [showGacha, setShowGacha] = useState(false);
 
@@ -3236,7 +3310,7 @@ function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP
       {section === "overview" && <ProfileOverview state={state} setState={setState} profile={profile} level={level} rank={rank} streakShieldCost={streakShieldCost} apiKey={apiKey} showBanner={showBanner} />}
       {section === "achievements" && <AchievementsSection state={state} />}
       {section === "calendar" && <CalendarSection state={state} setState={setState} profile={profile} apiKey={apiKey} buildSystemPrompt={buildSystemPrompt} showBanner={showBanner} executeCommands={executeCommands} />}
-      {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} gachaCost={gachaCost} showBanner={showBanner} showToast={showToast} />}
+      {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} gachaCost={gachaCost} showBanner={showBanner} showToast={showToast} trackTokens={trackTokens} />}
       {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} onSync={onSync} dropboxConnected={dropboxConnected} dropboxAppKey={dropboxAppKey} onDisconnectDropbox={onDisconnectDropbox} theme={theme} setTheme={setTheme} />}
     </div>
   );
@@ -3418,6 +3492,12 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
       });
       showBanner(`Synced ${events.length} events from Google Calendar.`, "success");
     } catch (e) {
+      if (e?.message === "GCAL_TOKEN_EXPIRED") {
+        setState((s) => ({ ...s, gCalConnected: false }));
+        showBanner("Google Calendar token expired. Re-sync to reconnect.", "alert");
+        setGCalLoading(false);
+        return;
+      }
       let msg = e?.error?.message ?? e?.result?.error?.message ?? e?.message ?? e?.reason;
       if (msg == null && e && typeof e === "object") {
         const err = e?.error ?? e?.result?.error;
@@ -3512,7 +3592,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
   );
 }
 
-function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner, showToast }) {
+function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner, showToast, trackTokens }) {
   const [pulling, setPulling] = useState(false);
   const [lastPull, setLastPull] = useState(null);
   const [showCollection, setShowCollection] = useState(false);
@@ -3523,6 +3603,11 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
     if (!canAfford || pulling || !apiKey) {
       if (!canAfford) showBanner(`Insufficient XP. Need ${gachaCost} XP to pull.`, "alert");
       if (!apiKey) showBanner("No API key. Configure in settings.", "alert");
+      return;
+    }
+    const usage = state.tokenUsage;
+    if (usage && usage.date === today() && usage.tokens >= DAILY_TOKEN_LIMIT) {
+      showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
       return;
     }
     setPulling(true);
@@ -3551,7 +3636,7 @@ Respond ONLY with JSON:
 }`;
 
       const { text: raw, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a master of literary atmosphere and ASCII art. Respond only in JSON.", true);
-      // Note: gacha doesn't have trackTokens access here — tokens tracked at App level via state
+      trackTokens(tokensUsed);
       const cleaned = raw.replace(/```json|```/g, "").trim();
       const card = JSON.parse(cleaned);
 
@@ -4150,4 +4235,14 @@ function GlobalStyles() {
 // ═══════════════════════════════════════════════════════════════
 // MOUNT
 // ═══════════════════════════════════════════════════════════════
-ReactDOM.createRoot(document.getElementById("root")).render(<><GlobalStyles /><App /></>);
+function mount() {
+  const root = document.getElementById("root");
+  if (!root) { console.error("RITMOF: #root element not found. Cannot mount."); return; }
+  ReactDOM.createRoot(root).render(<><GlobalStyles /><App /></>);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", mount);
+} else {
+  mount();
+}
