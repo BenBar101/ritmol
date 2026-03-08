@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jarvis-v1';
+const CACHE_NAME = 'ritmof-v1';
 const STATIC_ASSETS = ['/', '/index.html'];
 
 self.addEventListener('install', (e) => {

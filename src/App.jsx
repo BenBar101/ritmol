@@ -52,7 +52,7 @@ const ACHIEVEMENT_RARITIES = {
 // Single-account gate: set at build time (e.g. .env or GitHub repo env)
 const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || "").trim().toLowerCase();
 const GATE_GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
-const GATE_SESSION_KEY = "jarvis_allowed";
+const GATE_SESSION_KEY = "ritmof_allowed";
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS
@@ -178,7 +178,7 @@ function detectEventType(title) {
 // ═══════════════════════════════════════════════════════════════
 // DROPBOX PKCE OAUTH + SYNC
 // ═══════════════════════════════════════════════════════════════
-const DROPBOX_FILE = "/jarvis-data.json";
+const DROPBOX_FILE = "/ritmof-data.json";
 const DB_TOKEN_KEY = "jv_dropbox_token";
 const DB_REFRESH_KEY = "jv_dropbox_refresh";
 const DB_EXPIRES_KEY = "jv_dropbox_expires";
@@ -368,7 +368,7 @@ function AuthGate({ onAccessGranted }) {
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
     }}>
-      <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "8px" }}>JARVIS</div>
+      <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "8px" }}>RITMOF</div>
       <div style={{ fontSize: "14px", color: "#aaa", marginBottom: "24px" }}>Single-account access. Sign in with the allowed Google account.</div>
       {status === "denied" && (
         <div style={{ color: "#c44", marginBottom: "16px", fontSize: "12px" }}>Access denied. Only the owner account can use this app.</div>
@@ -563,7 +563,7 @@ function buildSystemPrompt(state, profile) {
   const screenToday = state.screenTimeLog?.[today()] || {};
   const totalScreenToday = (screenToday.afternoon || 0) + (screenToday.evening || 0);
 
-  return `You are JARVIS. You have full read access to this hunter's life data. You are not a chatbot, not an assistant, not a coach. You are the System — an entity that observes, analyzes, and occasionally speaks. When you speak, it matters.
+  return `You are RITMOF. You have full read access to this hunter's life data. You are not a chatbot, not an assistant, not a coach. You are the System — an entity that observes, analyzes, and occasionally speaks. When you speak, it matters.
 
 HUNTER FILE:
 Name: ${profile?.name || "Hunter"} | Major: ${profile?.major || "Unknown"} | Level: ${lvl} | Rank: ${rank.title}
@@ -950,7 +950,7 @@ export default function App() {
       { id: "m3", desc: "Complete 10 habits", target: 10, type: "habits", xp: 500, done: false },
       { id: "m4", desc: "Log a study session", target: 1, type: "session", xp: 75, done: false },
       { id: "m5", desc: "Complete a task", target: 1, type: "task", xp: 50, done: false },
-      { id: "m6", desc: "Open JARVIS chat", target: 1, type: "chat", xp: 25, done: false },
+      { id: "m6", desc: "Open RITMOF chat", target: 1, type: "chat", xp: 25, done: false },
     ];
   }
 
@@ -1015,14 +1015,14 @@ export default function App() {
         case "add_task":
           setState((s) => ({
             ...s,
-            tasks: [...(s.tasks || []), { id: Date.now(), text: cmd.text, priority: cmd.priority || "medium", due: cmd.due, done: false, addedBy: "jarvis" }],
+            tasks: [...(s.tasks || []), { id: Date.now(), text: cmd.text, priority: cmd.priority || "medium", due: cmd.due, done: false, addedBy: "ritmof" }],
           }));
           showBanner(`Task added: ${cmd.text}`, "info");
           break;
         case "add_goal":
           setState((s) => ({
             ...s,
-            goals: [...(s.goals || []), { id: Date.now(), title: cmd.title, course: cmd.course, due: cmd.due, done: false, addedBy: "jarvis", tasks: [] }],
+            goals: [...(s.goals || []), { id: Date.now(), title: cmd.title, course: cmd.course, due: cmd.due, done: false, addedBy: "ritmof", tasks: [] }],
           }));
           showBanner(`Goal logged: ${cmd.title}`, "success");
           break;
@@ -1056,7 +1056,7 @@ export default function App() {
               xp: cmd.xp || 25,
               icon: cmd.icon || "◈",
               style: cmd.style || "ascii",
-              addedBy: "jarvis",
+              addedBy: "ritmof",
             };
             return { ...s, habits: [...s.habits, newHabit] };
           });
@@ -1332,7 +1332,7 @@ function Onboarding({ onComplete }) {
     },
     {
       title: "CALENDAR SYNC",
-      subtitle: "Connect Google Calendar so JARVIS sees your exams and lectures.",
+      subtitle: "Connect Google Calendar so RITMOF sees your exams and lectures.",
       field: "googleClientId", label: "GOOGLE CLIENT ID", placeholder: "xxx.apps.googleusercontent.com", type: "text",
       style: "geometric",
       isCalendarStep: true,
@@ -1358,7 +1358,7 @@ function Onboarding({ onComplete }) {
     }
     if (!form[current.field]?.trim()) {
       if (current.field === "geminiKey") {
-        setError("API key required to activate JARVIS.");
+        setError("API key required to activate RITMOF.");
         return;
       }
       if (current.field !== "googleClientId" && current.field !== "dropboxAppKey") {
@@ -1444,12 +1444,12 @@ function Onboarding({ onComplete }) {
         {error && <div style={{ color: "#ccc", fontSize: "11px", marginTop: "8px" }}>⚠ {error}</div>}
 
         <button onClick={handleNext} style={{ ...primaryBtn, marginTop: "16px" }}>
-          {step === steps.length - 1 ? "INITIALIZE JARVIS" : current.optional ? "NEXT › (or skip)" : "NEXT ›"}
+          {step === steps.length - 1 ? "INITIALIZE RITMOF" : current.optional ? "NEXT › (or skip)" : "NEXT ›"}
         </button>
       </div>
 
       <div style={{ marginTop: "16px", marginBottom: "32px", fontSize: "10px", color: "#444", fontFamily: "'Share Tech Mono', monospace" }}>
-        JARVIS v1.0 // LOCAL STORAGE ONLY // ZERO TELEMETRY
+        RITMOF v1.0 // LOCAL STORAGE ONLY // ZERO TELEMETRY
       </div>
     </div>
   );
@@ -1523,7 +1523,7 @@ function GoogleCalendarGuide() {
           <div style={{ color: "#888", fontWeight: "bold", marginBottom: "4px" }}>STEP 1 — Create project</div>
           <div>1. Go to <span style={{ color: "#ccc" }}>console.cloud.google.com</span></div>
           <div>2. Click the project dropdown at the top → <span style={{ color: "#ccc" }}>New Project</span></div>
-          <div>3. Name it "JARVIS" → Create</div>
+          <div>3. Name it "RITMOF" → Create</div>
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 2 — Enable Calendar API</div>
           <div>4. In the left menu: <span style={{ color: "#ccc" }}>APIs &amp; Services → Library</span></div>
           <div>5. Search "Google Calendar API" → Enable it</div>
@@ -1564,7 +1564,7 @@ function DropboxSetupGuide() {
           <div>1. Go to <span style={{ color: "#ccc" }}>dropbox.com/developers/apps</span></div>
           <div>2. Click <span style={{ color: "#ccc" }}>Create app</span></div>
           <div>3. Choose: <span style={{ color: "#ccc" }}>Scoped access → App folder</span></div>
-          <div>4. Name it anything (e.g. <span style={{ color: "#ccc" }}>jarvis-sync</span>) → Create app</div>
+          <div>4. Name it anything (e.g. <span style={{ color: "#ccc" }}>ritmof-sync</span>) → Create app</div>
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 2 — Set Permissions</div>
           <div>5. Go to the <span style={{ color: "#ccc" }}>Permissions</span> tab</div>
           <div>6. Enable: <span style={{ color: "#ccc" }}>files.content.write</span> and <span style={{ color: "#ccc" }}>files.content.read</span></div>
@@ -1578,7 +1578,7 @@ function DropboxSetupGuide() {
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 4 — Get Your App Key</div>
           <div>11. On the Settings tab, find <span style={{ color: "#ccc" }}>App key</span></div>
           <div>12. Copy it and paste it below → click <span style={{ color: "#ccc" }}>CONNECT DROPBOX</span></div>
-          <div>13. Authorize JARVIS in the Dropbox popup</div>
+          <div>13. Authorize RITMOF in the Dropbox popup</div>
           <div style={{ marginTop: "10px", padding: "8px", border: "1px dashed #333", color: "#555", fontSize: "10px" }}>
             ✓ This uses PKCE OAuth — no client secret, no expiring tokens. Works permanently across all your devices.
           </div>
@@ -1608,7 +1608,7 @@ function TopBar({ xp, level, rank, streak, profile, syncStatus, lastSynced, onSy
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "3px", color: "#fff" }}>
-          JARVIS
+          RITMOF
         </span>
         <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#555" }}>
           {rank.decor}
@@ -1659,7 +1659,7 @@ function BottomNav({ tab, setTab }) {
     { id: "home", icon: "⌂", label: "HOME" },
     { id: "habits", icon: "◉", label: "HABITS" },
     { id: "tasks", icon: "▣", label: "TASKS" },
-    { id: "chat", icon: "◈", label: "JARVIS" },
+    { id: "chat", icon: "◈", label: "RITMOF" },
     { id: "profile", icon: "§", label: "PROFILE" },
   ];
 
@@ -1882,7 +1882,7 @@ function HomeTab({ state, setState, profile, apiKey, level, rank, dailyQuote, aw
       {/* Quick action chips */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
         {[
-          { label: "→ JARVIS", action: () => setTab("chat") },
+          { label: "→ RITMOF", action: () => setTab("chat") },
           { label: "⊞ TASKS", action: () => setTab("tasks") },
           { label: "◉ HABITS", action: () => setTab("habits") },
         ].map((c) => (
@@ -1972,12 +1972,12 @@ function HabitsTab({ state, setState, logHabit, awardXP, showBanner, profile, ap
   const categories = ["body", "mind", "work"];
   const [initializing, setInitializing] = useState(false);
 
-  // First-open: ask JARVIS to generate personalized habits
+  // First-open: ask RITMOF to generate personalized habits
   useEffect(() => {
     if (state.habitsInitialized || !apiKey || !profile || initializing) return;
     setInitializing(true);
 
-    const prompt = `You are JARVIS initializing a personalized habit protocol for a new hunter.
+    const prompt = `You are RITMOF initializing a personalized habit protocol for a new hunter.
 
 Hunter profile:
 - Name: ${profile.name}
@@ -2011,11 +2011,11 @@ Respond ONLY with JSON array:
           ...s,
           habits: [
             ...s.habits,
-            ...newHabits.map(h => ({ ...h, addedBy: "jarvis" })),
+            ...newHabits.map(h => ({ ...h, addedBy: "ritmof" })),
           ],
           habitsInitialized: true,
         }));
-        showBanner("JARVIS has initialized your protocol stack.", "success");
+        showBanner("RITMOF has initialized your protocol stack.", "success");
       })
       .catch(() => {
         setState((s) => ({ ...s, habitsInitialized: true }));
@@ -2045,7 +2045,7 @@ Respond ONLY with JSON array:
           fontSize: "11px", color: "#666", textAlign: "center",
           background: "repeating-linear-gradient(0deg, transparent, transparent 19px, #111 19px, #111 20px)",
         }}>
-          <div style={{ marginBottom: "6px" }}>◈ JARVIS ANALYZING HUNTER PROFILE...</div>
+          <div style={{ marginBottom: "6px" }}>◈ RITMOF ANALYZING HUNTER PROFILE...</div>
           <div style={{ fontSize: "10px", color: "#444" }}>Generating personalized protocol stack</div>
         </div>
       )}
@@ -2099,7 +2099,7 @@ Respond ONLY with JSON array:
                           {habit.label}
                         </div>
                         <div style={{ fontSize: "10px", color: done ? "#666" : "#555", marginTop: "1px" }}>
-                          +{habit.xp} XP {habit.addedBy === "jarvis" ? "· JARVIS" : ""}
+                          +{habit.xp} XP {habit.addedBy === "ritmof" ? "· RITMOF" : ""}
                           {habit.desc && !done ? ` · ${habit.desc}` : ""}
                         </div>
                       </div>
@@ -2230,7 +2230,7 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {activeTasks.length === 0 && (
               <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#444", padding: "12px", border: "1px dashed #222", textAlign: "center" }}>
-                No active tasks. JARVIS will assign missions.
+                No active tasks. RITMOF will assign missions.
               </div>
             )}
             {activeTasks.map((task) => (
@@ -2246,7 +2246,7 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: "13px", color: "#e8e8e8" }}>{task.text}</div>
                   <div style={{ fontSize: "9px", color: "#444", marginTop: "2px" }}>
-                    {priorityLabel[task.priority]} {task.priority?.toUpperCase()} {task.due ? `· due ${task.due}` : ""} {task.addedBy === "jarvis" ? "· JARVIS" : ""}
+                    {priorityLabel[task.priority]} {task.priority?.toUpperCase()} {task.due ? `· due ${task.due}` : ""} {task.addedBy === "ritmof" ? "· RITMOF" : ""}
                   </div>
                 </div>
                 <button onClick={() => deleteTask(task.id)} style={{ color: "#333", fontSize: "14px", background: "none", border: "none" }}>×</button>
@@ -2302,7 +2302,7 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {activeGoals.length === 0 && (
               <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#444", padding: "12px", border: "1px dashed #222", textAlign: "center" }}>
-                No active goals. Tell JARVIS about your homework.
+                No active goals. Tell RITMOF about your homework.
               </div>
             )}
             {activeGoals.map((goal) => {
@@ -2341,7 +2341,7 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CHAT TAB (JARVIS)
+// CHAT TAB (RITMOF)
 // ═══════════════════════════════════════════════════════════════
 function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, awardXP, trackTokens }) {
   const [input, setInput] = useState("");
@@ -2403,7 +2403,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
         setTimeout(() => executeCommands(parsed.commands), 300);
       }
     } catch (e) {
-      console.error("JARVIS error:", e);
+      console.error("RITMOF error:", e);
       const errMsg = {
         role: "assistant",
         content: `Connection error: ${e.message}. Check your API key in Profile → Settings.`,
@@ -2455,7 +2455,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
         {messages.length === 0 && (
           <div style={{ textAlign: "center", padding: "40px 20px", fontFamily: "'Share Tech Mono', monospace" }}>
             <div style={{ fontSize: "32px", marginBottom: "12px" }}>◈</div>
-            <div style={{ fontSize: "14px", marginBottom: "6px" }}>JARVIS ONLINE</div>
+            <div style={{ fontSize: "14px", marginBottom: "6px" }}>RITMOF ONLINE</div>
             <div style={{ fontSize: "11px", color: "#555" }}>System ready. Awaiting Hunter input.</div>
           </div>
         )}
@@ -2497,7 +2497,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-          placeholder="Message JARVIS..."
+          placeholder="Message RITMOF..."
           rows={2}
           style={{
             flex: 1, background: "#111", border: "1px solid #222",
@@ -2530,23 +2530,23 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
 }
 
 function ChatMessage({ msg }) {
-  const isJarvis = msg.role === "assistant";
+  const isRitmof = msg.role === "assistant";
   return (
     <div style={{
       display: "flex", flexDirection: "column",
-      alignItems: isJarvis ? "flex-start" : "flex-end",
+      alignItems: isRitmof ? "flex-start" : "flex-end",
       gap: "3px",
     }}>
-      {isJarvis && (
+      {isRitmof && (
         <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#444", letterSpacing: "2px" }}>
-          JARVIS ◈
+          RITMOF ◈
         </div>
       )}
       <div style={{
         maxWidth: "85%", padding: "10px 12px",
-        background: isJarvis ? "#0d0d0d" : "#1a1a1a",
-        border: isJarvis ? "1px solid #222" : "1px solid #333",
-        fontFamily: isJarvis ? "'Share Tech Mono', monospace" : "'Share Tech Mono', monospace",
+        background: isRitmof ? "#0d0d0d" : "#1a1a1a",
+        border: isRitmof ? "1px solid #222" : "1px solid #333",
+        fontFamily: isRitmof ? "'Share Tech Mono', monospace" : "'Share Tech Mono', monospace",
         fontSize: "13px", lineHeight: "1.5", color: "#e8e8e8",
       }}>
         {msg.content}
@@ -2681,7 +2681,7 @@ function AchievementsSection({ state }) {
       </div>
       {achievements.length === 0 && (
         <div style={{ border: "1px dashed #222", padding: "24px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#333" }}>
-          No achievements yet. JARVIS is watching.
+          No achievements yet. RITMOF is watching.
         </div>
       )}
       {sorted.map((ach) => {
@@ -2727,10 +2727,10 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
     setState((s) => ({ ...s, calendarEvents: [...(s.calendarEvents || []), newEvent] }));
     showBanner(`Event added: ${form.title}`, "success");
 
-    // Let JARVIS react
+    // Let RITMOF react
     if (apiKey && form.type === "exam") {
       const days = Math.ceil((new Date(form.start) - Date.now()) / 86400000);
-      showBanner(`Exam detected: ${form.title} in ${days} days. JARVIS adapting your plan.`, "alert");
+      showBanner(`Exam detected: ${form.title} in ${days} days. RITMOF adapting your plan.`, "alert");
     }
     setForm({ title: "", type: "exam", start: "", end: "" });
   }

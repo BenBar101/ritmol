@@ -1,4 +1,4 @@
-# JARVIS
+# RITMOF
 
 A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser.
 
@@ -12,7 +12,7 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
 git init
 git add .
 git commit -m "init"
-git remote add origin https://github.com/YOUR_USERNAME/jarvis.git
+git remote add origin https://github.com/YOUR_USERNAME/ritmof.git
 git push -u origin main
 ```
 
@@ -53,7 +53,7 @@ Your app: `https://YOUR_USERNAME.github.io/REPO_NAME/`
 2. Permissions: enable `files.content.read` + `files.content.write` → Submit
 3. Settings → Redirect URIs → add your deployed URL (and `http://localhost:5173`)
 4. Copy the **App Key**
-5. JARVIS → Profile → Settings → paste App Key → **CONNECT DROPBOX**
+5. RITMOF → Profile → Settings → paste App Key → **CONNECT DROPBOX**
 
 ---
 
