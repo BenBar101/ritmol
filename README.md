@@ -6,6 +6,8 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
 
 ## Deploy: GitHub Pages (recommended, free)
 
+**Checklist:** Push repo → enable Pages from GitHub Actions → (optional) add repo Variables for single-account gate and/or device lock → push again if you added Variables.
+
 ### 1 — Push to GitHub
 
 ```bash
@@ -32,9 +34,21 @@ git push -u origin main
 
 The workflow sets `VITE_BASE_PATH` from your repo name automatically, so the app is served at `https://YOUR_USERNAME.github.io/REPO_NAME/`. No change needed.
 
+### 4 — (Optional) Single-account gate
+
+You can restrict the app to a single Google account (e.g. only you can sign in). To enable it on the **deployed** site:
+
+1. Repo → **Settings** → **Secrets and variables** → **Actions** → **Variables** → **New repository variable**.
+2. Add:
+   - `VITE_ALLOWED_EMAIL` = the one Google email allowed (e.g. `you@gmail.com`)
+   - `VITE_GOOGLE_CLIENT_ID` = your Google OAuth Client ID (Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID). Add your GitHub Pages URL to **Authorized JavaScript origins**.
+3. Push a commit so the workflow rebuilds with these variables.
+
+For **local dev**, set the same in `.env` (see `.env.example`). Leave both empty to disable the gate.
 
 
-### 4 — (Optional) Device lock (password gate)
+
+### 5 — (Optional) Device lock (password gate)
 
 The app can show a password screen on first open. The password is never stored; only a hash is kept. Users enter the password once per device; access is remembered until you change the hash (e.g. when you set a new password).
 
@@ -42,32 +56,20 @@ The app can show a password screen on first open. The password is never stored; 
 
 **How to set or change the password:**
 
-1. Create a `.env` file in the project root (if you don’t have one). `.env` is in `.gitignore` so it is never committed.
-
-2. Generate the hash. In the browser console on your deployed app (or any page with the app’s script), run:
-   ```js
-   hashPasswordForDeviceLock("yourpassword").then(console.log)
-   ```
-   Copy the printed hex string.
-
-3. In `.env`, set:
-   ```
-   VITE_DEVICE_LOCK_HASH=paste_the_hex_string_here
-   ```
-
-4. Rebuild and redeploy. When the hash changes, all devices will be asked for the (new) password again.
-
-**Alternative (Node, same algorithm — PBKDF2-SHA256, 100k iterations, salt `ritmof-device-lock-v1`):**
+1. Generate the hash in Terminal (replace `YourPassword` with your actual password):
    ```bash
-   node -e "
-   const crypto = require('crypto');
-   const password = 'changeme';   // use your password
-   const salt = 'ritmof-device-lock-v1';
-   const hash = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex');
-   console.log(hash);
-   "
+   node -e "const c=require('crypto');console.log(c.pbkdf2Sync('YourPassword','ritmof-device-lock-v1',1e5,32,'sha256').toString('hex'));"
    ```
-   Then set `VITE_DEVICE_LOCK_HASH=<that hex>` in your `.env`.
+
+2. Put that hash in **two places** (same value both times):
+   - **Here (local):** In a `.env` file in the project root. Create it if needed (see `.env.example`). Add:
+     ```
+     VITE_DEVICE_LOCK_HASH=<paste the hex output>
+     ```
+     Used when you run `npm run dev` or `npm run build` on your machine. Never commit `.env` (it’s in `.gitignore`).
+   - **GitHub (deployed site):** Repo → **Settings** → **Secrets and variables** → **Actions** → **Variables** → **New repository variable**. Name: `VITE_DEVICE_LOCK_HASH`, Value: the same hex string. Used when GitHub Actions builds the app for GitHub Pages.
+
+3. Rebuild and redeploy. For the live site, push a commit so the workflow runs with the new variable. When the hash changes, all devices will be asked for the (new) password again.
 
 ---
 

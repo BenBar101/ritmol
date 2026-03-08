@@ -90,6 +90,7 @@ async function hashPasswordForDeviceLock(password) {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+if (typeof window !== "undefined") window.hashPasswordForDeviceLock = hashPasswordForDeviceLock;
 
 // Generate a random session token (stored instead of the hash — not reversible to password)
 function generateUnlockToken() {
@@ -1775,12 +1776,12 @@ function GoogleCalendarGuide() {
           <div>7. Click <span style={{ color: "#ccc" }}>+ Create Credentials → OAuth client ID</span></div>
           <div>8. If prompted, configure consent screen: External → fill app name → save</div>
           <div>9. Application type: <span style={{ color: "#ccc" }}>Web application</span></div>
-          <div>10. Authorized JS origins: add your Vercel URL <span style={{ color: "#ccc" }}>https://your-app.vercel.app</span></div>
+          <div>10. Authorized JS origins: add your deployed URL <span style={{ color: "#ccc" }}>https://username.github.io/repo-name/</span></div>
           <div style={{ color: "#555", fontSize: "10px" }}>&nbsp;&nbsp;&nbsp;&nbsp;(also add http://localhost:5173 for local dev)</div>
           <div>11. Click Create → Copy the <span style={{ color: "#ccc" }}>Client ID</span></div>
           <div>12. Paste it below</div>
           <div style={{ marginTop: "10px", padding: "8px", border: "1px dashed #333", color: "#555", fontSize: "10px" }}>
-            ⚠ Don't have your Vercel URL yet? Skip this step now — you can add the Client ID later in Profile → Settings after deploying.
+            ⚠ Don't have your deployed URL yet? Skip this step now — you can add the Client ID later in Profile → Settings after deploying.
           </div>
         </div>
       )}
@@ -1815,7 +1816,7 @@ function DropboxSetupGuide() {
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 3 — Add Redirect URI</div>
           <div>8. Go back to the <span style={{ color: "#ccc" }}>Settings</span> tab</div>
           <div>9. Under <span style={{ color: "#ccc" }}>OAuth 2 → Redirect URIs</span>, add your app URL:</div>
-          <div style={{ color: "#ccc", paddingLeft: "12px" }}>https://your-app.vercel.app</div>
+          <div style={{ color: "#ccc", paddingLeft: "12px" }}>https://username.github.io/repo-name/</div>
           <div style={{ color: "#555", fontSize: "10px", paddingLeft: "12px" }}>(also add http://localhost:5173 for local dev)</div>
           <div>10. Click <span style={{ color: "#ccc" }}>Add</span></div>
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 4 — Get Your App Key</div>
@@ -3365,9 +3366,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
         <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "8px" }}>DEPLOY GUIDE</div>
         <div style={{ fontSize: "11px", color: "#555", lineHeight: "1.8" }}>
           1. Push this repo to GitHub<br />
-          2. Connect to Vercel (free tier)<br />
+          2. Enable GitHub Pages (Settings → Pages → Source: GitHub Actions)<br />
           3. Deploy — done. No server needed.<br />
-          4. Add Vercel URL as redirect URI in your Dropbox app.<br />
+          4. Add your GitHub Pages URL as redirect URI in your Dropbox app.<br />
           5. Connect Dropbox above — stays connected permanently.
         </div>
       </div>
