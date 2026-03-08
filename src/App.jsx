@@ -211,6 +211,16 @@ const DB_EXPIRES_KEY = "jv_dropbox_expires";
 const DB_APPKEY_KEY = "jv_dropbox_appkey";
 const DB_PKCE_VERIFIER = "jv_pkce_verifier";
 
+// Local dev: use a separate localStorage copy so we never push to Dropbox
+const IS_DEV = import.meta.env.DEV;
+const DEV_PREFIX = "ritmof_dev_";
+const DROPBOX_KEYS_NO_PREFIX = [DB_APPKEY_KEY, DB_TOKEN_KEY, DB_REFRESH_KEY, DB_EXPIRES_KEY, DB_PKCE_VERIFIER];
+function storageKey(k) {
+  if (!IS_DEV) return k;
+  if (k.startsWith("jv_") && !DROPBOX_KEYS_NO_PREFIX.includes(k)) return DEV_PREFIX + k;
+  return k;
+}
+
 function b64url(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
@@ -344,7 +354,7 @@ const SYNC_KEYS = [
 function buildSyncPayload() {
   const payload = { _syncedAt: Date.now() };
   SYNC_KEYS.forEach((k) => {
-    const v = localStorage.getItem(k);
+    const v = localStorage.getItem(storageKey(k));
     if (v !== null) payload[k] = v;
   });
   return payload;
@@ -353,7 +363,7 @@ function buildSyncPayload() {
 function applySyncPayload(payload) {
   Object.entries(payload).forEach(([k, v]) => {
     if (k.startsWith("jv_") && v !== undefined) {
-      localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v));
+      localStorage.setItem(storageKey(k), typeof v === "string" ? v : JSON.stringify(v));
     }
   });
 }
@@ -603,31 +613,31 @@ function spawnXPFloat(x, y, amount) {
 // ═══════════════════════════════════════════════════════════════
 function initState() {
   return {
-    profile: LS.get("jv_profile", null),
-    xp: LS.get("jv_xp", 0),
-    streak: LS.get("jv_streak", 0),
-    streakShields: LS.get("jv_shields", 0),
-    lastLoginDate: LS.get("jv_last_login", null),
-    habits: LS.get("jv_habits", DEFAULT_HABITS),
-    habitLog: LS.get("jv_habit_log", {}), // { "YYYY-MM-DD": ["habitId",...] }
-    tasks: LS.get("jv_tasks", []),
-    goals: LS.get("jv_goals", []),
-    sessions: LS.get("jv_sessions", []),
-    achievements: LS.get("jv_achievements", []),
-    gachaCollection: LS.get("jv_gacha", []),
-    calendarEvents: LS.get("jv_cal_events", []),
-    chatHistory: LS.get("jv_chat", []),
-    dailyGoal: LS.get("jv_daily_goal", ""),
-    activeTimers: LS.get("jv_timers", []),
-    sleepLog: LS.get("jv_sleep_log", {}),
-    screenTimeLog: LS.get("jv_screen_log", {}),
-    dailyMissions: LS.get("jv_missions", null),
-    lastMissionDate: LS.get("jv_mission_date", null),
-    pendingHabitSuggestions: LS.get("jv_habit_suggestions", []),
-    chronicles: LS.get("jv_chronicles", []),
-    gCalConnected: LS.get("jv_gcal_connected", false),
-    tokenUsage: LS.get("jv_token_usage", { date: today(), tokens: 0 }),
-    habitsInitialized: LS.get("jv_habits_init", false),
+    profile: LS.get(storageKey("jv_profile"), null),
+    xp: LS.get(storageKey("jv_xp"), 0),
+    streak: LS.get(storageKey("jv_streak"), 0),
+    streakShields: LS.get(storageKey("jv_shields"), 0),
+    lastLoginDate: LS.get(storageKey("jv_last_login"), null),
+    habits: LS.get(storageKey("jv_habits"), DEFAULT_HABITS),
+    habitLog: LS.get(storageKey("jv_habit_log"), {}), // { "YYYY-MM-DD": ["habitId",...] }
+    tasks: LS.get(storageKey("jv_tasks"), []),
+    goals: LS.get(storageKey("jv_goals"), []),
+    sessions: LS.get(storageKey("jv_sessions"), []),
+    achievements: LS.get(storageKey("jv_achievements"), []),
+    gachaCollection: LS.get(storageKey("jv_gacha"), []),
+    calendarEvents: LS.get(storageKey("jv_cal_events"), []),
+    chatHistory: LS.get(storageKey("jv_chat"), []),
+    dailyGoal: LS.get(storageKey("jv_daily_goal"), ""),
+    activeTimers: LS.get(storageKey("jv_timers"), []),
+    sleepLog: LS.get(storageKey("jv_sleep_log"), {}),
+    screenTimeLog: LS.get(storageKey("jv_screen_log"), {}),
+    dailyMissions: LS.get(storageKey("jv_missions"), null),
+    lastMissionDate: LS.get(storageKey("jv_mission_date"), null),
+    pendingHabitSuggestions: LS.get(storageKey("jv_habit_suggestions"), []),
+    chronicles: LS.get(storageKey("jv_chronicles"), []),
+    gCalConnected: LS.get(storageKey("jv_gcal_connected"), false),
+    tokenUsage: LS.get(storageKey("jv_token_usage"), { date: today(), tokens: 0 }),
+    habitsInitialized: LS.get(storageKey("jv_habits_init"), false),
     dropboxAppKey: LS.get(DB_APPKEY_KEY, ""),
     dropboxConnected: !!localStorage.getItem(DB_REFRESH_KEY),
   };
@@ -762,7 +772,7 @@ Respond ONLY with JSON: { "quote": "...", "author": "...", "source": "...", "con
 export default function App() {
   const [state, setState] = useState(initState);
   const [tab, setTab] = useState("home");
-  const [showOnboarding, setShowOnboarding] = useState(!LS.get("jv_profile"));
+  const [showOnboarding, setShowOnboarding] = useState(!LS.get(storageKey("jv_profile")));
   const [gatePassed, setGatePassed] = useState(() => typeof sessionStorage !== "undefined" && sessionStorage.getItem(GATE_SESSION_KEY) === "true");
   const [deviceLockPassed, setDeviceLockPassed] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem(DEVICE_LOCK_STORAGE_KEY) === EXPECTED_PASSWORD_HASH);
   const [modal, setModal] = useState(null); // { type, data }
@@ -772,7 +782,7 @@ export default function App() {
   const [dailyQuote, setDailyQuote] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
-  const [lastSynced, setLastSynced] = useState(LS.get("jv_last_synced", null));
+  const [lastSynced, setLastSynced] = useState(LS.get(storageKey("jv_last_synced"), null));
   const [theme, setThemeState] = useState(() => LS.get(THEME_KEY, "dark"));
   const setTheme = (t) => { LS.set(THEME_KEY, t); setThemeState(t); };
   const toastTimer = useRef(null);
@@ -798,31 +808,31 @@ export default function App() {
   // ── Persist state ──
   useEffect(() => {
     if (!state.profile) return;
-    LS.set("jv_profile", state.profile);
-    LS.set("jv_xp", state.xp);
-    LS.set("jv_streak", state.streak);
-    LS.set("jv_shields", state.streakShields);
-    LS.set("jv_last_login", state.lastLoginDate);
-    LS.set("jv_habits", state.habits);
-    LS.set("jv_habit_log", state.habitLog);
-    LS.set("jv_tasks", state.tasks);
-    LS.set("jv_goals", state.goals);
-    LS.set("jv_sessions", state.sessions);
-    LS.set("jv_achievements", state.achievements);
-    LS.set("jv_gacha", state.gachaCollection);
-    LS.set("jv_cal_events", state.calendarEvents);
-    LS.set("jv_chat", state.chatHistory);
-    LS.set("jv_daily_goal", state.dailyGoal);
-    LS.set("jv_timers", state.activeTimers);
-    LS.set("jv_sleep_log", state.sleepLog);
-    LS.set("jv_screen_log", state.screenTimeLog);
-    LS.set("jv_missions", state.dailyMissions);
-    LS.set("jv_mission_date", state.lastMissionDate);
-    LS.set("jv_habit_suggestions", state.pendingHabitSuggestions);
-    LS.set("jv_chronicles", state.chronicles);
-    LS.set("jv_gcal_connected", state.gCalConnected);
-    LS.set("jv_token_usage", state.tokenUsage);
-    LS.set("jv_habits_init", state.habitsInitialized);
+    LS.set(storageKey("jv_profile"), state.profile);
+    LS.set(storageKey("jv_xp"), state.xp);
+    LS.set(storageKey("jv_streak"), state.streak);
+    LS.set(storageKey("jv_shields"), state.streakShields);
+    LS.set(storageKey("jv_last_login"), state.lastLoginDate);
+    LS.set(storageKey("jv_habits"), state.habits);
+    LS.set(storageKey("jv_habit_log"), state.habitLog);
+    LS.set(storageKey("jv_tasks"), state.tasks);
+    LS.set(storageKey("jv_goals"), state.goals);
+    LS.set(storageKey("jv_sessions"), state.sessions);
+    LS.set(storageKey("jv_achievements"), state.achievements);
+    LS.set(storageKey("jv_gacha"), state.gachaCollection);
+    LS.set(storageKey("jv_cal_events"), state.calendarEvents);
+    LS.set(storageKey("jv_chat"), state.chatHistory);
+    LS.set(storageKey("jv_daily_goal"), state.dailyGoal);
+    LS.set(storageKey("jv_timers"), state.activeTimers);
+LS.set(storageKey("jv_sleep_log"), state.sleepLog);
+LS.set(storageKey("jv_screen_log"), state.screenTimeLog);
+LS.set(storageKey("jv_missions"), state.dailyMissions);
+LS.set(storageKey("jv_mission_date"), state.lastMissionDate);
+LS.set(storageKey("jv_habit_suggestions"), state.pendingHabitSuggestions);
+LS.set(storageKey("jv_chronicles"), state.chronicles);
+LS.set(storageKey("jv_gcal_connected"), state.gCalConnected);
+LS.set(storageKey("jv_token_usage"), state.tokenUsage);
+LS.set(storageKey("jv_habits_init"), state.habitsInitialized);
     if (state.dropboxAppKey) LS.set(DB_APPKEY_KEY, state.dropboxAppKey);
   }, [state]);
 
@@ -843,11 +853,11 @@ export default function App() {
       })
       .then((remote) => {
         if (!remote) return;
-        const localTs = parseInt(LS.get("jv_last_synced", "0") || "0", 10);
+        const localTs = parseInt(LS.get(storageKey("jv_last_synced"), "0") || "0", 10);
         if ((remote._syncedAt || 0) > localTs) {
           applySyncPayload(remote);
           setState(initState());
-          LS.set("jv_last_synced", String(remote._syncedAt));
+          LS.set(storageKey("jv_last_synced"), String(remote._syncedAt));
           setLastSynced(remote._syncedAt);
           showBanner("Data restored from Dropbox.", "success");
         }
@@ -864,19 +874,20 @@ export default function App() {
   useEffect(() => {
     const appKey = LS.get(DB_APPKEY_KEY, "");
     const hasRefresh = !!localStorage.getItem(DB_REFRESH_KEY);
-    if (!appKey || !hasRefresh || !state.profile) return;
+    if (!appKey || !hasRefresh) return;
+    if (!IS_DEV && !state.profile) return;
     setSyncStatus("syncing");
     getDropboxToken(appKey)
       .then((token) => dropboxDownload(token))
       .then((remote) => {
         if (!remote) { setSyncStatus("idle"); return; }
-        const localTs = parseInt(LS.get("jv_last_synced", "0") || "0", 10);
+        const localTs = parseInt(LS.get(storageKey("jv_last_synced"), "0") || "0", 10);
         if ((remote._syncedAt || 0) > localTs) {
           applySyncPayload(remote);
           setState(initState());
-          LS.set("jv_last_synced", String(remote._syncedAt));
+          LS.set(storageKey("jv_last_synced"), String(remote._syncedAt));
           setLastSynced(remote._syncedAt);
-          showBanner("Data synced from Dropbox.", "success");
+          showBanner(IS_DEV ? "Dev copy synced from Dropbox." : "Data synced from Dropbox.", "success");
         }
         setSyncStatus("synced");
       })
@@ -886,8 +897,9 @@ export default function App() {
       });
   }, [!!state.profile]);
 
-  // ── Dropbox: push on tab hide / window close ──
+  // ── Dropbox: push on tab hide / window close (skipped in dev to protect real data) ──
   useEffect(() => {
+    if (IS_DEV) return;
     const push = () => {
       const appKey = LS.get(DB_APPKEY_KEY, "");
       const hasRefresh = !!localStorage.getItem(DB_REFRESH_KEY);
@@ -921,12 +933,26 @@ export default function App() {
     setSyncStatus("syncing");
     try {
       const token = await getDropboxToken(appKey);
-      await dropboxUpload(token, buildSyncPayload());
-      const ts = Date.now();
-      LS.set("jv_last_synced", String(ts));
-      setLastSynced(ts);
+      if (IS_DEV) {
+        const remote = await dropboxDownload(token);
+        if (remote) {
+          const localTs = parseInt(LS.get(storageKey("jv_last_synced"), "0") || "0", 10);
+          if ((remote._syncedAt || 0) > localTs) {
+            applySyncPayload(remote);
+            setState(initState());
+            LS.set(storageKey("jv_last_synced"), String(remote._syncedAt));
+            setLastSynced(remote._syncedAt);
+          }
+          showBanner("Dev copy refreshed from Dropbox. Real data not modified.", "success");
+        }
+      } else {
+        await dropboxUpload(token, buildSyncPayload());
+        const ts = Date.now();
+        LS.set("jv_last_synced", String(ts));
+        setLastSynced(ts);
+        showBanner("Synced to Dropbox.", "success");
+      }
       setSyncStatus("synced");
-      showBanner("Synced to Dropbox.", "success");
     } catch (e) {
       setSyncStatus("error");
       showBanner(`Sync failed: ${e.message}`, "alert");
@@ -966,7 +992,7 @@ export default function App() {
       const usage = s.tokenUsage || { date: today(), tokens: 0 };
       const fresh = usage.date !== today() ? { date: today(), tokens: 0 } : usage;
       const updated = { ...fresh, tokens: fresh.tokens + amount };
-      LS.set("jv_token_usage", updated);
+      LS.set(storageKey("jv_token_usage"), updated);
       return { ...s, tokenUsage: updated };
     });
   }
@@ -1233,7 +1259,7 @@ export default function App() {
             profile,
             dropboxAppKey: profile.dropboxAppKey || "",
           }));
-          LS.set("jv_profile", profile);
+          LS.set(storageKey("jv_profile"), profile);
           if (profile.dropboxAppKey) {
             LS.set(DB_APPKEY_KEY, profile.dropboxAppKey);
             startDropboxOAuth(profile.dropboxAppKey);
@@ -1253,6 +1279,13 @@ export default function App() {
 
       {/* Banner */}
       {banner && <Banner banner={banner} onClose={() => setBanner(null)} />}
+
+      {/* Dev mode: local copy — no writes to Dropbox */}
+      {IS_DEV && (
+        <div style={{ background: "#2a2a0a", color: "#b8b830", fontSize: "10px", letterSpacing: "1px", padding: "4px 12px", textAlign: "center", borderBottom: "1px solid #444" }}>
+          DEV MODE — using local copy; Dropbox will not be updated
+        </div>
+      )}
 
       {/* Top bar */}
       <TopBar xp={state.xp} level={level} rank={rank} streak={state.streak} profile={profile}

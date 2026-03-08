@@ -76,3 +76,5 @@ The app can show a password screen on first open. The password is never stored; 
 npm install
 npm run dev   # → http://localhost:5173
 ```
+
+**Dev mode protects your real data:** When you run `npm run dev`, the app uses a **separate localStorage copy** (keys prefixed with `ritmof_dev_`). It will **pull** from Dropbox on launch (if connected) and store that data in this local copy. The app **never pushes to Dropbox** in dev, so you can experiment without affecting your real synced data. A yellow “DEV MODE” bar at the top reminds you. Use the sync button in dev to **refresh** the local copy from Dropbox (pull only).
