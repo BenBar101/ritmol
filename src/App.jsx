@@ -126,7 +126,15 @@ const LS = {
   get: (k, def = null) => {
     try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; }
   },
-  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  set: (k, v) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch (e) {
+      if (e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ls-quota-exceeded'));
+      }
+    }
+  },
   del: (k) => { try { localStorage.removeItem(k); } catch {} },
 };
 
@@ -337,6 +345,9 @@ async function idbDel(key) {
 
 export const FSAPI_SUPPORTED = typeof window !== "undefined" && "showOpenFilePicker" in window;
 
+// Sync file size cap: 1 GB to prevent sync blocking
+const MAX_SYNC_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 // SyncManager — all file operations go through here.
 export const SyncManager = {
   // Returns the stored handle, or null if none saved yet.
@@ -381,7 +392,6 @@ export const SyncManager = {
     if (!handle) throw new Error("NO_HANDLE");
     const file   = await handle.getFile();
     // Fix #6: reject oversized files before reading into memory
-    const MAX_SYNC_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
     if (file.size > MAX_SYNC_FILE_BYTES) throw new Error("SYNC_FILE_TOO_LARGE");
     const text   = await file.text();
     // Fix #1: wrap JSON.parse — a corrupt/partially-written file must not crash the tab
@@ -416,7 +426,6 @@ export const SyncManager = {
   // Fallback: import a JSON file via file input.
   async importFile(file) {
     // Fix #6: reject oversized files before reading into memory
-    const MAX_SYNC_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
     if (file.size > MAX_SYNC_FILE_BYTES) throw new Error("SYNC_FILE_TOO_LARGE");
     const text   = await file.text();
     // Fix #1: wrap JSON.parse — a corrupt file must not crash the tab
@@ -463,7 +472,7 @@ function buildSyncPayload() {
 // Validate that a value coming from a sync file is safe to write to localStorage.
 // Rejects anything that isn't a string, number, boolean, plain object, or array,
 // and caps size to avoid storage-bombing attacks.
-const MAX_SYNC_VALUE_SIZE = 500_000; // 500 KB per key
+const MAX_SYNC_VALUE_SIZE = 100_000_000; // 100 MB per key
 const PROTO_POISON_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function isSafeSyncValue(v) {
   if (v === null || v === undefined) return false;
@@ -497,13 +506,13 @@ const SYNC_VALIDATORS = {
   jv_habits:     (v) => Array.isArray(v) && v.length <= 200 &&
     v.every(i => i !== null && typeof i === "object" && !Array.isArray(i) &&
       typeof i.id === "string" && typeof i.label === "string" && typeof i.xp === "number"),
-  jv_tasks:      (v) => Array.isArray(v) && v.length <= 10_000 &&
+  jv_tasks:      (v) => Array.isArray(v) && v.length <= 2_000 &&
     v.every(i => i !== null && typeof i === "object" && !Array.isArray(i) &&
       typeof i.id === "string" && typeof i.text === "string"),
   jv_goals:      (v) => Array.isArray(v) && v.length <= 1_000 &&
     v.every(i => i !== null && typeof i === "object" && !Array.isArray(i) &&
       typeof i.id === "string" && typeof i.title === "string"),
-  jv_sessions:   (v) => Array.isArray(v) && v.length <= 50_000 &&
+  jv_sessions:   (v) => Array.isArray(v) && v.length <= 5_000 &&
     v.every(i => i !== null && typeof i === "object" && !Array.isArray(i) &&
       typeof i.type === "string" && typeof i.date === "string"),
   jv_achievements:(v) => Array.isArray(v) && v.length <= 10_000 &&
@@ -645,14 +654,15 @@ function AuthGate({ onAccessGranted }) {
     setErrMsg("");
     try {
       await loadGoogleGIS();
-      await new Promise((resolve, reject) => {
+      
+      // Create a promise that ONLY resolves when the callback actually fires
+      const emailPromise = new Promise((resolve, reject) => {
         window.google.accounts.id.initialize({
           client_id: GATE_GOOGLE_CLIENT_ID,
           callback: async (response) => {
             try {
               let email;
               if (VERIFY_GOOGLE_ID_URL) {
-                // Production path: backend verifies the JWT signature.
                 const res = await fetch(VERIFY_GOOGLE_ID_URL, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -666,37 +676,21 @@ function AuthGate({ onAccessGranted }) {
                 const data = await res.json();
                 email = (data.email || "").trim().toLowerCase();
               } else {
-                // No backend: decode the JWT payload and verify all verifiable claims.
-                // NOTE: we cannot verify the RSA signature without a server. What we CAN do:
-                //   1. Verify `iss` — must be Google's issuer URL
-                //   2. Verify `aud` — must match our own Client ID (prevents token reuse from other apps)
-                //   3. Verify `exp` — token must not be expired
-                //   4. Verify `email_verified` — Google must have verified the email
-                // An attacker would need to obtain a valid Google-signed token for a different email
-                // addressed to OUR client_id, which is not possible without compromising Google itself.
-                // This is the strongest security achievable without a backend for a personal app.
+                // CRITICAL SECURITY FLAW: Without a backend to verify the RSA signature against Google's public JWKs,
+                // decoding the base64 payload is easily spoofable. An attacker can inject a fake base64 string
+                // in DevTools to bypass this gate. Use VERIFY_GOOGLE_ID_URL for real security.
                 try {
                   const parts = response.credential.split(".");
                   if (parts.length !== 3) throw new Error("Malformed credential");
-                  // Pad base64url to standard base64 before decoding
-                  const padded = parts[1].replace(/-/g, "+").replace(/_/g, "/")
-                    .padEnd(parts[1].length + (4 - parts[1].length % 4) % 4, "=");
+                  const padded = parts[1].replace(/-/g, "+").replace(/_/g, "/").padEnd(parts[1].length + (4 - parts[1].length % 4) % 4, "=");
                   const payload = JSON.parse(atob(padded));
-                  // fix #5: guard against a non-object payload (e.g. malformed JWT)
-                  if (typeof payload !== "object" || payload === null || Array.isArray(payload))
-                    throw new Error("Invalid token payload type");
-                  // 1. Issuer must be Google
+                  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new Error("Invalid token payload type");
                   const validIssuers = ["accounts.google.com", "https://accounts.google.com"];
                   if (!validIssuers.includes(payload.iss)) throw new Error("Invalid token issuer");
-                  // 2. Audience must be OUR client ID — prevents tokens minted for other apps
                   if (payload.aud !== GATE_GOOGLE_CLIENT_ID) throw new Error("Token audience mismatch");
-                  // 3. Token must not be expired
                   if (!payload.exp || payload.exp * 1000 < Date.now()) throw new Error("Token expired");
-                  // 3b. Token must not be used before its not-before time (nbf), if present
                   if (payload.nbf && payload.nbf * 1000 > Date.now()) throw new Error("Token not yet valid");
-                  // 4. Email must be verified by Google
                   if (!payload.email_verified) throw new Error("Email not verified by Google");
-                  // 5. Must have an email claim
                   if (!payload.email) throw new Error("No email in token");
                   email = payload.email.trim().toLowerCase();
                 } catch (decodeErr) {
@@ -715,13 +709,11 @@ function AuthGate({ onAccessGranted }) {
           },
           error_callback: (err) => reject(new Error(err.type || "sign_in_failed")),
         });
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            resolve("prompt_skipped");
-          }
-        });
-      }).then(async (result) => {
-        if (result === "prompt_skipped") {
+      });
+
+      // Handle the visual prompt and fallback button rendering synchronously
+      window.google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
           const container = document.getElementById("gsi-button-container");
           if (container) {
             window.google.accounts.id.renderButton(container, {
@@ -729,17 +721,18 @@ function AuthGate({ onAccessGranted }) {
             });
           }
           setStatus("idle");
-          return;
         }
-        // Fix #4 / #5: wrap makeSessionToken; reset retry counter on success so it
-        // only burns slots for actual failures, not successful sign-ins.
-        let token;
-        try { token = await makeSessionToken(ALLOWED_EMAIL); }
-        catch { throw new Error("Token derivation failed — ensure the page is served over HTTPS."); }
-        try { sessionStorage.setItem(GATE_SESSION_KEY, token); } catch {}
-        setRetryCount(0); // fix #5: clear failure counter on success
-        onAccessGranted();
       });
+
+      // Wait for the user to actually sign in (either via prompt or button)
+      const resultEmail = await emailPromise;
+      
+      let token;
+      try { token = await makeSessionToken(ALLOWED_EMAIL); }
+      catch { throw new Error("Token derivation failed."); }
+      try { sessionStorage.setItem(GATE_SESSION_KEY, token); } catch {}
+      setRetryCount(0); 
+      onAccessGranted();
     } catch (e) {
       // Fix #5: only charge a retry slot for a genuine failure — increment here, not at call start
       if (!isAutoAttempt) setRetryCount((c) => c + 1);
@@ -1275,6 +1268,13 @@ export default function App() {
       setGateChecked(true);
     });
   }, []);
+  useEffect(() => {
+    const handleQuota = () => {
+      showBanner("SYSTEM ALERT: Storage full! Browser limits reached (~5MB). Data will not be saved. Please manually clear/prune old chat history or sessions.", "alert");
+    };
+    window.addEventListener('ls-quota-exceeded', handleQuota);
+    return () => window.removeEventListener('ls-quota-exceeded', handleQuota);
+  }, []);
   const [modal, setModal] = useState(null); // { type, data }
   const [toast, setToast] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -1287,6 +1287,7 @@ export default function App() {
   const setTheme = (t) => { LS.set(storageKey(THEME_KEY), t); setThemeState(t); };
   const toastTimer = useRef(null);
   const bannerTimer = useRef(null);
+  const actionLocksRef = useRef(new Set());
 
   // Apply theme to document (dark default)
   useEffect(() => {
@@ -1545,27 +1546,29 @@ export default function App() {
     return usage.tokens < DAILY_TOKEN_LIMIT;
   }
 
-  // Fix #4 (bug): use a ref to communicate the allowed XP amount out of the setState updater.
-  // A plain `let allowed` closure variable is correct in React 18 legacy mode (updaters run
-  // synchronously), but using a ref is the documented React-safe pattern and future-proofs
-  // this against batched rendering or concurrent mode changes.
-  const _aiXpAllowedRef = useRef(0);
+  // Fix #4 (bug): read/write latestStateRef so consumeAiXpBudget returns the allowed amount
+  // synchronously; setState is async/batched and would make a ref set inside the updater too late.
   function consumeAiXpBudget(requested) {
     const t = today();
-    _aiXpAllowedRef.current = 0;
-    setState((s) => {
-      const usage = s.tokenUsage || { date: t, tokens: 0 };
-      const fresh = usage.date !== t ? { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 } : usage;
-      const alreadyAwarded = fresh.aiXpToday || 0;
-      const remaining = Math.max(0, DAILY_AI_XP_LIMIT - alreadyAwarded);
-      const allowed = Math.min(requested, remaining);
-      _aiXpAllowedRef.current = allowed;
-      if (allowed <= 0) return s; // nothing to update
+    const stateSource = latestStateRef.current ?? state;
+    const usage = stateSource.tokenUsage || { date: t, tokens: 0 };
+    const fresh = usage.date !== t ? { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 } : usage;
+
+    const alreadyAwarded = fresh.aiXpToday || 0;
+    const remaining = Math.max(0, DAILY_AI_XP_LIMIT - alreadyAwarded);
+    const allowed = Math.min(requested, remaining);
+
+    if (allowed > 0) {
       const updated = { ...fresh, aiXpToday: alreadyAwarded + allowed };
+      // Update the ref synchronously so subsequent commands in the same AI batch see the new value
+      if (latestStateRef.current) {
+        latestStateRef.current = { ...latestStateRef.current, tokenUsage: updated };
+      }
+      // Queue the actual state update for the UI
+      setState((s) => ({ ...s, tokenUsage: updated }));
       LS.set(storageKey("jv_token_usage"), updated);
-      return { ...s, tokenUsage: updated };
-    });
-    return _aiXpAllowedRef.current;
+    }
+    return allowed;
   }
 
   // ── Fetch daily quote ──
@@ -1635,41 +1638,38 @@ export default function App() {
   }, [profile]);
 
   function handleDailyLogin(t) {
-    // Pass t into the updater so both the caller and the committed state agree on the date,
-    // even if the clock crosses midnight between the two evaluations.
     setState((s) => {
-      const effectiveDate = t; // use the date captured at call-time — avoids midnight race
-      // Compute yesterday by manipulating the date component, not subtracting ms.
-      // Subtracting 86400000ms breaks during DST transitions (clocks going back create a 25hr day).
-      const d = new Date(effectiveDate);
+      const effectiveDate = t;
+
+      // Parse YYYY-MM-DD safely in local time to avoid UTC-shift bugs
+      const parseDateLocal = (ds) => {
+        if (!ds) return new Date(NaN);
+        const [y, m, d] = ds.split("-").map(Number);
+        return new Date(y, m - 1, d);
+      };
+
+      const d = parseDateLocal(effectiveDate);
       d.setDate(d.getDate() - 1);
       const yesterday = d.toLocaleDateString("en-CA");
+
       let newStreak = s.streak;
       let newShields = s.streakShields;
       let bannerMsg = null;
 
       if (s.lastLoginDate === yesterday) {
-        // Consecutive day — increment streak
         newStreak = s.streak + 1;
       } else if (s.lastLoginDate === effectiveDate) {
         // Already logged in today — no change
       } else {
-        // Missed at least one day.
-        // A shield can only cover a single missed day (the day immediately before today).
-        // If the user was absent for 2+ days the streak resets regardless of shields held.
-        // Use calendar-date subtraction (not ms) so DST transitions don't cause off-by-one errors —
-        // consistent with the yesterday calculation above that uses setDate().
         const daysSinceLast = (() => {
           if (!s.lastLoginDate) return Infinity;
-          const last = new Date(s.lastLoginDate);
-          const now  = new Date(effectiveDate);
-          // Strip time so we count whole calendar days only
-          last.setHours(0, 0, 0, 0);
-          now.setHours(0, 0, 0, 0);
+          const last = parseDateLocal(s.lastLoginDate);
+          const now  = parseDateLocal(effectiveDate);
           return Math.round((now - last) / 86400000);
         })();
-        const missedMoreThanOneDay = daysSinceLast > 2; // >2 means last login was 3+ calendar days ago, i.e. at least 2 full days were skipped; daysSinceLast===2 means exactly 1 day missed (shield-eligible)
+        const missedMoreThanOneDay = daysSinceLast > 2;
         const canUseShield = !missedMoreThanOneDay && s.streakShields > 0 && s.lastShieldUseDate !== effectiveDate;
+
         if (canUseShield) {
           newShields = s.streakShields - 1;
           bannerMsg = "Streak shield consumed. Streak preserved.";
@@ -1688,11 +1688,11 @@ export default function App() {
       const newLevel = getLevel(newXP, xpPl);
       const usedShield = newShields < s.streakShields;
       const newLastShieldUseDate = usedShield ? effectiveDate : s.lastShieldUseDate;
+
       if (newLevel > oldLevel) {
         const snapshot = { ...s, xp: newXP, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate, dynamicCosts: s.dynamicCosts };
         setTimeout(() => {
           setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
-          // fix #2: read key at call-time (not from closure) so it's always current
           updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up").then((costs) => {
             if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
           }).catch(() => {});
@@ -1701,7 +1701,6 @@ export default function App() {
       if (bannerMsg) setTimeout(() => showBanner(bannerMsg, "info"), 0);
       if (usedShield) {
         setTimeout(() => {
-          // fix #2: read key at call-time (not from closure)
           updateDynamicCosts(getGeminiApiKey(), { ...s, streakShields: newShields, lastShieldUseDate: effectiveDate, dynamicCosts: s.dynamicCosts }, "streak_shield_use").then((costs) => {
             if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
           }).catch(() => {});
@@ -1726,23 +1725,35 @@ export default function App() {
 
   // ── Core XP award ──
   function awardXP(amount, event, silent = false) {
+    let leveledUp = false;
+    let newXPValue = 0;
+    let snapshotForApi = null;
+
     setState((s) => {
       const xpPl = getXpPerLevel(s);
       const oldLevel = getLevel(s.xp, xpPl);
       const newXP = s.xp + amount;
       const newLevel = getLevel(newXP, xpPl);
+
       if (newLevel > oldLevel && !silent) {
-        const snapshot = { ...s, xp: newXP, dynamicCosts: s.dynamicCosts };
-        setTimeout(() => {
-          setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
-          // fix #2: read key at call-time (not from closure)
-          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up").then((costs) => {
-            if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-          }).catch(() => {});
-        }, 300);
+        leveledUp = true;
+        newXPValue = newXP;
+        snapshotForApi = { ...s, xp: newXP, dynamicCosts: s.dynamicCosts };
       }
       return { ...s, xp: newXP };
     });
+
+    if (leveledUp) {
+      const xpPl = snapshotForApi.dynamicCosts?.xpPerLevel ?? DEFAULT_XP_PER_LEVEL;
+      const newLevel = getLevel(newXPValue, xpPl);
+      setTimeout(() => {
+        setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
+        updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "level_up").then((costs) => {
+          if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+        }).catch(() => {});
+      }, 300);
+    }
+
     if (!silent && event?.clientX != null) {
       spawnParticles(event.clientX, event.clientY);
       spawnXPFloat(event.clientX, event.clientY - 20, amount);
@@ -1772,9 +1783,9 @@ export default function App() {
         }
         return m;
       });
-      // Fire toasts after the state update commits
+      // Fire toasts sequentially so multiple unlocks don't overwrite each other
       if (toasts.length) {
-        setTimeout(() => toasts.forEach((t) => showToast(t)), 200);
+        toasts.forEach((t, i) => setTimeout(() => showToast(t), 200 + i * 5500));
       }
       const newXP = s.xp + bonusXP;
       if (bonusXP > 0) {
@@ -1974,6 +1985,10 @@ export default function App() {
   }
 
   function logHabit(habitId, event) {
+    if (actionLocksRef.current.has(habitId)) return;
+    actionLocksRef.current.add(habitId);
+    setTimeout(() => actionLocksRef.current.delete(habitId), 500);
+
     const t = today();
     const log = state.habitLog[t] || [];
     if (log.includes(habitId)) return;
@@ -2068,6 +2083,7 @@ export default function App() {
           <TasksTab
             state={state} setState={setState}
             awardXP={awardXP} showBanner={showBanner} checkMissions={checkMissions}
+            actionLocksRef={actionLocksRef}
           />
         )}
         {tab === "chat" && (
@@ -2094,6 +2110,7 @@ export default function App() {
             confirmForgetSync={confirmForgetSync}
             theme={theme} setTheme={setTheme}
             trackTokens={trackTokens}
+            latestStateRef={latestStateRef}
           />
         )}
       </div>
@@ -2822,6 +2839,10 @@ function HabitRing({ done, total }) {
 function CountdownTimer({ timer, onExpire }) {
   const [remaining, setRemaining] = useState(Math.max(0, timer.endsAt - Date.now()));
   useEffect(() => {
+    if (timer.endsAt <= Date.now()) {
+      onExpire();
+      return;
+    }
     const iv = setInterval(() => {
       const r = Math.max(0, timer.endsAt - Date.now());
       setRemaining(r);
@@ -3013,7 +3034,7 @@ Respond ONLY with JSON array:
 // ═══════════════════════════════════════════════════════════════
 // TASKS TAB
 // ═══════════════════════════════════════════════════════════════
-function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
+function TasksTab({ state, setState, awardXP, showBanner, checkMissions, actionLocksRef }) {
   const [newTask, setNewTask] = useState("");
   const [newPriority, setNewPriority] = useState("medium");
   const [showGoalForm, setShowGoalForm] = useState(false);
@@ -3037,6 +3058,13 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
   }
 
   function completeTask(id, event) {
+    if (actionLocksRef.current.has(id)) return;
+    actionLocksRef.current.add(id);
+    setTimeout(() => actionLocksRef.current.delete(id), 500);
+
+    const task = (state.tasks || []).find(t => t.id === id);
+    if (!task || task.done) return;
+
     setState((s) => ({
       ...s,
       tasks: s.tasks.map((t) => t.id === id ? { ...t, done: true, doneDate: today() } : t),
@@ -3062,6 +3090,10 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions }) {
   }
 
   function submitGoal(id) {
+    if (actionLocksRef.current.has(id)) return;
+    actionLocksRef.current.add(id);
+    setTimeout(() => actionLocksRef.current.delete(id), 500);
+
     setState((s) => ({
       ...s,
       goals: s.goals.map((g) => g.id === id ? { ...g, submissionCount: (g.submissionCount || 0) + 1, done: true, doneDate: today() } : g),
@@ -3261,7 +3293,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
     }
 
     const userMsg = { role: "user", content: text, ts: Date.now(), date: today() };
-    const newHistory = [...messages, userMsg];
+    const newHistory = [...messages, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
     setInput("");
     setLoading(true);
@@ -3274,7 +3306,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
       // semantically break the system prompt boundary. sanitizeForPrompt is intentionally
       // NOT applied here (it's too aggressive for chat — e.g. it strips braces) — we only
       // remove the characters that could escape the <HUNTER_DATA> XML-like delimiters.
-      const apiMessages = newHistory.slice(-10).map((m) => ({
+      const apiMessages = newHistory.slice(-20).map((m) => ({
         role: m.role,
         content: m.role === "user"
           ? m.content.replace(/[<>]/g, "")   // strip tag-breakout chars from user input only
@@ -3291,9 +3323,13 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
         parsed = JSON.parse(cleaned);
       } catch {
         // Try extracting JSON object from text
-        const match = raw.match(/\{[\s\S]*\}/);
+        const match = raw.match(/\{[\s\S]*?\}(?=\s*$|[^}]+$)/);
         if (match) {
-          parsed = JSON.parse(match[0]);
+          try {
+            parsed = JSON.parse(match[0]);
+          } catch {
+            parsed = { message: raw, commands: [] };
+          }
         } else {
           // Fallback: treat entire raw as message
           parsed = { message: raw, commands: [] };
@@ -3305,7 +3341,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
         content: parsed.message || parsed.text || String(parsed),
         ts: Date.now()
       };
-      setState((s) => ({ ...s, chatHistory: [...s.chatHistory, assistantMsg] }));
+      setState((s) => ({ ...s, chatHistory: [...s.chatHistory, assistantMsg].slice(-1000) }));
 
       if (parsed.commands?.length) {
         setTimeout(() => executeCommands(parsed.commands), 300);
@@ -3318,7 +3354,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
         content: `Connection error: ${safeMsg}. Check your API key in Profile → Settings.`,
         ts: Date.now()
       };
-      setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg] }));
+      setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg].slice(-1000) }));
     }
     setLoading(false);
   }
@@ -3490,7 +3526,7 @@ function ChatMessage({ msg }) {
 // ═══════════════════════════════════════════════════════════════
 // PROFILE TAB
 // ═══════════════════════════════════════════════════════════════
-function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme, streakShieldCost, gachaCost, trackTokens }) {
+function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme, streakShieldCost, gachaCost, trackTokens, latestStateRef }) {
   const [section, setSection] = useState("overview");
   const [showGacha, setShowGacha] = useState(false);
 
@@ -3536,16 +3572,16 @@ function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP
         ))}
       </div>
 
-      {section === "overview" && <ProfileOverview state={state} setState={setState} profile={profile} level={level} rank={rank} streakShieldCost={streakShieldCost} apiKey={apiKey} showBanner={showBanner} />}
+      {section === "overview" && <ProfileOverview state={state} setState={setState} profile={profile} level={level} rank={rank} streakShieldCost={streakShieldCost} apiKey={apiKey} showBanner={showBanner} latestStateRef={latestStateRef} />}
       {section === "achievements" && <AchievementsSection state={state} />}
       {section === "calendar" && <CalendarSection state={state} setState={setState} profile={profile} apiKey={apiKey} buildSystemPrompt={buildSystemPrompt} showBanner={showBanner} executeCommands={executeCommands} />}
-      {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} gachaCost={gachaCost} showBanner={showBanner} showToast={showToast} trackTokens={trackTokens} />}
+      {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} gachaCost={gachaCost} showBanner={showBanner} showToast={showToast} trackTokens={trackTokens} latestStateRef={latestStateRef} />}
       {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} syncFileConnected={syncFileConnected} onPush={onPush} onPull={onPull} onPickSyncFile={onPickSyncFile} onForgetSyncFile={onForgetSyncFile} confirmForgetSync={confirmForgetSync} theme={theme} setTheme={setTheme} />}
     </div>
   );
 }
 
-function ProfileOverview({ state, setState, profile, level, rank, streakShieldCost, apiKey, showBanner }) {
+function ProfileOverview({ state, setState, profile, level, rank, streakShieldCost, apiKey, showBanner, latestStateRef }) {
   const totalSessions = (state.sessions || []).length;
   const totalHabitsLogged = Object.values(state.habitLog || {}).reduce((acc, arr) => acc + arr.length, 0);
   const totalTasksDone = (state.tasks || []).filter((t) => t.done).length;
@@ -3554,13 +3590,16 @@ function ProfileOverview({ state, setState, profile, level, rank, streakShieldCo
 
   function buyShield() {
     if (!canBuyShield || !apiKey) return;
-    setState((s) => {
-      const nextState = { ...s, xp: Math.max(0, s.xp - streakShieldCost), streakShields: (s.streakShields || 0) + 1 };
-      updateDynamicCosts(getGeminiApiKey(), nextState, "streak_shield_use").then((costs) => { // fix #2: read key at call-time
-        if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-      }).catch(() => {});
-      return nextState;
-    });
+
+    const currentState = latestStateRef?.current ?? state;
+    const nextState = { ...currentState, xp: Math.max(0, currentState.xp - streakShieldCost), streakShields: (currentState.streakShields || 0) + 1 };
+
+    setState(nextState);
+
+    updateDynamicCosts(getGeminiApiKey(), nextState, "streak_shield_use").then((costs) => {
+      if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+    }).catch(() => {});
+
     showBanner(`Streak shield purchased. Cost: ${streakShieldCost} XP. Next cost may change.`, "success");
   }
 
@@ -3838,7 +3877,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
   );
 }
 
-function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner, showToast, trackTokens }) {
+function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner, showToast, trackTokens, latestStateRef }) {
   const [pulling, setPulling] = useState(false);
   const [lastPull, setLastPull] = useState(null);
   const [showCollection, setShowCollection] = useState(false);
@@ -3861,7 +3900,7 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
     try {
       const prompt = `Generate a gacha pull for a STEM university student.
 Hunter profile: ${JSON.stringify({ name: profile?.name, books: profile?.books, interests: profile?.interests, major: profile?.major })}
-Existing collection (don't duplicate): ${JSON.stringify(collection.map(c => c.id))}
+Existing collection (don't duplicate): ${JSON.stringify(collection.slice(-50).map(c => c.id))}
 
 Generate ONE of these (weighted random — 60% rank_cosmetic, 40% chronicle):
 
@@ -3900,22 +3939,24 @@ Respond ONLY with JSON:
       };
 
       if (collection.find(c => c.id === safeCard.id)) {
-        showBanner("Already collected. XP refunded.", "info");
+        showBanner("Duplicate generated. No XP consumed.", "info");
         setPulling(false);
         return;
       }
 
-      setState((s) => {
-        const nextState = {
-          ...s,
-          xp: Math.max(0, s.xp - gachaCost),
-          gachaCollection: [...(s.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
-        };
-        updateDynamicCosts(getGeminiApiKey(), nextState, "gacha_pull").then((costs) => { // fix #2: read key at call-time
-          if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-        }).catch(() => {});
-        return nextState;
-      });
+      const currentState = latestStateRef?.current ?? state;
+      const nextState = {
+        ...currentState,
+        xp: Math.max(0, currentState.xp - gachaCost),
+        gachaCollection: [...(currentState.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
+      };
+
+      setState(nextState);
+
+      updateDynamicCosts(getGeminiApiKey(), nextState, "gacha_pull").then((costs) => {
+        if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+      }).catch(() => {});
+
       setLastPull(safeCard);
       showToast({ icon: safeCard.type === "chronicle" ? "≡" : "◈", title: safeCard.title, desc: safeCard.rarity.toUpperCase() + " PULL", rarity: safeCard.rarity, isAchievement: false });
     } catch (e) {
@@ -4030,7 +4071,15 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
   function resetAll() {
     if (window.confirm("Reset ALL data? This cannot be undone.")) {
-      localStorage.clear();
+      // Only delete keys that belong to this app to protect other apps on shared domains
+      const keysToDelete = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith("jv_") || k.startsWith("ritmol_dev_") || APP_CONSTANT_KEYS.has(k))) {
+          keysToDelete.push(k);
+        }
+      }
+      keysToDelete.forEach(k => localStorage.removeItem(k));
       window.location.reload();
     }
   }

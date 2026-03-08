@@ -2,6 +2,14 @@
 
 A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **localStorage**. All application logic and UI live in **`src/App.jsx`**. Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
 
+### Features
+
+- **Tabs:** Home (daily quote, missions, quick actions), Habits (track with XP), Tasks & Goals, RITMOL (AI chat), Profile.
+- **Profile sections:** Overview (Hunter card, streak shield, rank ladder), Achievements, Calendar (Google Calendar events), Gacha, Settings (Syncthing sync, theme).
+- **RPG mechanics:** XP, levels, ranks (Rookie → Transcendent), streak and streak shields, daily missions, achievements, gacha (AI-generated rewards). Costs (XP per level, gacha, streak shield) can be updated by the AI.
+- **AI (Gemini):** Daily token budget shown as “neural energy”; when exhausted, AI features (chat, gacha, daily quote, habit suggestions, etc.) are disabled until the next day. Chat can run commands (add task, set daily goal, suggest sessions, unlock achievement, etc.).
+- **Study:** Session logging (lecture, tirgul, homework, prep) with focus level, timers, sleep/screen log, daily goal. Optional Google Calendar integration.
+
 ### Project structure
 
 - **`src/App.jsx`** — all app logic, UI, sync, and auth.
@@ -48,8 +56,8 @@ When cloning or deploying:
 
 1. **Never commit `.env` files or API keys**
 2. For AI features, set the **Gemini API key** (`VITE_GEMINI_API_KEY`) in **GitHub repo Variables** (deploy) or in `.env` (local dev) — it is never entered in the app UI
-3. For the **sign-in gate** in production, set **at least** `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, and `VITE_GEMINI_API_KEY` in GitHub repo Variables (see **How to get the Google Client ID and set GitHub Variables** below). Optionally add `VITE_VERIFY_GOOGLE_ID_URL` if you deploy the verify endpoint.
-4. Optionally restrict the Gemini key in [Google AI Studio](https://aistudio.google.com/apikey) (API restrictions → Gemini only; optionally add an HTTP referrer for your domain)
+3. **(Optional)** After restricting the Gemini key in [Google AI Studio](https://aistudio.google.com/apikey) (API restrictions → Gemini only; optionally add an HTTP referrer for your domain), set `VITE_GEMINI_KEY_RESTRICTED=true` to dismiss the in-app “API KEY UNRESTRICTED” warning
+4. For the **sign-in gate** in production, set **at least** `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, and `VITE_GEMINI_API_KEY` in GitHub repo Variables (see **How to get the Google Client ID and set GitHub Variables** below). Optionally add `VITE_VERIFY_GOOGLE_ID_URL` if you deploy the verify endpoint.
 
 ### Non-Goals
 
@@ -92,7 +100,7 @@ Contributors and automated tools should **not** add server components or cloud s
    Copy `.env.example` to `.env` and set `VITE_GEMINI_API_KEY`. For **single-account access**, also set `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID`; to run **without the gate**, leave those two empty. Never put real secrets in the repo.
 
 4. **(Optional) Local `.env` reference**  
-   All config can live in `.env` for local dev. The deployed build uses **GitHub repo Variables** only (no `.env`). See `.env.example` for every variable.
+   All config can live in `.env` for local dev. The deployed build uses **GitHub repo Variables** only (no `.env`). See `.env.example` for every variable. Optional: `VITE_GEMINI_KEY_RESTRICTED=true` (after restricting the key in AI Studio); `VITE_SYNC_FILE_PATH` (display-only path hint in Settings, e.g. `/Users/you/Syncthing/ritmol-data.json`).
 
 ---
 
@@ -116,7 +124,7 @@ The sync file must be **valid JSON** and may not exceed **10 MB**. If you Pull o
 
 The app applies a number of safeguards documented in code comments in `src/App.jsx`:
 
-- **Sync:** Corrupt or oversized sync files are rejected (no tab crash). Only allowlisted keys (`SYNC_KEYS`) are written from sync; API keys are never synced. Incoming payloads are validated with `SYNC_VALIDATORS` per key. Timers and habit suggestions are included in the sync payload and in flush-to-storage. Dev and prod use separate localStorage prefixes and **separate sync file handles** (different IndexedDB key); in dev you can link a test file and use **Pull** to refresh the dev copy without affecting production. Before each Push (manual or auto-push on tab hide), the app **flushes the latest in-memory state to localStorage** so the sync file always reflects current data. The sync file handle is stored in **IndexedDB**; the DB connection is **cached and reused** (and cleared on error so the next call retries) for reliability on low-end devices.
+- **Sync:** Corrupt or oversized sync files are rejected (no tab crash). Only allowlisted keys (`SYNC_KEYS`) are written from sync; API keys are never synced. Incoming payloads are validated with `SYNC_VALIDATORS` per key; schema version is enforced (`SYNC_SCHEMA_VERSION`, `buildSyncPayload` / `applySyncPayload`). Timers and habit suggestions are included in the sync payload and in flush-to-storage. Dev and prod use separate localStorage prefixes and **separate sync file handles** (different IndexedDB key); in dev you can link a test file and use **Pull** to refresh the dev copy without affecting production. Before each Push (manual or auto-push on tab hide), the app **flushes the latest in-memory state to localStorage** so the sync file always reflects current data. The sync file handle is stored in **IndexedDB**; the DB connection is **cached and reused** (and cleared on error so the next call retries) for reliability on low-end devices.
 - **Auth:** Google JWT payload is validated (iss, aud, exp, email_verified); malformed tokens are rejected. The in-app session (nonce in sessionStorage) is a **UX guard**, not a strong security boundary; the **trust anchor** is the Google-signed JWT verified above. Sign-in retry is rate-limited; the failure counter resets on success. Unlinking the sync file uses an in-app confirmation (no `window.confirm`) for PWA compatibility.
 - **AI safety:** All user-supplied and prompt data (profile, tasks, goals, habits, data tables sent to the AI) is **sanitized** to reduce JSON/prompt injection. Token usage is capped per day; AI-awarded XP is capped per day to prevent runaway accumulation.
 
