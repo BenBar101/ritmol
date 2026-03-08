@@ -1,8 +1,10 @@
 # RITMOF
 
-A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser.
+A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. Data lives in **localStorage**; optional **Dropbox** sync backs it up and can sync across devices.
 
-**Access control:** The app is single-user. Only the Google account set in `ALLOWED_EMAIL` can use the app. Set this in your environment (e.g. `.env` or GitHub Actions Variables) and never commit secrets. The app expects **Google OAuth Client ID**, **Gemini API key** (`VITE_GEMINI_API_KEY`), and **Dropbox App Key** (`VITE_DROPBOX_APP_KEY`) to be set as **GitHub repo Variables** (or `.env` locally). Keys are not optional and are not entered in the UI — see `.env.example` and the deploy section.
+**Access control:** The app is single-user. In **production** the Google sign-in gate is always on (fail-closed). Only the Google account set in `VITE_ALLOWED_EMAIL` can use the app. You must set **both** `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID` in your environment (e.g. GitHub Actions Variables or `.env`) and never commit secrets. In **local dev**, you can leave both empty to run without the gate; if you set either one, you must set both or the app shows a configuration error.
+
+**API keys:** The app expects **Gemini API key** (`VITE_GEMINI_API_KEY`) and **Dropbox App Key** (`VITE_DROPBOX_APP_KEY`) from the environment (GitHub repo Variables or `.env`). These are not entered in the UI. See `.env.example` and the deploy section below. Restrict the Gemini key in [Google AI Studio](https://aistudio.google.com/apikey) (API restrictions → Gemini only; optionally add an HTTP referrer for your domain) since it is embedded in the browser bundle at build time.
 
 ---
 
@@ -23,18 +25,18 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
    ```bash
    npm run dev
    ```
-   Opens at `http://localhost:5173`. For single-account access, set `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID` in `.env` (see below). Example in docs uses a dummy email — use your own Google email in real config.
+   Opens at `http://localhost:5173`. To use **single-account access** and **Dropbox sync**, copy `.env.example` to `.env` and set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY`. To run **without the gate** (no sign-in), leave `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID` empty — you still need `VITE_GEMINI_API_KEY` and `VITE_DROPBOX_APP_KEY` or the app will show the configuration screen.
 
-4. **Required: local `.env`**  
-   Copy `.env.example` to `.env` and set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY`. Use a dummy email in documentation examples; never put real secrets in the repo.
+4. **Local `.env`**  
+   Copy `.env.example` to `.env`. Set `VITE_GEMINI_API_KEY` and `VITE_DROPBOX_APP_KEY` so the app can run. For the sign-in gate, set both `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID`, or leave both empty in dev. Never put real secrets in the repo.
 
 ---
 
 ## Deploy: GitHub Pages (recommended, free)
 
-**Checklist:** Push repo → enable Pages from GitHub Actions → add **GitHub repo Variables** for `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY` (and optionally a JWT verification endpoint URL if you add a backend).
+**Checklist:** Push repo → enable Pages from GitHub Actions → add **GitHub repo Variables** for `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY`. Optionally add a JWT verification endpoint URL if you use a backend.
 
-**Live site config:** Set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY` under **Settings → Secrets and variables → Actions → Variables**. No `.env` file is used for the deployed build.
+**Live site config:** Set the four variables above under **Settings → Secrets and variables → Actions → Variables**. No `.env` file is used for the deployed build. In production the sign-in gate is always enforced.
 
 ### 1 — Push to GitHub
 
@@ -64,7 +66,7 @@ The workflow sets `VITE_BASE_PATH` from your repo name automatically, so the app
 
 ### 4 — Restrict access (single Google account)
 
-Only the Google account in `VITE_ALLOWED_EMAIL` can use the app.
+Only the Google account in `VITE_ALLOWED_EMAIL` can use the app. In production the gate is always on.
 
 1. Add **GitHub repository variables** (Settings → Secrets and variables → Actions → Variables):
    - `VITE_ALLOWED_EMAIL`: your Google account email (e.g. `you@gmail.com`)
@@ -74,7 +76,7 @@ Only the Google account in `VITE_ALLOWED_EMAIL` can use the app.
 
 2. Push a commit so the workflow rebuilds. The app will show the Google sign-in gate; only the configured email can continue.
 
-**Security note:** For production, add a small backend that verifies the Google ID token (JWT) and returns the email. Without server-side verification, a determined attacker could forge a token. The repo includes an example serverless function at `api/verify-google-id.js` (Vercel-style). Deploy it (e.g. to Vercel), set `GOOGLE_CLIENT_ID` in the function's environment, and set `VITE_VERIFY_GOOGLE_ID_URL` in your front-end env to the function URL. The client will then POST the credential there and only continue if the response email matches.
+**Security note:** Without server-side verification, the client decodes the Google ID token in the browser and validates claims (`iss`, `aud`, `exp`, `email_verified`) but cannot verify the JWT signature. For stronger assurance, add a small backend that verifies the token and returns the email. The repo includes an example serverless function at `api/verify-google-id.js` (Vercel-style). Deploy it (e.g. to Vercel), set `GOOGLE_CLIENT_ID` in the function's environment, and set `VITE_VERIFY_GOOGLE_ID_URL` in your front-end env to the function URL. The client will then POST the credential there and only continue if the response email matches.
 
 ---
 
@@ -82,20 +84,20 @@ Only the Google account in `VITE_ALLOWED_EMAIL` can use the app.
 
 1. [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) → Create app → Scoped → App folder
 2. Permissions: enable `files.content.read` + `files.content.write` → Submit
-3. Settings → Redirect URIs → add your deployed URL (and `http://localhost:5173`)
-4. Copy the **App Key** and set **`VITE_DROPBOX_APP_KEY`** in GitHub repo Variables (or `.env` locally). The app requires this variable; it does not accept the key in the UI. Then in the app: Profile → Settings → **CONNECT DROPBOX** (OAuth uses the key from env).
+3. Settings → Redirect URIs → add your deployed URL (and `http://localhost:5173` for local testing)
+4. Copy the **App Key** and set **`VITE_DROPBOX_APP_KEY`** in GitHub repo Variables (or `.env` locally). The app reads the key only from the environment, not from the UI. In the app: Profile → Settings → **CONNECT DROPBOX** to complete OAuth and enable sync.
 
 ---
 
 ## Local Dev
 
-The app requires `VITE_GEMINI_API_KEY` and `VITE_DROPBOX_APP_KEY` to be set (it shows a configuration screen otherwise). Run:
+The app shows a **configuration screen** until `VITE_GEMINI_API_KEY` and `VITE_DROPBOX_APP_KEY` are set in the environment (GitHub Variables or `.env`). Run:
 
 ```bash
 npm install
 npm run dev   # → http://localhost:5173
 ```
 
-To run with **single-account access** and **sync**, create a `.env` from `.env.example` and set `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, and `VITE_DROPBOX_APP_KEY`. The app will not run without these keys (it shows a configuration screen until they are set).
+To run with **single-account access** and **sync**, create a `.env` from `.env.example` and set all four: `VITE_ALLOWED_EMAIL`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GEMINI_API_KEY`, `VITE_DROPBOX_APP_KEY`. To run **without the sign-in gate**, leave `VITE_ALLOWED_EMAIL` and `VITE_GOOGLE_CLIENT_ID` empty; you still need the Gemini and Dropbox keys.
 
 **Dev mode protects your real data:** When you run `npm run dev`, the app uses a **separate localStorage copy** (keys prefixed with `ritmof_dev_`). It will **pull** from Dropbox on launch (if connected) and store that data in this local copy. The app **never pushes to Dropbox** in dev, so you can experiment without affecting your real synced data. A yellow "DEV MODE" bar at the top reminds you. Use the sync button in dev to **refresh** the local copy from Dropbox (pull only).
