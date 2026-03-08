@@ -235,6 +235,8 @@ function detectEventType(title) {
 
 const IS_DEV = import.meta.env.DEV;
 const DEV_PREFIX = "ritmol_dev_";
+// Public app icon (works with Vite base path for GitHub Pages).
+const APP_ICON_URL = `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/icon-192.png`;
 // Optional: hint shown in the UI so the user knows where their sync file lives.
 // Set VITE_SYNC_FILE_PATH=/Users/you/Syncthing/ritmol-data.json in .env (display only — browser cannot open paths directly).
 const SYNC_FILE_PATH_HINT = (import.meta.env.VITE_SYNC_FILE_PATH || "").trim();
@@ -724,6 +726,7 @@ function AuthGate({ onAccessGranted }) {
         minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
         background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
       }}>
+        <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "16px", display: "block" }} />
         <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOL — CONFIGURATION ERROR</div>
         <div style={{ color: "#c44", fontSize: "12px", maxWidth: "380px", lineHeight: "1.8" }}>
           {isProd
@@ -740,6 +743,7 @@ function AuthGate({ onAccessGranted }) {
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
     }}>
+      <img src={APP_ICON_URL} alt="" style={{ width: 56, height: 56, marginBottom: "16px", display: "block" }} />
       <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "8px" }}>RITMOL</div>
       <div style={{ fontSize: "14px", color: "#aaa", marginBottom: "24px" }}>Single-account access. Sign in with the allowed Google account.</div>
       {!VERIFY_GOOGLE_ID_URL && (
@@ -783,6 +787,7 @@ function KeysConfigGate() {
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
     }}>
+      <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "16px", display: "block" }} />
       <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOL — CONFIGURATION REQUIRED</div>
       <div style={{ color: "#c44", fontSize: "12px", maxWidth: "380px", lineHeight: "1.8" }}>
         Set these variables in your environment (GitHub repo Variables or local <code>.env</code>). The app expects keys to be defined there, not in the UI.
@@ -2137,6 +2142,7 @@ function Onboarding({ onComplete }) {
       height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "flex-start", padding: "24px", background: "#0a0a0a",
     }}>
+      <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "8px", display: "block" }} />
       {/* Progress */}
       <div style={{ width: "100%", maxWidth: "380px", marginBottom: "24px", marginTop: "16px" }}>
         <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
@@ -2404,6 +2410,7 @@ function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatus, last
       display: "flex", alignItems: "center", justifyContent: "space-between",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <img src={APP_ICON_URL} alt="" style={{ width: 28, height: 28, display: "block" }} />
         <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "3px", color: "#fff" }}>
           RITMOL
         </span>
