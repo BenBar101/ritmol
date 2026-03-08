@@ -50,9 +50,10 @@ const ACHIEVEMENT_RARITIES = {
 };
 
 // Single-account gate: set at build time (e.g. .env or GitHub repo env)
-const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || "").trim().toLowerCase();
+const ALLOWED_EMAIL = (import.meta.env.VITE_ALLOWED_EMAIL || "benbar101@gmail.com").trim().toLowerCase();
 const GATE_GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
 const GATE_SESSION_KEY = "ritmof_allowed";
+const THEME_KEY = "jv_theme";
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS
@@ -676,11 +677,20 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [lastSynced, setLastSynced] = useState(LS.get("jv_last_synced", null));
+  const [theme, setThemeState] = useState(() => LS.get(THEME_KEY, "dark"));
+  const setTheme = (t) => { LS.set(THEME_KEY, t); setThemeState(t); };
   const toastTimer = useRef(null);
   const bannerTimer = useRef(null);
   const stateRef = useRef(state);
 
   useEffect(() => { stateRef.current = state; }, [state]);
+
+  // Apply theme to document (dark default)
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", theme === "light" ? "#f0f0f0" : "#0a0a0a");
+  }, [theme]);
 
   const profile = state.profile;
   const apiKey = profile?.geminiKey;
@@ -1191,6 +1201,7 @@ export default function App() {
             syncStatus={syncStatus} lastSynced={lastSynced} onSync={manualSync}
             dropboxConnected={dropboxConnected} dropboxAppKey={dropboxAppKey}
             onDisconnectDropbox={disconnectDropbox}
+            theme={theme} setTheme={setTheme}
           />
         )}
       </div>
@@ -2558,7 +2569,7 @@ function ChatMessage({ msg }) {
 // ═══════════════════════════════════════════════════════════════
 // PROFILE TAB
 // ═══════════════════════════════════════════════════════════════
-function ProfileTab({ state, setState, profile, level, rank, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox }) {
+function ProfileTab({ state, setState, profile, level, rank, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme }) {
   const [section, setSection] = useState("overview");
   const [showGacha, setShowGacha] = useState(false);
 
@@ -2608,7 +2619,7 @@ function ProfileTab({ state, setState, profile, level, rank, awardXP, showBanner
       {section === "achievements" && <AchievementsSection state={state} />}
       {section === "calendar" && <CalendarSection state={state} setState={setState} profile={profile} apiKey={apiKey} buildSystemPrompt={buildSystemPrompt} showBanner={showBanner} executeCommands={executeCommands} />}
       {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} showBanner={showBanner} showToast={showToast} />}
-      {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} onSync={onSync} dropboxConnected={dropboxConnected} dropboxAppKey={dropboxAppKey} onDisconnectDropbox={onDisconnectDropbox} />}
+      {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} onSync={onSync} dropboxConnected={dropboxConnected} dropboxAppKey={dropboxAppKey} onDisconnectDropbox={onDisconnectDropbox} theme={theme} setTheme={setTheme} />}
     </div>
   );
 }
@@ -3002,7 +3013,7 @@ function GachaCard({ card, compact }) {
   );
 }
 
-function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox }) {
+function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced, onSync, dropboxConnected, dropboxAppKey, onDisconnectDropbox, theme, setTheme }) {
   const [geminiKey, setGeminiKey] = useState(profile?.geminiKey || "");
   const [gcalId, setGcalId] = useState(profile?.googleClientId || "");
   const [appKey, setAppKey] = useState(dropboxAppKey || LS.get(DB_APPKEY_KEY, "") || "");
@@ -3032,7 +3043,36 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
-      <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px" }}>API CONFIGURATION</div>
+      <div style={{ fontSize: "9px", color: "var(--muted)", letterSpacing: "2px" }}>APPEARANCE</div>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button
+          type="button"
+          onClick={() => setTheme("dark")}
+          style={{
+            flex: 1, padding: "10px", border: `2px solid ${theme === "dark" ? "#fff" : "var(--border2)"}`,
+            background: theme === "dark" ? "#fff" : "transparent",
+            color: theme === "dark" ? "#000" : "var(--muted3)",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+          }}
+        >
+          DARK
+        </button>
+        <button
+          type="button"
+          onClick={() => setTheme("light")}
+          style={{
+            flex: 1, padding: "10px", border: `2px solid ${theme === "light" ? "#000" : "var(--border2)"}`,
+            background: theme === "light" ? "#000" : "transparent",
+            color: theme === "light" ? "#fff" : "var(--muted3)",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+          }}
+        >
+          LIGHT
+        </button>
+      </div>
+
+      <div style={{ height: "1px", background: "var(--border)", margin: "8px 0" }} />
+      <div style={{ fontSize: "9px", color: "var(--muted)", letterSpacing: "2px" }}>API CONFIGURATION</div>
       <GeminiSetupGuide />
       <label style={{ fontSize: "10px", color: "#666" }}>GEMINI API KEY</label>
       <input

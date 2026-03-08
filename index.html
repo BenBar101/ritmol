@@ -27,20 +27,56 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=IM+Fell+English:ital@0;1&family=Special+Elite&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <script>
+    (function() {
+      try {
+        var v = localStorage.getItem("jv_theme");
+        var t = (v && JSON.parse(v)) === "light" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+    /* Theme: default dark (overridden by [data-theme] from JS) */
+    :root, [data-theme="dark"] {
+      --bg: #0a0a0a;
+      --text: #e8e8e8;
+      --surface: #111;
+      --surface2: #1a1a1a;
+      --border: #222;
+      --border2: #333;
+      --muted: #444;
+      --muted2: #555;
+      --muted3: #666;
+      --scroll-track: #111;
+      --scroll-thumb: #444;
+    }
+    [data-theme="light"] {
+      --bg: #f0f0f0;
+      --text: #1a1a1a;
+      --surface: #fff;
+      --surface2: #e8e8e8;
+      --border: #ddd;
+      --border2: #ccc;
+      --muted: #666;
+      --muted2: #555;
+      --muted3: #444;
+      --scroll-track: #e8e8e8;
+      --scroll-thumb: #aaa;
+    }
     body {
-      background: #0a0a0a;
-      color: #e8e8e8;
+      background: var(--bg);
+      color: var(--text);
       font-family: 'Share Tech Mono', monospace;
       -webkit-font-smoothing: antialiased;
       overscroll-behavior: none;
     }
     #root { display: flex; flex-direction: column; }
     ::-webkit-scrollbar { width: 2px; }
-    ::-webkit-scrollbar-track { background: #111; }
-    ::-webkit-scrollbar-thumb { background: #444; }
+    ::-webkit-scrollbar-track { background: var(--scroll-track); }
+    ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); }
     input, textarea, button { font-family: inherit; }
     button { cursor: pointer; border: none; background: none; }
   </style>

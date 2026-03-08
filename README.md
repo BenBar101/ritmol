@@ -19,8 +19,12 @@ git push -u origin main
 ### 2 — Enable GitHub Pages
 
 1. Go to your repo → **Settings → Pages**
-2. Under **Source**, select **GitHub Actions**
+2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not “Deploy from a branch”).
 3. The workflow at `.github/workflows/deploy.yml` runs automatically on every push to `main`
+
+**If the page is blank and the console shows**  
+`Loading module from ".../src/App.jsx" was blocked because of a disallowed MIME type ("text/html")`  
+→ The site is serving the repo source instead of the built app. Fix: set **Source** to **GitHub Actions** (step 2 above), then push a commit so the workflow runs and deploys the `dist` folder.
 
 ### 3 — Base path
 
