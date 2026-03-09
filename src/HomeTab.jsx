@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { today } from "../utils/storage";
-import { DAILY_TOKEN_LIMIT } from "../constants";
+import { today } from "./utils/storage";
+import { DAILY_TOKEN_LIMIT } from "./constants";
 
 export default function HomeTab({ state, setState, profile, apiKey, level, rank, dailyQuote, awardXP, logHabit, showBanner, showToast, executeCommands, setTab, buildSystemPrompt }) {
   const todayLog = state.habitLog[today()] || [];

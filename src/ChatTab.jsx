@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { today, LS, storageKey } from "../utils/storage";
-import { DAILY_TOKEN_LIMIT, DATA_DISCLOSURE_SEEN_KEY } from "../constants";
-import { callGemini } from "../api/gemini";
+import { today, LS, storageKey } from "./utils/storage";
+import { DAILY_TOKEN_LIMIT, DATA_DISCLOSURE_SEEN_KEY } from "./constants";
+import { callGemini } from "./api/gemini";
 
 export default function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, awardXP, trackTokens }) {
   const [input, setInput] = useState("");

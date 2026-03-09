@@ -18,20 +18,20 @@ import { updateDynamicCosts } from "./api/dynamicCosts";
 import { SyncManager } from "./sync/SyncManager";
 
 // Components
-import Onboarding from "./components/Onboarding";
-import { TopBar, BottomNav, Banner } from "./components/Layout";
-import { GlobalStyles, ErrorBoundary } from "./components/GlobalStyles";
+import Onboarding from "./Onboarding";
+import { TopBar, BottomNav, Banner } from "./Layout";
+import { GlobalStyles, ErrorBoundary } from "./GlobalStyles";
 import {
   Modal, DailyLoginModal, SleepCheckinModal, ScreenTimeModal,
   SessionLogModal, LevelUpModal, AchievementToast,
-} from "./components/Modals";
+} from "./Modals";
 
 // Tabs
-import HomeTab from "./tabs/HomeTab";
-import HabitsTab from "./tabs/HabitsTab";
-import TasksTab from "./tabs/TasksTab";
-import ChatTab from "./tabs/ChatTab";
-import ProfileTab from "./tabs/ProfileTab";
+import HomeTab from "./HomeTab";
+import HabitsTab from "./HabitsTab";
+import TasksTab from "./TasksTab";
+import ChatTab from "./ChatTab";
+import ProfileTab from "./ProfileTab";
 
 // ─────────────────────────────────────────────────────────────────
 // KEYS CONFIG GATE (shown when Gemini key isn't loaded yet)

@@ -1,4 +1,4 @@
-import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "../constants";
+import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "./constants";
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS

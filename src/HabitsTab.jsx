@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { today, LS, storageKey } from "../utils/storage";
-import { STYLE_CSS, DAILY_TOKEN_LIMIT } from "../constants";
-import { callGemini } from "../api/gemini";
-import GeometricCorners from "../components/GeometricCorners";
+import { today, LS, storageKey } from "./utils/storage";
+import { STYLE_CSS, DAILY_TOKEN_LIMIT } from "./constants";
+import { callGemini } from "./api/gemini";
+import GeometricCorners from "./GeometricCorners";
 
 export default function HabitsTab({ state, setState, logHabit, awardXP, showBanner, profile, apiKey, trackTokens }) {
   const todayLog = state.habitLog[today()] || [];

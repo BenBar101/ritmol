@@ -1,5 +1,5 @@
-import { APP_ICON_URL } from "../utils/storage";
-import { getLevelProgress } from "../utils/xp";
+import { APP_ICON_URL } from "./utils/storage";
+import { getLevelProgress } from "./utils/xp";
 
 // ═══════════════════════════════════════════════════════════════
 // TOP BAR

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { STYLE_CSS } from "../constants";
-import { APP_ICON_URL } from "../utils/storage";
-import { SyncManager, FSAPI_SUPPORTED } from "../sync/SyncManager";
+import { STYLE_CSS } from "./constants";
+import { APP_ICON_URL } from "./utils/storage";
+import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
 
 export const primaryBtn = {

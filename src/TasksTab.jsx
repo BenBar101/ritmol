@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { today } from "../utils/storage";
-import { primaryBtn, inputStyle } from "../components/Onboarding";
-import { STYLE_CSS } from "../constants";
+import { today } from "./utils/storage";
+import { primaryBtn, inputStyle } from "./Onboarding";
+import { STYLE_CSS } from "./constants";
 
 const inputStyleDefault = {
   width: "100%", background: "rgba(0,0,0,0.6)", border: "1px solid #444",

@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { today, LS, storageKey, getGeminiApiKey } from "../utils/storage";
-import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT } from "../constants";
-import { getLevelProgress } from "../utils/xp";
-import { callGemini } from "../api/gemini";
-import { fetchGCalEvents, loadGoogleGIS } from "../api/gcal";
-import { SyncManager, FSAPI_SUPPORTED } from "../sync/SyncManager";
-import GeometricCorners from "../components/GeometricCorners";
-import { primaryBtn, inputStyle } from "../components/Onboarding";
-import { updateDynamicCosts } from "../api/dynamicCosts";
+import { today, LS, storageKey, getGeminiApiKey } from "./utils/storage";
+import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT } from "./constants";
+import { getLevelProgress } from "./utils/xp";
+import { callGemini } from "./api/gemini";
+import { fetchGCalEvents, loadGoogleGIS } from "./api/gcal";
+import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
+import GeometricCorners from "./GeometricCorners";
+import { primaryBtn, inputStyle } from "./Onboarding";
+import { updateDynamicCosts } from "./api/dynamicCosts";
 
 export default function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme, streakShieldCost, gachaCost, trackTokens, latestStateRef }) {
   const [section, setSection] = useState("overview");

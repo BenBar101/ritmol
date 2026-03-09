@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { ACHIEVEMENT_RARITIES, SESSION_TYPES, FOCUS_LEVELS, STYLE_CSS } from "../constants";
-import { calcSessionXP } from "../utils/xp";
+import { ACHIEVEMENT_RARITIES, SESSION_TYPES, FOCUS_LEVELS, STYLE_CSS } from "./constants";
+import { calcSessionXP } from "./utils/xp";
 import GeometricCorners from "./GeometricCorners";
 import { primaryBtn, inputStyle } from "./Onboarding";
 

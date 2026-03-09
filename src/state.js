@@ -1,5 +1,5 @@
-import { LS, storageKey, today } from "../utils/storage";
-import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, DEFAULT_HABITS } from "../constants";
+import { LS, storageKey, today } from "./utils/storage";
+import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, DEFAULT_HABITS } from "./constants";
 
 // ═══════════════════════════════════════════════════════════════
 // INITIAL STATE

@@ -1,5 +1,5 @@
-import { LS, storageKey } from "../utils/storage";
-import { setGeminiApiKey } from "../utils/storage";
+import { LS, storageKey } from "./utils/storage";
+import { setGeminiApiKey } from "./utils/storage";
 
 // ═══════════════════════════════════════════════════════════════
 // SYNCTHING FILE SYNC (File System Access API)

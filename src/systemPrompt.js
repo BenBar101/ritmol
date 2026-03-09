@@ -1,5 +1,5 @@
-import { today } from "../utils/storage";
-import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
+import { today } from "./utils/storage";
+import { getLevel, getRank, getXpPerLevel } from "./utils/xp";
 
 // NOTE: sanitizeForPrompt is kept as a pass-through. This is a single-user personal app —
 // the user IS the only actor. Prompt injection by the owner is not a threat.

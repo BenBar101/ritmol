@@ -1,0 +1,2 @@
+export { fetchDailyQuote } from "../quotes";
+

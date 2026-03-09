@@ -1,4 +1,4 @@
-import { IS_DEV, DEV_PREFIX, LS, storageKey, today } from "../utils/storage";
+import { IS_DEV, DEV_PREFIX, LS, storageKey, today } from "./utils/storage";
 
 // ═══════════════════════════════════════════════════════════════
 // DAILY QUOTE  (Quotable API — no tokens consumed)
