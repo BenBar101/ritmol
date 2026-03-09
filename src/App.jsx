@@ -15,7 +15,7 @@ import { fetchDailyQuote } from "./api/quotes";
 import { updateDynamicCosts } from "./api/dynamicCosts";
 
 // Sync
-import { SyncManager } from "./sync/SyncManager";
+import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 
 // Components
 import Onboarding from "./Onboarding";
@@ -42,6 +42,70 @@ function KeysConfigGate() {
   const missing = [];
   if (!getGeminiApiKey()) missing.push("geminiKey");
   if (missing.length === 0) return null;
+
+  const [syncFileConnected, setSyncFileConnected] = useState(false);
+  const [syncChecking, setSyncChecking] = useState(true);
+  const [syncError, setSyncError] = useState("");
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | error | success
+
+  useEffect(() => {
+    if (!FSAPI_SUPPORTED) {
+      setSyncChecking(false);
+      return;
+    }
+    let cancelled = false;
+    SyncManager.getHandle()
+      .then((h) => {
+        if (cancelled) return;
+        setSyncFileConnected(!!h);
+        setSyncChecking(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSyncChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handlePickSyncFile() {
+    if (!FSAPI_SUPPORTED) return;
+    setSyncError("");
+    try {
+      await SyncManager.pickFile();
+      setSyncFileConnected(true);
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      setSyncError("Could not link file. Try again.");
+    }
+  }
+
+  async function handleLoadFromFile() {
+    if (!FSAPI_SUPPORTED) return;
+    setSyncError("");
+    setSyncStatus("syncing");
+    try {
+      await SyncManager.pull();
+      setSyncStatus("success");
+      // Pull loads geminiKey into sessionStorage; re-render will drop this gate.
+      window.location.reload();
+    } catch (e) {
+      setSyncStatus("error");
+      if (e.message === "NO_HANDLE") {
+        setSyncError("No sync file linked yet.");
+      } else if (e.message === "CORRUPT_FILE") {
+        setSyncError("Sync file is corrupt or not valid JSON.");
+      } else if (e.message === "SYNC_SCHEMA_OUTDATED") {
+        setSyncError("Sync file was written by an older version of RITMOL.");
+      } else if (e.message === "SYNC_FILE_TOO_LARGE") {
+        setSyncError("Sync file exceeds 10 MB. Check the file.");
+      } else {
+        setSyncError("Pull failed. Check your sync file and try again.");
+      }
+    }
+  }
+
   return (
     <div style={{
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
@@ -49,12 +113,63 @@ function KeysConfigGate() {
     }}>
       <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "16px", display: "block" }} />
       <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOL — CONFIGURATION REQUIRED</div>
-      <div style={{ color: "#c44", fontSize: "12px", maxWidth: "420px", lineHeight: "1.8" }}>
+      <div style={{ color: "#c44", fontSize: "12px", maxWidth: "420px", lineHeight: "1.8", marginBottom: "20px" }}>
         No Gemini API key found in this session. Add <code>"geminiKey": "AIza..."</code> to your{" "}
-        <code>ritmol-data.json</code> sync file, then use <strong>Pull ↓</strong> (Profile → Settings) to load it.
+        <code>ritmol-data.json</code> sync file, then link it below so RITMOL can read it.
         The key is never stored in the build or in GitHub — it lives only in your Syncthing file and this tab's sessionStorage.
       </div>
-      <div style={{ fontSize: "10px", color: "#555", marginTop: "24px" }}>See README — Gemini API Key section.</div>
+
+      {FSAPI_SUPPORTED ? (
+        <div style={{ maxWidth: "420px", width: "100%", textAlign: "left", border: "1px solid #333", padding: "16px", fontSize: "11px", color: "#aaa" }}>
+          <div style={{ fontSize: "10px", color: "#777", letterSpacing: "2px", marginBottom: "8px" }}>
+            STEP 1 — LINK YOUR SYNC FILE
+          </div>
+          <div style={{ marginBottom: "10px", lineHeight: "1.8" }}>
+            Pick (or create) <code>ritmol-data.json</code> inside your Syncthing folder.
+          </div>
+          <button
+            onClick={handlePickSyncFile}
+            disabled={syncChecking}
+            style={{
+              width: "100%", padding: "10px",
+              border: "2px solid #fff", background: "#fff", color: "#000",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px", cursor: "pointer",
+              marginBottom: "10px",
+            }}
+          >
+            {syncFileConnected ? "✓ SYNC FILE LINKED" : "LINK SYNCTHING FILE →"}
+          </button>
+
+          <div style={{ fontSize: "10px", color: "#777", marginTop: "8px", lineHeight: "1.6" }}>
+            STEP 2 — After your file contains <code>geminiKey</code>, click below to load it:
+          </div>
+          <button
+            onClick={handleLoadFromFile}
+            disabled={!syncFileConnected || syncStatus === "syncing"}
+            style={{
+              width: "100%", padding: "10px", marginTop: "8px",
+              border: "1px solid #444",
+              background: !syncFileConnected || syncStatus === "syncing" ? "#151515" : "transparent",
+              color: !syncFileConnected || syncStatus === "syncing" ? "#444" : "#ccc",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: !syncFileConnected || syncStatus === "syncing" ? "default" : "pointer",
+            }}
+          >
+            {syncStatus === "syncing" ? "LOADING FROM FILE..." : "LOAD KEY FROM SYNC FILE ↓"}
+          </button>
+
+          {syncError && (
+            <div style={{ marginTop: "8px", color: "#c44", fontSize: "10px" }}>
+              ⚠ {syncError}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ fontSize: "11px", color: "#777", maxWidth: "420px", lineHeight: "1.8" }}>
+          Your browser does not support direct file access. Use <strong>Download / Import</strong> in Profile → Settings after you complete setup.
+        </div>
+      )}
+
+      <div style={{ fontSize: "10px", color: "#555", marginTop: "24px" }}>See README — Gemini API Key & Sync sections.</div>
     </div>
   );
 }

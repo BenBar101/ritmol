@@ -1,20 +1,19 @@
 import { useState } from "react";
 import { STYLE_CSS } from "./constants";
-import { APP_ICON_URL } from "./utils/storage";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
 
 export const primaryBtn = {
-  width: "100%", marginTop: "20px", padding: "12px",
+  width: "100%", marginTop: "20px", padding: "14px",
   background: "#fff", color: "#000",
-  fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", letterSpacing: "2px",
+  fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "2px",
   border: "none", cursor: "pointer",
 };
 
 export function inputStyle(s) {
   return {
     width: "100%", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
-    color: "#e8e8e8", padding: "10px", fontSize: "14px",
+    color: "#e8e8e8", padding: "12px", fontSize: "15px",
     fontFamily: s.fontFamily, outline: "none", resize: "none",
     borderRadius: "0",
   };
@@ -184,7 +183,6 @@ export default function Onboarding({ onComplete }) {
       height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "flex-start", padding: "24px", background: "#0a0a0a",
     }}>
-      <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "8px", display: "block" }} />
       {/* Progress */}
       <div style={{ width: "100%", maxWidth: "380px", marginBottom: "24px", marginTop: "16px" }}>
         <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
@@ -192,7 +190,7 @@ export default function Onboarding({ onComplete }) {
             <div key={i} style={{ flex: 1, height: "2px", background: i <= step ? "#fff" : "#333" }} />
           ))}
         </div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#666", textAlign: "right" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#666", textAlign: "right" }}>
           {step + 1}/{steps.length}
         </div>
       </div>
@@ -204,13 +202,13 @@ export default function Onboarding({ onComplete }) {
         fontFamily: s.fontFamily,
       }}>
         <GeometricCorners style={current.style} />
-        <div style={{ fontSize: "10px", color: "#888", letterSpacing: "3px", marginBottom: "8px" }}>
+        <div style={{ fontSize: "11px", color: "#888", letterSpacing: "3px", marginBottom: "8px" }}>
           PROTOCOL {step + 1}
         </div>
-        <div style={{ fontSize: "20px", fontWeight: "bold", marginBottom: "4px", letterSpacing: "1px" }}>
+        <div style={{ fontSize: "22px", fontWeight: "bold", marginBottom: "6px", letterSpacing: "1px" }}>
           {current.title}
         </div>
-        <div style={{ fontSize: "12px", color: "#999", marginBottom: "16px", fontStyle: current.style === "dots" ? "italic" : "normal" }}>
+        <div style={{ fontSize: "13px", color: "#999", marginBottom: "18px", fontStyle: current.style === "dots" ? "italic" : "normal" }}>
           {current.subtitle}
         </div>
 
@@ -218,7 +216,7 @@ export default function Onboarding({ onComplete }) {
           <SyncOnboardingStep />
         ) : current.type === "_infoOnly" ? null : (
           <>
-            <label style={{ fontSize: "10px", color: "#aaa", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0" }}>
+            <label style={{ fontSize: "11px", color: "#aaa", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0" }}>
               {current.label} {current.optional && !current.isSyncStep && <span style={{ color: "#444" }}>— OPTIONAL</span>}
             </label>
             {current.type === "textarea" ? (
@@ -241,7 +239,7 @@ export default function Onboarding({ onComplete }) {
           </>
         )}
 
-        {error && <div style={{ color: "#ccc", fontSize: "11px", marginTop: "8px" }}>⚠ {error}</div>}
+        {error && <div style={{ color: "#ccc", fontSize: "12px", marginTop: "8px" }}>⚠ {error}</div>}
 
         <button onClick={handleNext} style={{ ...primaryBtn, marginTop: "16px" }}>
           {step === steps.length - 1 ? "INITIALIZE RITMOL" : current.optional ? "NEXT › (or skip)" : "NEXT ›"}
