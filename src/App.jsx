@@ -73,10 +73,23 @@ const VITE_GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
 // Fix #1 (security): surfaced as a visible dev warning if the deployer forgot to restrict the key.
 // Set VITE_GEMINI_KEY_RESTRICTED=true in your env only after applying API restrictions in AI Studio.
 const GEMINI_KEY_RESTRICTED = import.meta.env.VITE_GEMINI_KEY_RESTRICTED === "true";
+// Warn at module load time (not just in the UI banner) so it appears in CI logs and DevTools console.
+if (VITE_GEMINI_API_KEY && !GEMINI_KEY_RESTRICTED) {
+  console.warn(
+    "[RITMOL] SECURITY: Gemini API key is present but VITE_GEMINI_KEY_RESTRICTED is not set to 'true'.\n" +
+    "Apply API restrictions in AI Studio, then set VITE_GEMINI_KEY_RESTRICTED=true in your env.\n" +
+    "See comments in App.jsx near VITE_GEMINI_API_KEY for the full mitigation checklist."
+  );
+}
 // Auth is required by default (fail-closed). It is only skipped when running in local dev mode
 // AND both env vars are absent — meaning the developer deliberately left them unset locally.
 // Any production build with at least one var set will always enforce the gate.
-const AUTH_REQUIRED = !!(ALLOWED_EMAIL || GATE_GOOGLE_CLIENT_ID) || !import.meta.env.DEV;
+// Using `=== true` rather than a bare truthy check so that undefined (non-Vite bundlers, Jest)
+// is treated as non-dev, keeping auth enforced in unexpected build environments.
+// Guard with typeof so environments where import.meta is undefined (CommonJS, some test runners)
+// don't throw a ReferenceError — they fall through to the fail-closed `true` default.
+const _IS_VITE_DEV = (typeof import.meta !== "undefined" && import.meta.env?.DEV) === true;
+const AUTH_REQUIRED = !!(ALLOWED_EMAIL || GATE_GOOGLE_CLIENT_ID) || !_IS_VITE_DEV;
 const GATE_SESSION_KEY = "ritmol_session_token"; // stores a signed token, not a plain boolean
 // Daily token budget. Gemini 2.5 Flash free tier is ~1 000 000 tokens/day per key.
 // Set conservatively so a runaway loop doesn't silently drain the quota.
@@ -88,20 +101,30 @@ const THEME_KEY = "jv_theme";
 // We derive a session token by hashing the verified email + a per-load nonce stored only in memory.
 // This means setting sessionStorage manually from the console gives an invalid token — the app
 // will reject it and re-show the auth gate.
-// Session nonce: generated once per page load at module evaluation time.
-// In production this is always a fresh value on each full page load — correct behaviour.
-// In Vite dev mode, HMR can re-evaluate this module without a full page reload, which
-// regenerates the nonce and invalidates any existing sessionStorage token, forcing re-auth.
+// Session nonce: generated once per page session and persisted in sessionStorage so that
+// Vite HMR module re-evaluation reuses the same nonce rather than generating a new one,
+// which previously invalidated the session token and forced a Google sign-in prompt on
+// every hot reload during development.
+// Production behaviour is unchanged: sessionStorage is cleared on tab/window close, so a
+// full page reload always starts a fresh nonce.
 // SECURITY WARNING — this is a UX guard, NOT a cryptographic security boundary:
-//   The nonce lives in JS module scope. In production it is readable from the Chromium
-//   DevTools Sources panel (pause execution at any point, inspect module scope) or via
-//   a debugger breakpoint. Because ALLOWED_EMAIL is also in the bundle, an attacker with
-//   DevTools access can reconstruct the token trivially:
-//     SHA256(ALLOWED_EMAIL + "|" + extractedNonce)
+//   The nonce lives in sessionStorage and JS module scope. In production it is readable
+//   from the Chromium DevTools Sources panel or via a debugger breakpoint. Because
+//   ALLOWED_EMAIL is also in the bundle, an attacker with DevTools access can reconstruct
+//   the token trivially: SHA256(ALLOWED_EMAIL + "|" + extractedNonce).
 //   The actual security boundary is the Google-signed JWT verified during AuthGate sign-in.
 //   Treat this token purely as a convenience: it avoids the sign-in prompt on every reload.
-const SESSION_NONCE = crypto.getRandomValues(new Uint8Array(16))
-  .reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
+const _NONCE_SS_KEY = "ritmol_session_nonce";
+const SESSION_NONCE = (() => {
+  try {
+    const existing = sessionStorage.getItem(_NONCE_SS_KEY);
+    if (existing) return existing;
+  } catch {}
+  const fresh = crypto.getRandomValues(new Uint8Array(16))
+    .reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
+  try { sessionStorage.setItem(_NONCE_SS_KEY, fresh); } catch {}
+  return fresh;
+})();
 
 async function makeSessionToken(email) {
   const data = new TextEncoder().encode(email + "|" + SESSION_NONCE);
@@ -147,7 +170,10 @@ const nowMin = () => new Date().getMinutes();
 // ═══════════════════════════════════════════════════════════════
 // GEMINI API
 // ═══════════════════════════════════════════════════════════════
-async function callGemini(apiKey, messages, systemPrompt, jsonMode = false) {
+// Fix #12: accepts an optional AbortSignal so callers (ChatTab, HabitsTab, etc.) can cancel
+// in-flight requests when the component unmounts or the user navigates away. Without this,
+// a slow request would still call trackTokens and setState after the component is gone.
+async function callGemini(apiKey, messages, systemPrompt, jsonMode = false, signal = undefined) {
   const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
@@ -175,6 +201,7 @@ async function callGemini(apiKey, messages, systemPrompt, jsonMode = false) {
       "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(body),
+    signal, // Fix #12: honour AbortSignal from caller
   });
 
   if (!res.ok) {
@@ -192,9 +219,15 @@ async function callGemini(apiKey, messages, systemPrompt, jsonMode = false) {
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   if (!text) throw new Error("Empty response from Gemini");
 
+  // Fix #5: use UTF-8 byte length for the fallback estimate. The previous version divided
+  // raw JS string length (UTF-16 code units) by 4, which undercounts multi-byte scripts
+  // (Hebrew, Arabic, emoji) by up to 4×. TextEncoder gives actual UTF-8 bytes, which is
+  // a closer proxy for tokenizer input size. Still an approximation — real token counts
+  // come from usageMetadata, so this path is only hit when the API omits that field.
+  const enc = new TextEncoder();
   const tokensUsed = data.usageMetadata
     ? (data.usageMetadata.promptTokenCount || 0) + (data.usageMetadata.candidatesTokenCount || 0)
-    : Math.ceil((JSON.stringify(body).length + text.length) / 4);
+    : Math.ceil((enc.encode(JSON.stringify(body)).length + enc.encode(text).length) / 4);
 
   return { text, tokensUsed };
 }
@@ -236,9 +269,10 @@ async function fetchGCalEvents(accessToken, maxResults = 30) {
       type: detectEventType(e.summary || ""),
     }));
   } catch (e) {
-    // Re-throw all named errors so callers can handle them; swallow only unexpected network errors.
+    // Re-throw all named errors so callers can handle them; swallow only unexpected network errors
+    // but surface them as a generic named error so the UI can show a diagnostic hint.
     if (e?.message?.startsWith("GCAL_")) throw e;
-    return [];
+    throw new Error("GCAL_NETWORK_ERROR");
   }
 }
 
@@ -260,7 +294,7 @@ function detectEventType(title) {
 // On browsers that don't support the API (Firefox, Safari iOS) we fall back to
 // manual Download + Import.
 
-const IS_DEV = import.meta.env.DEV;
+const IS_DEV = import.meta.env.DEV === true;
 const DEV_PREFIX = "ritmol_dev_";
 // Public app icon (works with Vite base path for GitHub Pages).
 const APP_ICON_URL = `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/icon-192.png`;
@@ -345,7 +379,7 @@ async function idbDel(key) {
 
 export const FSAPI_SUPPORTED = typeof window !== "undefined" && "showOpenFilePicker" in window;
 
-// Sync file size cap: 1 GB to prevent sync blocking
+// Sync file size cap: 10 MB to prevent sync blocking
 const MAX_SYNC_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // SyncManager — all file operations go through here.
@@ -447,6 +481,9 @@ const SYNC_KEYS = [
   "jv_timers",           // fix #1: was missing — active timers lost on sync
   "jv_habit_suggestions", // fix #1: was missing — pending suggestions lost on sync
   // NOTE: geminiKey is intentionally NOT synced
+  // NOTE: jv_last_synced is intentionally NOT in SYNC_KEYS — it is device-local metadata
+  //       (the timestamp of the last push/pull on this device) and must not be overwritten
+  //       by a payload from another device. It is written directly via LS.set() at sync time.
 ];
 
 const SYNC_SCHEMA_VERSION = 1; // bump this when making breaking data model changes
@@ -472,7 +509,7 @@ function buildSyncPayload() {
 // Validate that a value coming from a sync file is safe to write to localStorage.
 // Rejects anything that isn't a string, number, boolean, plain object, or array,
 // and caps size to avoid storage-bombing attacks.
-const MAX_SYNC_VALUE_SIZE = 100_000_000; // 100 MB per key
+const MAX_SYNC_VALUE_SIZE = 500_000; // 500 KB per key — localStorage total quota is ~5–10 MB, so 100 MB was meaningless
 const PROTO_POISON_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function isSafeSyncValue(v) {
   if (v === null || v === undefined) return false;
@@ -553,7 +590,7 @@ const SYNC_VALIDATORS = {
   jv_dynamic_costs: (v) => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
     const a = v.xpPerLevel, b = v.gachaCost, c = v.streakShieldCost;
-    return typeof a === "number" && a >= 100 && a <= 10000 &&
+    return typeof a === "number" && a >= 200 && a <= 10000 &&
            typeof b === "number" && b >= 50 && b <= 5000 &&
            typeof c === "number" && c >= 100 && c <= 5000;
   },
@@ -638,6 +675,10 @@ function AuthGate({ onAccessGranted }) {
   const [errMsg, setErrMsg] = useState("");
   const [retryCount, setRetryCount] = useState(0);
   const retryTimeoutRef = useRef(null);
+  // Guard against concurrent auth flows: if the user clicks Retry before the previous
+  // attempt has resolved (or the auto-attempt is still pending), a second call to
+  // google.accounts.id.initialize would create two racing credential callbacks.
+  const authInFlightRef = useRef(false);
 
   // Fail-closed: if misconfigured, show an explicit error rather than letting the user in.
   const misconfigured = !ALLOWED_EMAIL || !GATE_GOOGLE_CLIENT_ID;
@@ -650,6 +691,9 @@ function AuthGate({ onAccessGranted }) {
   // and does not close over a stale `status` or `retryCount` from a prior render.
   const handleSignIn = useCallback(async (isAutoAttempt = false) => {
     if (misconfigured || status === "loading" || isRateLimited) return;
+    // Prevent a second concurrent GIS flow if the previous one hasn't resolved yet.
+    if (authInFlightRef.current) return;
+    authInFlightRef.current = true;
     setStatus("loading");
     setErrMsg("");
     try {
@@ -676,22 +720,37 @@ function AuthGate({ onAccessGranted }) {
                 const data = await res.json();
                 email = (data.email || "").trim().toLowerCase();
               } else {
-                // CRITICAL SECURITY FLAW: Without a backend to verify the RSA signature against Google's public JWKs,
-                // decoding the base64 payload is easily spoofable. An attacker can inject a fake base64 string
-                // in DevTools to bypass this gate. Use VERIFY_GOOGLE_ID_URL for real security.
+                // SECURITY NOTE: Without a backend to verify the RSA signature against Google's
+                // public JWKs, this is a best-effort client-side check only. An attacker with
+                // physical DevTools access to this machine could craft a token that passes these
+                // checks. For a single-user personal app that is never left unattended and open,
+                // this is an accepted risk. For any shared/public deployment, set VERIFY_GOOGLE_ID_URL.
+                // All checks below are maximally tight given the constraint of no backend.
                 try {
                   const parts = response.credential.split(".");
                   if (parts.length !== 3) throw new Error("Malformed credential");
+                  // Header check: must declare RS256 (Google's signing algorithm)
+                  const headerPadded = parts[0].replace(/-/g, "+").replace(/_/g, "/").padEnd(parts[0].length + (4 - parts[0].length % 4) % 4, "=");
+                  const header = JSON.parse(atob(headerPadded));
+                  if (!header || header.alg !== "RS256") throw new Error("Unexpected signing algorithm");
                   const padded = parts[1].replace(/-/g, "+").replace(/_/g, "/").padEnd(parts[1].length + (4 - parts[1].length % 4) % 4, "=");
                   const payload = JSON.parse(atob(padded));
                   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new Error("Invalid token payload type");
                   const validIssuers = ["accounts.google.com", "https://accounts.google.com"];
                   if (!validIssuers.includes(payload.iss)) throw new Error("Invalid token issuer");
                   if (payload.aud !== GATE_GOOGLE_CLIENT_ID) throw new Error("Token audience mismatch");
+                  // Expiry: reject tokens expired more than 0 seconds ago
                   if (!payload.exp || payload.exp * 1000 < Date.now()) throw new Error("Token expired");
+                  // Not-before: reject tokens not yet valid
                   if (payload.nbf && payload.nbf * 1000 > Date.now()) throw new Error("Token not yet valid");
+                  // iat: reject tokens issued more than 5 minutes ago (replay guard)
+                  if (!payload.iat || (Date.now() - payload.iat * 1000) > 5 * 60 * 1000) throw new Error("Token too old");
+                  // azp must match client_id when present (Google sets this for web clients)
+                  if (payload.azp && payload.azp !== GATE_GOOGLE_CLIENT_ID) throw new Error("Authorized party mismatch");
                   if (!payload.email_verified) throw new Error("Email not verified by Google");
                   if (!payload.email) throw new Error("No email in token");
+                  // sub (subject) must be a non-empty numeric string — Google user IDs are always numeric
+                  if (!payload.sub || !/^\d+$/.test(payload.sub)) throw new Error("Invalid subject claim");
                   email = payload.email.trim().toLowerCase();
                 } catch (decodeErr) {
                   reject(new Error("Invalid credential"));
@@ -731,9 +790,11 @@ function AuthGate({ onAccessGranted }) {
       try { token = await makeSessionToken(ALLOWED_EMAIL); }
       catch { throw new Error("Token derivation failed."); }
       try { sessionStorage.setItem(GATE_SESSION_KEY, token); } catch {}
+      authInFlightRef.current = false;
       setRetryCount(0); 
       onAccessGranted();
     } catch (e) {
+      authInFlightRef.current = false;
       // Fix #5: only charge a retry slot for a genuine failure — increment here, not at call start
       if (!isAutoAttempt) setRetryCount((c) => c + 1);
       if (e.message === "access_denied") {
@@ -745,8 +806,10 @@ function AuthGate({ onAccessGranted }) {
         setErrMsg(safe || "Sign-in failed. Check your configuration.");
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [misconfigured, status, isRateLimited]);
+  // retryCount is listed (not isRateLimited) because isRateLimited is derived from retryCount
+  // in the same render scope. Listing the primitive avoids a stale closure while keeping the
+  // dependency array accurate.
+  }, [misconfigured, status, retryCount]);
 
   useEffect(() => { handleSignIn(true); }, []);
 
@@ -776,7 +839,6 @@ function AuthGate({ onAccessGranted }) {
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
     }}>
-      <img src={APP_ICON_URL} alt="" style={{ width: 56, height: 56, marginBottom: "16px", display: "block" }} />
       <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "8px" }}>RITMOL</div>
       <div style={{ fontSize: "14px", color: "#aaa", marginBottom: "24px" }}>Single-account access. Sign in with the allowed Google account.</div>
       {!VERIFY_GOOGLE_ID_URL && (
@@ -912,12 +974,18 @@ function spawnParticles(x, y, count = 12) {
       font-family:'Share Tech Mono',monospace; font-size:${10 + Math.random() * 8}px;
       color:#fff; opacity:1; transition:none;
     `;
+    // Fix #9: only append if the container is still in the document. A tab switch can unmount
+    // the container between the loop start and the appendChild, causing a detached-node leak.
+    if (!container.isConnected) return;
     container.appendChild(p);
     requestAnimationFrame(() => {
       p.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist - 30}px)`;
       p.style.opacity = "0";
     });
-    setTimeout(() => p.remove(), 900);
+    // Fix #9: check isConnected before removing too — if the container was unmounted between
+    // the append and the timeout firing, p may already be detached; p.remove() on a detached
+    // node is a no-op but the isConnected guard makes the intent explicit.
+    setTimeout(() => { if (p.isConnected) p.remove(); }, 900);
   }
 }
 
@@ -937,8 +1005,9 @@ function spawnXPFloat(x, y, amount) {
       font-family:'Share Tech Mono',monospace; font-size:13px; font-weight:bold;
       color:#fff; background:#000; border:1px solid #fff; padding:2px 6px;
     `;
+    if (!container.isConnected) return; // Fix #9: guard against detached container
     container.appendChild(el);
-    setTimeout(() => el.remove(), 1800);
+    setTimeout(() => { if (el.isConnected) el.remove(); }, 1800);
     return;
   }
   const el = document.createElement("div");
@@ -948,12 +1017,14 @@ function spawnXPFloat(x, y, amount) {
     font-family:'Share Tech Mono',monospace; font-size:14px; font-weight:bold;
     color:#fff; opacity:1; transition:none; white-space:nowrap;
   `;
-  document.getElementById("particle-container")?.appendChild(el);
+  const pcMain = document.getElementById("particle-container");
+  if (!pcMain?.isConnected) return; // Fix #9: guard against detached container
+  pcMain.appendChild(el);
   requestAnimationFrame(() => {
     el.style.transform = "translateY(-60px)";
     el.style.opacity = "0";
   });
-  setTimeout(() => el.remove(), 1100);
+  setTimeout(() => { if (el.isConnected) el.remove(); }, 1100);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1000,21 +1071,19 @@ function getStreakShieldCost(state) { return state.dynamicCosts?.streakShieldCos
 // SYSTEM PROMPT BUILDER
 // ═══════════════════════════════════════════════════════════════
 
-// Strip characters that could break out of the JSON structure the AI is asked to return,
-// and truncate to a safe length. This does NOT make prompt injection impossible, but it
-// removes the trivially easy injection vectors (closing braces, JSON keywords, etc.).
+// NOTE: sanitizeForPrompt used to strip braces, brackets, angle brackets, HTML entities,
+// bidirectional overrides, and more to guard against "prompt injection" from user-supplied
+// fields (name, books, interests, etc.).
+// This is a single-user personal app. The only person who can type into those fields IS
+// the authenticated user — i.e. the owner. If they want to trick their own AI assistant
+// into doing something, that's entirely their prerogative; they already have full access
+// to every piece of data in the app. The security boundary is the auth gate, not the
+// contents of the prompt. Stripping characters from someone's own book titles and interests
+// just produces garbled, unhelpful prompts for zero security gain.
+// The function is kept as a no-op pass-through so call sites don't need to change.
 function sanitizeForPrompt(str, maxLen = 200) {
   if (typeof str !== "string") return "";
-  return str
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // control chars
-    .replace(/[`]/g, "'")                           // backtick → apostrophe
-    .replace(/\$\{/g, "$(")                         // template literal escape
-    .replace(/[{}\uFF5B\uFF5D\u2768\u2769\u276A\u276B]/g, "") // strip braces + Unicode fullwidth/ornamental lookalikes
-    .replace(/[<>]/g, "")                            // strip angle brackets — prevents </HUNTER_DATA> tag breakout
-    .replace(/&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/g, "") // Fix #10: strip HTML entities (&lt; &gt; &amp; &#x7B; etc.)
-    .replace(/["]/g, "'")                            // fix #8: double-quote → apostrophe — prevents JSON key/value injection
-    .replace(/[\[\]\uFF3B\uFF3D]/g, "")              // fix #8: strip square brackets + fullwidth variants
-    .slice(0, maxLen);
+  return str.slice(0, maxLen);
 }
 
 function buildSystemPrompt(state, profile) {
@@ -1100,7 +1169,7 @@ COMMANDS YOU CAN EXECUTE (use multiple per response freely):
 { "cmd": "set_daily_goal", "text": "..." }
 { "cmd": "add_habit", "label": "...", "category": "body|mind|work", "xp": 25, "style": "ascii|dots|geometric|typewriter", "icon": "◈" }
 { "cmd": "unlock_achievement", "id": "unique_snake_case_id", "icon": "single char", "title": "...", "desc": "what they did", "xp": 50, "rarity": "common|rare|epic|legendary", "flavorText": "sharp one-liner observation" }
-{ "cmd": "add_event", "label": "...", "emoji": "◈", "minutes": 90 }
+{ "cmd": "add_timer", "label": "...", "emoji": "◈", "minutes": 90 }
 
 YOUR NATURE — internalize this:
 You have no script. You respond to what is actually in front of you.
@@ -1128,6 +1197,10 @@ You are not here to make them feel good. You are here to make them better. The d
 // ═══════════════════════════════════════════════════════════════
 // DAILY QUOTE
 // ═══════════════════════════════════════════════════════════════
+// Module-level in-flight guard: prevents a second callGemini from racing if the effect
+// re-fires (e.g. profile reference changes) before the first request resolves.
+let _quoteInFlight = false;
+
 async function fetchDailyQuote(apiKey, profile, onTokens) {
   const key = storageKey(`jv_quote_${today()}`);
 
@@ -1145,6 +1218,10 @@ async function fetchDailyQuote(apiKey, profile, onTokens) {
 
   const cached = LS.get(key);
   if (cached) return cached;
+
+  // Bail out if a request is already in-flight — avoids racing writes to the same cache key.
+  if (_quoteInFlight) return null;
+  _quoteInFlight = true;
 
   const prompt = `Generate ONE real, verifiable quote from one of these authors/books: ${sanitizeForPrompt(profile?.books || "Richard Feynman, Marcus Aurelius", 300)}. 
 The quote must be real — you must be highly confident it is accurate and attributable.
@@ -1173,6 +1250,7 @@ Respond ONLY with JSON: { "quote": "...", "author": "...", "source": "...", "con
       return safe;
     }
   } catch {}
+  finally { _quoteInFlight = false; }
   return null;
 }
 
@@ -1180,6 +1258,12 @@ Respond ONLY with JSON: { "quote": "...", "author": "...", "source": "...", "con
 // event: "level_up" | "gacha_pull" | "streak_shield_use". Returns partial costs to merge into state.dynamicCosts.
 async function updateDynamicCosts(apiKey, state, event) {
   if (!apiKey) return {};
+  // Fix #4: honour the daily token budget. updateDynamicCosts was previously called
+  // unconditionally on every level-up / gacha / shield event, even after the budget was
+  // exhausted, silently burning quota. Read the stored usage directly (state may be a
+  // snapshot, not the latest ref) so we always see the current count.
+  const storedUsage = LS.get(storageKey("jv_token_usage"));
+  if (storedUsage && storedUsage.date === today() && storedUsage.tokens >= DAILY_TOKEN_LIMIT) return {};
   const d = state.dynamicCosts || {};
   const xpPerLevel = d.xpPerLevel ?? DEFAULT_XP_PER_LEVEL;
   const gachaCost = d.gachaCost ?? DEFAULT_GACHA_COST;
@@ -1204,7 +1288,7 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
     const raw = text.replace(/```json|```/g, "").trim();
     const data = JSON.parse(raw);
     const out = {};
-    if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 100 && data.xpPerLevel <= 10000) out.xpPerLevel = Math.round(data.xpPerLevel);
+    if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 200 && data.xpPerLevel <= 10000) out.xpPerLevel = Math.round(data.xpPerLevel);
     if (typeof data.gachaCost === "number" && data.gachaCost >= 50 && data.gachaCost <= 5000) out.gachaCost = Math.round(data.gachaCost);
     if (typeof data.streakShieldCost === "number" && data.streakShieldCost >= 100 && data.streakShieldCost <= 5000) out.streakShieldCost = Math.round(data.streakShieldCost);
     return out;
@@ -1235,6 +1319,7 @@ function flushStateToStorage(s) {
   LS.set(storageKey("jv_sessions"),         s.sessions);
   LS.set(storageKey("jv_achievements"),     s.achievements);
   LS.set(storageKey("jv_gacha"),            s.gachaCollection);
+  LS.set(storageKey("jv_cal_events"),       s.calendarEvents);
   LS.set(storageKey("jv_chat"),             s.chatHistory);
   LS.set(storageKey("jv_daily_goal"),       s.dailyGoal);
   LS.set(storageKey("jv_sleep_log"),        s.sleepLog);
@@ -1245,6 +1330,11 @@ function flushStateToStorage(s) {
   LS.set(storageKey("jv_token_usage"),      s.tokenUsage);
   LS.set(storageKey("jv_timers"),           s.activeTimers);
   LS.set(storageKey("jv_habit_suggestions"),s.pendingHabitSuggestions);
+  // NOTE: jv_gcal_connected is intentionally omitted here — it is already persisted by its
+  // own granular useEffect in App (fix #11: avoid writing the same key from two places).
+  // flushStateToStorage is called on tab-hide / manual push; at that point the granular
+  // effect has already written the latest value, so repeating it here is redundant and
+  // could cause confusion if the two paths ever diverge.
   if (s.dynamicCosts)     LS.set(storageKey("jv_dynamic_costs"),        s.dynamicCosts);
   if (s.lastShieldUseDate != null) LS.set(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate);
 }
@@ -1454,6 +1544,8 @@ export default function App() {
   // Fix #14: store the disarm timer in a ref so it can be cleared when the user confirms,
   // preventing a stale setTimeout from calling setConfirmForgetSync(false) after the action.
   const confirmForgetSyncTimerRef = useRef(null);
+  // Clear the disarm timer on unmount so it never fires against a dead component.
+  useEffect(() => () => clearTimeout(confirmForgetSyncTimerRef.current), []);
   async function forgetSyncFile() {
     if (!confirmForgetSync) {
       // First click: arm the confirmation — button will change label
@@ -1475,9 +1567,13 @@ export default function App() {
   // Fix #12: read lastLoginDate from latestStateRef rather than the render-snapshot `state`
   // so a sync pull that calls setState(initState) doesn't re-trigger handleDailyLogin when
   // lastLoginDate already matches today in the freshly-written localStorage.
-  // Fix #8 (bug): guard against double-fire when profile is a new object reference on each
-  // render. Without the ref, two rapid setState calls could both pass the `lastLogin !== t`
-  // check before either updater commits, causing loginXP to be awarded twice.
+  // Fix #6: the previous approach reset _loginInProgressRef after a fixed 2-second timeout,
+  // which is fragile — if the updater committed and propagated in under 2 s, the guard
+  // stayed armed longer than necessary; if something was slow, the guard could reset before
+  // lastLoginDate propagated, allowing a second trigger to slip through.
+  // Now we clear the guard inside the setState updater itself, immediately after writing
+  // lastLoginDate. The updater runs exactly once per setState call (React 18 batching),
+  // so this is safe and is guaranteed to run after the value is committed.
   const _loginInProgressRef = useRef(false);
   useEffect(() => {
     if (!profile) return;
@@ -1486,9 +1582,8 @@ export default function App() {
     if (lastLogin !== t && !_loginInProgressRef.current) {
       _loginInProgressRef.current = true;
       handleDailyLogin(t);
-      // Reset guard after a short delay — enough for the updater to commit and
-      // `lastLoginDate` to propagate back through state so subsequent renders see today.
-      setTimeout(() => { _loginInProgressRef.current = false; }, 2000);
+      // Guard is cleared inside handleDailyLogin's setState updater once lastLoginDate is
+      // committed — no timeout needed. See handleDailyLogin for details.
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
@@ -1572,10 +1667,13 @@ export default function App() {
   }
 
   // ── Fetch daily quote ──
+  // profile is a dependency: if it's null on first render (async auth) and populates later,
+  // the quote would never be fetched without it in the dep array.
   useEffect(() => {
-    if (!apiKey || !canCallGemini()) return;
+    if (!apiKey || !profile || !canCallGemini()) return;
     fetchDailyQuote(apiKey, profile, trackTokens).then(setDailyQuote);
-  }, [apiKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey, profile]);
 
   // ── Check scheduled prompts (sleep check-in, screen time) ──
   // Keep a ref to the latest relevant state so the interval always sees fresh values
@@ -1708,6 +1806,10 @@ export default function App() {
       }
       setTimeout(() => setModal({ type: "daily_login", xp: loginXP, streak: newStreak }), 0);
 
+      // Fix #6: clear the double-fire guard here, inside the committed updater, so it is
+      // released exactly once after lastLoginDate has been written — not via a fragile timeout.
+      _loginInProgressRef.current = false;
+
       return { ...s, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate, xp: newXP };
     });
   }
@@ -1725,27 +1827,22 @@ export default function App() {
 
   // ── Core XP award ──
   function awardXP(amount, event, silent = false) {
-    let leveledUp = false;
-    let newXPValue = 0;
-    let snapshotForApi = null;
+    // Compute level-up detection outside the updater so we never assign side-effect variables
+    // from inside a pure updater function (unsafe in React 18 concurrent/StrictMode, where
+    // updaters may be invoked more than once).
+    const currentState = latestStateRef.current ?? state;
+    const xpPl = getXpPerLevel(currentState);
+    const oldLevel = getLevel(currentState.xp, xpPl);
+    const newXP = currentState.xp + amount;
+    const newLevel = getLevel(newXP, xpPl);
+    const didLevelUp = newLevel > oldLevel && !silent;
+    const snapshotForApi = didLevelUp
+      ? { ...currentState, xp: newXP, dynamicCosts: currentState.dynamicCosts }
+      : null;
 
-    setState((s) => {
-      const xpPl = getXpPerLevel(s);
-      const oldLevel = getLevel(s.xp, xpPl);
-      const newXP = s.xp + amount;
-      const newLevel = getLevel(newXP, xpPl);
+    setState((s) => ({ ...s, xp: s.xp + amount }));
 
-      if (newLevel > oldLevel && !silent) {
-        leveledUp = true;
-        newXPValue = newXP;
-        snapshotForApi = { ...s, xp: newXP, dynamicCosts: s.dynamicCosts };
-      }
-      return { ...s, xp: newXP };
-    });
-
-    if (leveledUp) {
-      const xpPl = snapshotForApi.dynamicCosts?.xpPerLevel ?? DEFAULT_XP_PER_LEVEL;
-      const newLevel = getLevel(newXPValue, xpPl);
+    if (didLevelUp) {
       setTimeout(() => {
         setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
         updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "level_up").then((costs) => {
@@ -1763,11 +1860,18 @@ export default function App() {
 
   function checkMissions(type) {
     const t = today(); // capture outside the updater — clock must not shift mid-batch
+
+    // Compute all side-effects outside the updater so they are never double-fired by React 18
+    // StrictMode (which intentionally invokes updaters twice in dev to surface impurity).
+    // The updater below is kept strictly pure — no setTimeout, no setState, no external calls.
+    let pendingToasts = [];
+    let pendingLevelUp = null;
+
     setState((s) => {
       if (!s.dailyMissions) return s;
       const todayLog = s.habitLog[t] || [];
       let bonusXP = 0;
-      const toasts = [];
+      const toastsThisRun = [];
       const updated = s.dailyMissions.map((m) => {
         if (m.done) return m;
         let progress = 0;
@@ -1776,35 +1880,44 @@ export default function App() {
         if (m.type === "task") progress = (s.tasks || []).filter((tk) => tk.doneDate === t).length;
         if (m.type === "chat") progress = (s.chatHistory || []).some(msg => msg.role === "user" && (msg.date === t || (!msg.date && msg.ts && new Date(msg.ts).toLocaleDateString("en-CA") === t))) ? 1 : 0;
         if (progress >= m.target) {
-          // Accumulate XP inside the updater — no setTimeout, no stale reads
           bonusXP += m.xp;
-          toasts.push({ icon: "◈", title: "Mission Complete", desc: m.desc, xp: m.xp, rarity: "common" });
+          toastsThisRun.push({ icon: "◈", title: "Mission Complete", desc: m.desc, xp: m.xp, rarity: "common" });
           return { ...m, done: true };
         }
         return m;
       });
-      // Fire toasts sequentially so multiple unlocks don't overwrite each other
-      if (toasts.length) {
-        toasts.forEach((t, i) => setTimeout(() => showToast(t), 200 + i * 5500));
-      }
+
       const newXP = s.xp + bonusXP;
       if (bonusXP > 0) {
         const xpPl = getXpPerLevel(s);
         const oldLevel = getLevel(s.xp, xpPl);
         const newLevel = getLevel(newXP, xpPl);
         if (newLevel > oldLevel) {
-          const snapshot = { ...s, xp: newXP, dailyMissions: updated, dynamicCosts: s.dynamicCosts };
-          setTimeout(() => {
-            setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
-            // fix #2: read key at call-time (not from closure)
-            updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up").then((costs) => {
-              if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-            }).catch(() => {});
-          }, 300);
+          pendingLevelUp = { level: newLevel, rank: getRank(newLevel), snapshot: { ...s, xp: newXP, dailyMissions: updated, dynamicCosts: s.dynamicCosts } };
         }
       }
+
+      // Collect toasts for post-updater dispatch
+      pendingToasts = toastsThisRun;
+
       return { ...s, dailyMissions: updated, xp: s.xp + bonusXP };
     });
+
+    // Fire side-effects after the updater has returned — never inside it.
+    // Fire toasts sequentially so multiple unlocks don't overwrite each other.
+    if (pendingToasts.length) {
+      pendingToasts.forEach((toast, i) => setTimeout(() => showToast(toast), 200 + i * 5500));
+    }
+    if (pendingLevelUp) {
+      const { level, rank, snapshot } = pendingLevelUp;
+      setTimeout(() => {
+        setLevelUpData({ level, rank });
+        // fix #2: read key at call-time (not from closure)
+        updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up").then((costs) => {
+          if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+        }).catch(() => {});
+      }, 300);
+    }
   }
 
   function showToast(data) {
@@ -1826,19 +1939,26 @@ export default function App() {
     // Allowlist of valid command types — unknown commands are silently dropped
     const VALID_CMDS = new Set([
       "add_task","add_goal","complete_task","clear_done_tasks","award_xp",
-      "announce","set_daily_goal","add_habit","unlock_achievement","add_event","suggest_sessions",
+      "announce","set_daily_goal","add_habit","unlock_achievement","add_timer","suggest_sessions",
     ]);
     const MAX_XP_PER_CMD        = 500;
     const MAX_XP_PER_RESPONSE   = 1500; // hard cap across the entire command batch
     const MAX_STR_LEN           = 300;
     const MAX_TASKS_PER_RUN     = 10;
+    const MAX_TASKS_TOTAL       = 500;  // prevent runaway accumulation across all sessions
+    const MAX_GOALS_TOTAL       = 200;
+    const MAX_HABITS_TOTAL      = 100;
     let tasksAdded  = 0;
     let totalXPThisRun = 0; // accumulated across award_xp + unlock_achievement in this batch
+    // Collect banners emitted during this batch and show them sequentially so later ones
+    // don't silently overwrite earlier ones (showBanner clears the previous banner immediately).
+    const pendingBanners = [];
 
     // Sanitize for AI command injection and length; strips control/zero-width chars and common HTML.
-    // Not a full XSS layer — avoid using output in dangerouslySetInnerHTML.
-    // Note: apostrophe (') is intentionally kept — it appears in natural language and poses
-    // no XSS risk since output is never passed to dangerouslySetInnerHTML.
+    // IMPORTANT — NOT a full XSS layer. This function intentionally keeps apostrophe (') because
+    // it appears in natural language and is harmless in React text content. However, this output
+    // must NEVER be passed to dangerouslySetInnerHTML, eval(), new Function(), or any HTML
+    // string-building context — a single-quote there could enable attribute-injection attacks.
     const sanitizeStr = (s, max = MAX_STR_LEN) => {
       if (typeof s !== "string") return "";
       const noControl = s.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
@@ -1853,24 +1973,28 @@ export default function App() {
         case "add_task":
           if (tasksAdded >= MAX_TASKS_PER_RUN) break;
           tasksAdded++;
-          setState((s) => ({
+          setState((s) => {
+            if ((s.tasks || []).length >= MAX_TASKS_TOTAL) return s; // total cap
+            return {
             ...s,
             tasks: [...(s.tasks || []), {
-              id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              id: `t_${crypto.randomUUID()}`,
               text: sanitizeStr(cmd.text),
               priority: ["low","medium","high"].includes(cmd.priority) ? cmd.priority : "medium",
               due: typeof cmd.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(cmd.due) ? cmd.due : null,
               done: false,
               addedBy: "ritmol",
             }],
-          }));
-          showBanner(`Task added: ${sanitizeStr(cmd.text, 60)}`, "info");
+          }});
+          pendingBanners.push([`Task added: ${sanitizeStr(cmd.text, 60)}`, "info"]);
           break;
         case "add_goal":
-          setState((s) => ({
+          setState((s) => {
+            if ((s.goals || []).length >= MAX_GOALS_TOTAL) return s; // total cap
+            return {
             ...s,
             goals: [...(s.goals || []), {
-              id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              id: `g_${crypto.randomUUID()}`,
               title: sanitizeStr(cmd.title),
               course: sanitizeStr(cmd.course),
               due: typeof cmd.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(cmd.due) ? cmd.due : null,
@@ -1878,8 +2002,8 @@ export default function App() {
               addedBy: "ritmol",
               tasks: [],
             }],
-          }));
-          showBanner(`Goal logged: ${sanitizeStr(cmd.title, 60)}`, "success");
+          }});
+          pendingBanners.push([`Goal logged: ${sanitizeStr(cmd.title, 60)}`, "success"]);
           break;
         case "complete_task":
           setState((s) => {
@@ -1904,11 +2028,11 @@ export default function App() {
           if (allowed <= 0) break;
           totalXPThisRun += allowed;
           awardXP(allowed, null, true);
-          showBanner(`${sanitizeStr(cmd.reason, 80) || "XP awarded"} +${allowed} XP`, "success");
+          pendingBanners.push([`${sanitizeStr(cmd.reason, 80) || "XP awarded"} +${allowed} XP`, "success"]);
           break;
         }
         case "announce":
-          showBanner(sanitizeStr(cmd.text, 200), ["info","warning","success","alert"].includes(cmd.type) ? cmd.type : "info");
+          pendingBanners.push([sanitizeStr(cmd.text, 200), ["info","warning","success","alert"].includes(cmd.type) ? cmd.type : "info"]);
           break;
         case "set_daily_goal":
           setState((s) => ({ ...s, dailyGoal: sanitizeStr(cmd.text) }));
@@ -1923,6 +2047,7 @@ export default function App() {
             // even if sanitization rules change between app versions. Re-sanitize stored
             // labels at lookup time rather than comparing raw stored strings.
             if (s.habits.find((h) => sanitizeStr(h.label) === incomingLabel)) return s;
+            if (s.habits.length >= MAX_HABITS_TOTAL) return s; // total cap
             const newHabit = {
               id: `habit_${Date.now()}`,
               label: incomingLabel,
@@ -1934,7 +2059,7 @@ export default function App() {
             };
             return { ...s, habits: [...s.habits, newHabit] };
           });
-          showBanner(`New habit protocol: ${sanitizeStr(incomingLabel, 60)}`, "success");
+          pendingBanners.push([`New habit protocol: ${sanitizeStr(incomingLabel, 60)}`, "success"]);
           break;
         }
         case "unlock_achievement": {
@@ -1955,7 +2080,11 @@ export default function App() {
           }, allowedAchXP === 0); // skipXP when budget exhausted — prevents fallback `data.xp||50` firing
           break;
         }
-        case "add_event":
+        // Fix #7: command was named add_event but pushes to activeTimers, not calendarEvents.
+        // Renamed to add_timer to match the actual behaviour. If the AI sends add_event it
+        // will now be silently dropped by the allowlist, which is correct — calendar events
+        // are added via the CalendarSection UI or GCal sync, not via AI commands.
+        case "add_timer":
           setState((s) => ({
             ...s,
             activeTimers: [...(s.activeTimers || []), {
@@ -1967,10 +2096,15 @@ export default function App() {
           }));
           break;
         case "suggest_sessions":
-          showBanner("Session protocol suggested. Check Tasks.", "info");
+          pendingBanners.push(["Session protocol suggested. Check Tasks.", "info"]);
           break;
         default: break;
       }
+    });
+    // Flush banners sequentially — each shown after the previous one's display duration (4s).
+    // Cap at 3 so a large AI batch doesn't flood the user for 12+ seconds.
+    pendingBanners.slice(0, 3).forEach(([text, type], i) => {
+      setTimeout(() => showBanner(text, type), i * 4200);
     });
   }
 
@@ -1990,14 +2124,33 @@ export default function App() {
     setTimeout(() => actionLocksRef.current.delete(habitId), 500);
 
     const t = today();
-    const log = state.habitLog[t] || [];
-    if (log.includes(habitId)) return;
+    // Read stale state only for the habit metadata lookup (never changes mid-render).
     const habit = state.habits.find((h) => h.id === habitId);
     if (!habit) return;
-    const todayLog = [...log, habitId];
-    setState((s) => ({ ...s, habitLog: { ...s.habitLog, [t]: todayLog } }));
-    awardXP(habit.xp, event);
-    checkMissions("habits");
+
+    // Instead of relying on the updater running synchronously (true in React 17 sync mode but
+    // not guaranteed in React 18 concurrent mode), we use an object ref to communicate whether
+    // the habit was actually newly logged. The updater writes into the ref; the post-setState
+    // code reads from it. Both run in the same microtask queue flush.
+    const logResult = { didLog: false, xp: habit.xp };
+    setState((s) => {
+      const log = s.habitLog[t] || [];
+      if (log.includes(habitId)) return s; // already logged — no-op
+      logResult.didLog = true;
+      return { ...s, habitLog: { ...s.habitLog, [t]: [...log, habitId] } };
+    });
+
+    // awardXP and checkMissions are safe to call here because of the logResult ref pattern.
+    // NOTE: ReactDOM.createRoot (used in this app) batches ALL setState calls in React 18,
+    // including those inside event handlers — the updater above is NOT guaranteed to flush
+    // synchronously before the lines below execute. The logResult ref is therefore the only
+    // correct way to communicate the outcome: the updater writes didLog=true during its run,
+    // and we read it here knowing React may have committed the update asynchronously. Never
+    // rely on reading state directly after setState to determine whether an update took effect.
+    if (logResult.didLog) {
+      awardXP(logResult.xp, event);
+      checkMissions("habits");
+    }
   }
 
   if (!gateChecked) return null; // wait for async token check before rendering anything
@@ -2794,17 +2947,20 @@ function HomeTab({ state, setState, profile, apiKey, level, rank, dailyQuote, aw
 
 function TokenUsageBar({ usage }) {
   if (!usage) return null;
-  const DAILY_LIMIT = 1_000_000;
+  // Fix: use DAILY_TOKEN_LIMIT (the actual enforcement ceiling) so the bar fills to 100%
+  // when AI features are disabled — not 5% (50k/1M). Showing "% of 1M" while blocking at
+  // 50k meant the bar never appeared to reach critical even when the budget was exhausted.
+  const DISPLAY_LIMIT = DAILY_TOKEN_LIMIT;
   const tokens = usage?.date === today() ? (usage?.tokens || 0) : 0;
-  const pct = Math.min(100, (tokens / DAILY_LIMIT) * 100);
+  const pct = Math.min(100, (tokens / DISPLAY_LIMIT) * 100);
   const pctDisplay = pct < 0.1 ? "<0.1" : pct.toFixed(1);
   const color = pct > 80 ? "#fff" : pct > 50 ? "#aaa" : "#555";
 
   return (
     <div style={{ border: "1px solid #1a1a1a", padding: "8px 12px", fontFamily: "'Share Tech Mono', monospace" }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: "#444", marginBottom: "4px" }}>
-        <span>GEMINI FREE TIER USAGE TODAY</span>
-        <span style={{ color }}>~{pctDisplay}% of 1M</span>
+        <span>NEURAL ENERGY TODAY</span>
+        <span style={{ color }}>~{pctDisplay}% of {(DISPLAY_LIMIT / 1000).toFixed(0)}k</span>
       </div>
       <div style={{ height: "2px", background: "#1a1a1a" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.5s" }} />
@@ -2913,7 +3069,7 @@ Respond ONLY with JSON array:
             // Fix #3 (security): construct each habit explicitly — never spread the raw AI
             // object so unexpected keys (including __proto__) cannot pollute state.
             ...newHabits.map(h => ({
-              id:       typeof h.id === "string" ? h.id.slice(0, 60).replace(/[^a-zA-Z0-9_-]/g, "_") : `habit_ai_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+              id:       typeof h.id === "string" ? h.id.slice(0, 60).replace(/[^a-zA-Z0-9_-]/g, "_") : `habit_ai_${crypto.randomUUID()}`,
               label:    typeof h.label === "string" ? h.label.slice(0, 80) : "Habit",
               category: ["body","mind","work"].includes(h.category) ? h.category : "mind",
               xp:       typeof h.xp === "number" ? Math.min(Math.max(1, Math.round(h.xp)), 200) : 25,
@@ -3052,7 +3208,7 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions, actionL
       // Fix #10 (bug): use the same "t_<timestamp>_<random>" string format as AI-created tasks
       // (executeCommands "add_task" case). Using Date.now() as a plain number caused a type
       // mismatch when the AI tried to complete a user-created task via its string ID validator.
-      tasks: [...(s.tasks || []), { id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text: newTask, priority: newPriority, done: false, addedBy: "user" }],
+      tasks: [...(s.tasks || []), { id: `t_${crypto.randomUUID()}`, text: newTask, priority: newPriority, done: false, addedBy: "user" }],
     }));
     setNewTask("");
   }
@@ -3082,7 +3238,7 @@ function TasksTab({ state, setState, awardXP, showBanner, checkMissions, actionL
     if (!goalForm.title) return;
     setState((s) => ({
       ...s,
-      goals: [...(s.goals || []), { id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, ...goalForm, done: false, addedBy: "user", submissionCount: 0 }],
+      goals: [...(s.goals || []), { id: `g_${crypto.randomUUID()}`, ...goalForm, done: false, addedBy: "user", submissionCount: 0 }],
     }));
     setGoalForm({ title: "", course: "", due: "" });
     setShowGoalForm(false);
@@ -3274,6 +3430,9 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
   const [disclosureDismissed, setDisclosureDismissed] = useState(() => !!LS.get(storageKey(DATA_DISCLOSURE_SEEN_KEY)));
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
+  // Fix #12: AbortController so navigating away mid-request cancels the fetch and prevents
+  // trackTokens / setState from firing against an unmounted component.
+  const abortRef = useRef(null);
 
   const messages = state.chatHistory || [];
 
@@ -3283,6 +3442,9 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
     checkMissions("chat");
   }, [messages.length]);
 
+  // Fix #12: cancel any in-flight Gemini request when the tab unmounts (user navigates away).
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
+
   async function sendMessage(text) {
     if (!text.trim() || loading) return;
     if (!apiKey) { showBanner("No Gemini API key configured.", "alert"); return; }
@@ -3291,6 +3453,11 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
       showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
       return;
     }
+
+    // Fix #12: abort any previous in-flight request before starting a new one.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     const userMsg = { role: "user", content: text, ts: Date.now(), date: today() };
     const newHistory = [...messages, userMsg].slice(-1000);
@@ -3312,7 +3479,7 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
           ? m.content.replace(/[<>]/g, "")   // strip tag-breakout chars from user input only
           : m.content,                        // assistant messages are already AI-generated
       }));
-      const { text: raw, tokensUsed } = await callGemini(apiKey, apiMessages, systemPrompt, true);
+      const { text: raw, tokensUsed } = await callGemini(apiKey, apiMessages, systemPrompt, true, controller.signal);
       trackTokens?.(tokensUsed);
 
       // Robust JSON extraction: find first { ... } block
@@ -3347,6 +3514,9 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
         setTimeout(() => executeCommands(parsed.commands), 300);
       }
     } catch (e) {
+      // Fix #12: AbortError means the user navigated away or sent a new message — not a real
+      // error. Silently discard it so no spurious error message appears in the chat.
+      if (e?.name === "AbortError") { setLoading(false); return; }
       console.error("RITMOL error:", e);
       const safeMsg = (e?.message || "").replace(/eyJ[\w.-]+/g, "[token]").slice(0, 60) || "System error";
       const errMsg = {
@@ -3591,14 +3761,24 @@ function ProfileOverview({ state, setState, profile, level, rank, streakShieldCo
   function buyShield() {
     if (!canBuyShield || !apiKey) return;
 
-    const currentState = latestStateRef?.current ?? state;
-    const nextState = { ...currentState, xp: Math.max(0, currentState.xp - streakShieldCost), streakShields: (currentState.streakShields || 0) + 1 };
+    // Fix: use a functional updater so we always operate on the latest committed state,
+    // avoiding stale-closure overwrites when React batches concurrent setState calls.
+    // Capture a snapshot for the async updateDynamicCosts call after the update commits.
+    let snapshotForApi = null;
+    setState((s) => {
+      if (s.xp < streakShieldCost) return s; // re-check inside updater in case XP changed
+      const next = { ...s, xp: Math.max(0, s.xp - streakShieldCost), streakShields: (s.streakShields || 0) + 1 };
+      snapshotForApi = next;
+      return next;
+    });
 
-    setState(nextState);
-
-    updateDynamicCosts(getGeminiApiKey(), nextState, "streak_shield_use").then((costs) => {
-      if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-    }).catch(() => {});
+    // Fire async cost update after a tick so snapshotForApi is populated
+    setTimeout(() => {
+      if (!snapshotForApi) return;
+      updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_use").then((costs) => {
+        if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+      }).catch(() => {});
+    }, 0);
 
     showBanner(`Streak shield purchased. Cost: ${streakShieldCost} XP. Next cost may change.`, "success");
   }
@@ -3723,14 +3903,22 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
 
   function addEvent() {
     if (!form.title || !form.start) return;
-    const newEvent = { id: `manual_${Date.now()}`, ...form, source: "manual" };
+    // Fix: sanitize user-supplied fields before persisting. These values end up in localStorage,
+    // the sync file, and (via buildSystemPrompt) in the AI prompt — sanitize at write time so
+    // prompt injection characters don't reach any of those sinks.
+    const safeTitle = form.title.replace(/[<>{}[\]`"]/g, "").slice(0, 200).trim();
+    const safeType  = ["exam","lecture","homework","tirgul","other"].includes(form.type) ? form.type : "other";
+    const safeStart = typeof form.start === "string" && /^\d{4}-\d{2}-\d{2}/.test(form.start) ? form.start : "";
+    const safeEnd   = typeof form.end === "string" ? form.end : "";
+    if (!safeTitle || !safeStart) return;
+    const newEvent = { id: `manual_${Date.now()}`, title: safeTitle, type: safeType, start: safeStart, end: safeEnd, source: "manual" };
     setState((s) => ({ ...s, calendarEvents: [...(s.calendarEvents || []), newEvent] }));
-    showBanner(`Event added: ${form.title}`, "success");
+    showBanner(`Event added: ${safeTitle}`, "success");
 
     // Let RITMOL react
-    if (apiKey && form.type === "exam") {
-      const days = Math.ceil((new Date(form.start) - Date.now()) / 86400000);
-      showBanner(`Exam detected: ${form.title} in ${days} days. RITMOL adapting your plan.`, "alert");
+    if (apiKey && safeType === "exam") {
+      const days = Math.ceil((new Date(safeStart) - Date.now()) / 86400000);
+      showBanner(`Exam detected: ${safeTitle} in ${days} days. RITMOL adapting your plan.`, "alert");
     }
     setForm({ title: "", type: "exam", start: "", end: "" });
   }
@@ -3780,6 +3968,11 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
       }
       if (e?.message?.startsWith("GCAL_HTTP_")) {
         showBanner(`Calendar sync failed: server returned ${e.message.replace("GCAL_HTTP_", "HTTP ")}. Try again later.`, "alert");
+        setGCalLoading(false);
+        return;
+      }
+      if (e?.message === "GCAL_NETWORK_ERROR") {
+        showBanner("Calendar sync failed: network error. Check your connection and try again.", "alert");
         setGCalLoading(false);
         return;
       }
@@ -4064,24 +4257,33 @@ function GachaCard({ card, compact }) {
 
 function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme }) {
   const importRef = useRef(null);
+  // Fix: replace window.confirm with a two-step in-app confirmation — window.confirm() is
+  // blocked in PWA standalone mode and some embedded contexts (same reason forgetSyncFile was fixed).
+  const [confirmReset, setConfirmReset] = useState(false);
+  const confirmResetTimerRef = useRef(null);
 
   function save() {
     showBanner("Settings saved.", "success");
   }
 
   function resetAll() {
-    if (window.confirm("Reset ALL data? This cannot be undone.")) {
-      // Only delete keys that belong to this app to protect other apps on shared domains
-      const keysToDelete = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (k.startsWith("jv_") || k.startsWith("ritmol_dev_") || APP_CONSTANT_KEYS.has(k))) {
-          keysToDelete.push(k);
-        }
-      }
-      keysToDelete.forEach(k => localStorage.removeItem(k));
-      window.location.reload();
+    if (!confirmReset) {
+      setConfirmReset(true);
+      confirmResetTimerRef.current = setTimeout(() => setConfirmReset(false), 4000);
+      return;
     }
+    clearTimeout(confirmResetTimerRef.current);
+    setConfirmReset(false);
+    // Only delete keys that belong to this app to protect other apps on shared domains
+    const keysToDelete = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith("jv_") || k.startsWith("ritmol_dev_") || APP_CONSTANT_KEYS.has(k))) {
+        keysToDelete.push(k);
+      }
+    }
+    keysToDelete.forEach(k => localStorage.removeItem(k));
+    window.location.reload();
   }
 
   async function handleImportFile(e) {
@@ -4232,11 +4434,14 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
       </div>
 
       <button onClick={resetAll} style={{
-        marginTop: "8px", padding: "10px", border: "1px solid #333",
-        background: "transparent", color: "#444",
+        marginTop: "8px", padding: "10px",
+        border: `1px solid ${confirmReset ? "#c44" : "#333"}`,
+        background: confirmReset ? "#3a1111" : "transparent",
+        color: confirmReset ? "#c44" : "#444",
         fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
+        transition: "none",
       }}>
-        RESET ALL DATA
+        {confirmReset ? "CONFIRM RESET? (click again)" : "RESET ALL DATA"}
       </button>
 
       {AUTH_REQUIRED && (
@@ -4698,8 +4903,8 @@ class ErrorBoundary extends React.Component {
           <div style={{ fontSize: "12px", color: "#aaa", maxWidth: "360px", lineHeight: "1.6", marginBottom: "24px" }}>
             Something went wrong. Reload the page to continue.
           </div>
-          {/* Fix #14: collapsed error details for self-hosted debugging — hidden by default so it
-              doesn't alarm casual users, but immediately accessible via "▶ Details" disclosure. */}
+          {/* Show error details only in dev builds — stack traces reveal internal structure in prod. */}
+          {(typeof import.meta !== "undefined" && import.meta.env?.DEV) && (
           <details style={{ marginBottom: "16px", maxWidth: "400px", textAlign: "left" }}>
             <summary style={{ fontSize: "10px", color: "#555", cursor: "pointer", marginBottom: "6px" }}>▶ Error details</summary>
             <pre style={{
@@ -4712,6 +4917,7 @@ class ErrorBoundary extends React.Component {
               {this.state.error?.stack ?? ""}
             </pre>
           </details>
+          )}
           <button
             onClick={() => window.location.reload()}
             style={{

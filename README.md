@@ -7,7 +7,7 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
 - **Tabs:** Home (daily quote, missions, quick actions), Habits (track with XP), Tasks & Goals, RITMOL (AI chat), Profile.
 - **Profile sections:** Overview (Hunter card, streak shield, rank ladder), Achievements, Calendar (Google Calendar events), Gacha, Settings (Syncthing sync, theme).
 - **RPG mechanics:** XP, levels, ranks (Rookie → Transcendent), streak and streak shields, daily missions, achievements, gacha (AI-generated rewards). Costs (XP per level, gacha, streak shield) can be updated by the AI.
-- **AI (Gemini):** Daily token budget shown as “neural energy”; when exhausted, AI features (chat, gacha, daily quote, habit suggestions, etc.) are disabled until the next day. Chat can run commands (add task, set daily goal, suggest sessions, unlock achievement, etc.).
+- **AI (Gemini 2.5 Flash):** Daily token budget shown as “neural energy”; when exhausted, AI features (chat, gacha, daily quote, habit suggestions, etc.) are disabled until the next day. Chat can run commands (add task, set daily goal, suggest sessions, unlock achievement, etc.).
 - **Study:** Session logging (lecture, tirgul, homework, prep) with focus level, timers, sleep/screen log, daily goal. Optional Google Calendar integration.
 
 ### Project structure
@@ -18,7 +18,7 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
 - **`.github/workflows/deploy.yml`** — GitHub Actions workflow: build with repo Variables, deploy `dist` to Pages.
 - **`api/verify-google-id.js`** — optional serverless JWT verification (e.g. Vercel); used when `VITE_VERIFY_GOOGLE_ID_URL` is set.
 - **`manifest.json`**, **`sw.js`** — PWA manifest and service worker.
-- **`404.html`** — redirects 404s to the SPA so client-side routes and OAuth callbacks work on GitHub Pages.
+- **`public/404.html`** — copied to `dist`; redirects 404s to the SPA so client-side routes and OAuth callbacks work on GitHub Pages.
 
 ## Design Philosophy & Security Model
 
