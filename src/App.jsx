@@ -1449,13 +1449,6 @@ export default function App() {
       setGateChecked(true);
     });
   }, []);
-  useEffect(() => {
-    const handleQuota = () => {
-      showBanner("SYSTEM ALERT: Storage full! Browser limits reached (~5MB). Data will not be saved. Please manually clear/prune old chat history or sessions.", "alert");
-    };
-    window.addEventListener('ls-quota-exceeded', handleQuota);
-    return () => window.removeEventListener('ls-quota-exceeded', handleQuota);
-  }, [showBanner]);
   const [modal, setModal] = useState(null); // { type, data }
   const [toast, setToast] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -2044,12 +2037,19 @@ export default function App() {
     setToast(data);
     toastTimer.current = setTimeout(() => setToast(null), 5000);
   }, []); // refs are stable; setToast is stable — no deps needed
-
   const showBanner = useCallback((text, type = "info") => {
     clearTimeout(bannerTimer.current);
     setBanner({ text, type });
     bannerTimer.current = setTimeout(() => setBanner(null), 4000);
   }, []); // refs are stable; setBanner is stable — no deps needed
+
+  useEffect(() => {
+    const handleQuota = () => {
+      showBanner("SYSTEM ALERT: Storage full! Browser limits reached (~5MB). Data will not be saved. Please manually clear/prune old chat history or sessions.", "alert");
+    };
+    window.addEventListener("ls-quota-exceeded", handleQuota);
+    return () => window.removeEventListener("ls-quota-exceeded", handleQuota);
+  }, [showBanner]);
 
   function executeCommands(commands) {
     // Fix #5: guard that commands is actually an Array — a non-array truthy value (e.g. a
