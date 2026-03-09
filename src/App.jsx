@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom/client";
 
 // ═══════════════════════════════════════════════════════════════
@@ -44,10 +44,10 @@ const FOCUS_LEVELS = [
 ];
 
 const ACHIEVEMENT_RARITIES = {
-  common:    { label: "COMMON",    glow: "#888",   border: "░░", weight: 60 },
-  rare:      { label: "RARE",      glow: "#bbb",   border: "▒▒", weight: 25 },
-  epic:      { label: "EPIC",      glow: "#ddd",   border: "▓▓", weight: 12 },
-  legendary: { label: "LEGENDARY", glow: "#fff",   border: "██", weight: 3  },
+  common:    { label: "COMMON",    glow: "#888" },
+  rare:      { label: "RARE",      glow: "#bbb" },
+  epic:      { label: "EPIC",      glow: "#ddd" },
+  legendary: { label: "LEGENDARY", glow: "#fff" },
 };
 
 // Single-account gate: only the configured Google email can use the app. Set via .env or GitHub Variables.
@@ -90,6 +90,17 @@ if (VITE_GEMINI_API_KEY && !GEMINI_KEY_RESTRICTED) {
 // don't throw a ReferenceError — they fall through to the fail-closed `true` default.
 const _IS_VITE_DEV = (typeof import.meta !== "undefined" && import.meta.env?.DEV) === true;
 const AUTH_REQUIRED = !!(ALLOWED_EMAIL || GATE_GOOGLE_CLIENT_ID) || !_IS_VITE_DEV;
+// Warn at module load if AUTH_REQUIRED is true but neither email nor client ID is configured —
+// this means import.meta.env.DEV was falsy in a non-Vite build, triggering the fail-closed
+// default. The app will render the misconfigured AuthGate (which blocks access), so at minimum
+// emit a clear console error so the deployer knows why.
+if (AUTH_REQUIRED && !ALLOWED_EMAIL && !GATE_GOOGLE_CLIENT_ID) {
+  console.error(
+    "[RITMOL] AUTH_REQUIRED=true but neither VITE_ALLOWED_EMAIL nor VITE_GOOGLE_CLIENT_ID is set. " +
+    "If this is a non-Vite build (Jest, CommonJS, etc.), import.meta.env.DEV is unavailable and the app " +
+    "defaults to fail-closed. Set both env vars or ensure your bundler exposes import.meta.env.DEV=true for local dev."
+  );
+}
 const GATE_SESSION_KEY = "ritmol_session_token"; // stores a signed token, not a plain boolean
 // Daily token budget. Gemini 2.5 Flash free tier is ~1 000 000 tokens/day per key.
 // Set conservatively so a runaway loop doesn't silently drain the quota.
@@ -298,9 +309,6 @@ const IS_DEV = import.meta.env.DEV === true;
 const DEV_PREFIX = "ritmol_dev_";
 // Public app icon (works with Vite base path for GitHub Pages).
 const APP_ICON_URL = `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/icon-192.png`;
-// Optional: hint shown in the UI so the user knows where their sync file lives.
-// Set VITE_SYNC_FILE_PATH=/Users/you/Syncthing/ritmol-data.json in .env (display only — browser cannot open paths directly).
-const SYNC_FILE_PATH_HINT = (import.meta.env.VITE_SYNC_FILE_PATH || "").trim();
 
 // Fix #3: prefix every key that belongs to this app in dev mode so dev and prod
 // environments never share storage — not just keys that start with "jv_".
@@ -620,7 +628,9 @@ function applySyncPayload(payload) {
   const remoteVersion = typeof payload._schemaVersion === "number" ? payload._schemaVersion : 0;
   if (remoteVersion < SYNC_SCHEMA_VERSION) {
     console.warn(`applySyncPayload: remote schema version ${remoteVersion} < local ${SYNC_SCHEMA_VERSION}. Payload may be from an older client — rejecting to avoid data corruption. Re-export from an up-to-date device.`);
-    return;
+    // Throw so callers (syncPull, importFile) can surface an actionable message instead of
+    // silently completing and returning a success timestamp with no data applied.
+    throw new Error("SYNC_SCHEMA_OUTDATED");
   }
   if (remoteVersion > SYNC_SCHEMA_VERSION) {
     console.warn(`applySyncPayload: remote schema version ${remoteVersion} > local ${SYNC_SCHEMA_VERSION}. Update the app first.`);
@@ -784,8 +794,8 @@ function AuthGate({ onAccessGranted }) {
       });
 
       // Wait for the user to actually sign in (either via prompt or button)
-      const resultEmail = await emailPromise;
-      
+      await emailPromise;
+
       let token;
       try { token = await makeSessionToken(ALLOWED_EMAIL); }
       catch { throw new Error("Token derivation failed."); }
@@ -945,87 +955,6 @@ const STYLE_CSS = {
     decoration: "underline",
   },
 };
-
-// ═══════════════════════════════════════════════════════════════
-// PARTICLES
-// ═══════════════════════════════════════════════════════════════
-// E-ink guard: skip particle effects when display can't refresh smoothly
-const isEInk = () => window.matchMedia("(update: slow)").matches || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-function spawnParticles(x, y, count = 12) {
-  if (isEInk()) return; // particles leave ghost marks on e-ink
-  const container = document.getElementById("particle-container");
-  if (!container) return;
-  // Cap total live particles to avoid DOM flooding on rapid interactions
-  if (container.childElementCount > 40) return;
-  // Fix #15: correct for visual viewport scale (pinch-zoom / CSS zoom). clientX/Y are in CSS
-  // pixels but if the viewport is scaled, the fixed-position element coordinates need adjusting.
-  const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
-  const cx = vvScale !== 1 ? (x - (window.visualViewport?.offsetLeft ?? 0)) / vvScale + (window.visualViewport?.offsetLeft ?? 0) : x;
-  const cy = vvScale !== 1 ? (y - (window.visualViewport?.offsetTop ?? 0)) / vvScale + (window.visualViewport?.offsetTop ?? 0) : y;
-  for (let i = 0; i < count; i++) {
-    const p = document.createElement("div");
-    const chars = ["✦", "◈", "▒", "░", "◉", "+", "×", "◇"];
-    p.textContent = chars[Math.floor(Math.random() * chars.length)];
-    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
-    const dist = 40 + Math.random() * 60;
-    p.style.cssText = `
-      position:fixed; left:${cx}px; top:${cy}px; pointer-events:none; z-index:9999;
-      font-family:'Share Tech Mono',monospace; font-size:${10 + Math.random() * 8}px;
-      color:#fff; opacity:1; transition:none;
-    `;
-    // Fix #9: only append if the container is still in the document. A tab switch can unmount
-    // the container between the loop start and the appendChild, causing a detached-node leak.
-    if (!container.isConnected) return;
-    container.appendChild(p);
-    requestAnimationFrame(() => {
-      p.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist - 30}px)`;
-      p.style.opacity = "0";
-    });
-    // Fix #9: check isConnected before removing too — if the container was unmounted between
-    // the append and the timeout firing, p may already be detached; p.remove() on a detached
-    // node is a no-op but the isConnected guard makes the intent explicit.
-    setTimeout(() => { if (p.isConnected) p.remove(); }, 900);
-  }
-}
-
-function spawnXPFloat(x, y, amount) {
-  // Fix #15: apply the same viewport scale correction as spawnParticles
-  const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
-  const cx = vvScale !== 1 ? (x - (window.visualViewport?.offsetLeft ?? 0)) / vvScale + (window.visualViewport?.offsetLeft ?? 0) : x;
-  const cy = vvScale !== 1 ? (y - (window.visualViewport?.offsetTop ?? 0)) / vvScale + (window.visualViewport?.offsetTop ?? 0) : y;
-  if (isEInk()) {
-    // On e-ink: show a brief static "+XP" label instead of animated float
-    const container = document.getElementById("particle-container");
-    if (!container) return;
-    const el = document.createElement("div");
-    el.textContent = `+${amount} XP`;
-    el.style.cssText = `
-      position:fixed; left:${cx}px; top:${cy - 30}px; pointer-events:none; z-index:9999;
-      font-family:'Share Tech Mono',monospace; font-size:13px; font-weight:bold;
-      color:#fff; background:#000; border:1px solid #fff; padding:2px 6px;
-    `;
-    if (!container.isConnected) return; // Fix #9: guard against detached container
-    container.appendChild(el);
-    setTimeout(() => { if (el.isConnected) el.remove(); }, 1800);
-    return;
-  }
-  const el = document.createElement("div");
-  el.textContent = `+${amount} XP`;
-  el.style.cssText = `
-    position:fixed; left:${cx}px; top:${cy}px; pointer-events:none; z-index:9999;
-    font-family:'Share Tech Mono',monospace; font-size:14px; font-weight:bold;
-    color:#fff; opacity:1; transition:none; white-space:nowrap;
-  `;
-  const pcMain = document.getElementById("particle-container");
-  if (!pcMain?.isConnected) return; // Fix #9: guard against detached container
-  pcMain.appendChild(el);
-  requestAnimationFrame(() => {
-    el.style.transform = "translateY(-60px)";
-    el.style.opacity = "0";
-  });
-  setTimeout(() => { if (el.isConnected) el.remove(); }, 1100);
-}
 
 // ═══════════════════════════════════════════════════════════════
 // INITIAL STATE
@@ -1336,7 +1265,9 @@ function flushStateToStorage(s) {
   // effect has already written the latest value, so repeating it here is redundant and
   // could cause confusion if the two paths ever diverge.
   if (s.dynamicCosts)     LS.set(storageKey("jv_dynamic_costs"),        s.dynamicCosts);
-  if (s.lastShieldUseDate != null) LS.set(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate);
+  // Fix: always write lastShieldUseDate, including null — null means "no shield used yet"
+  // and must be persisted so a reset is not overwritten on reload by an old non-null value.
+  LS.set(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1441,7 +1372,9 @@ export default function App() {
   useEffect(() => { LS.set(storageKey("jv_token_usage"), state.tokenUsage); }, [state.tokenUsage]);
   useEffect(() => { LS.set(storageKey("jv_habits_init"), state.habitsInitialized); }, [state.habitsInitialized]);
   useEffect(() => { if (state.dynamicCosts) LS.set(storageKey("jv_dynamic_costs"), state.dynamicCosts); }, [state.dynamicCosts]);
-  useEffect(() => { if (state.lastShieldUseDate) LS.set(storageKey("jv_last_shield_use_date"), state.lastShieldUseDate); }, [state.lastShieldUseDate]);
+  // Fix: write unconditionally so null (shield-use-date cleared) is persisted and not
+  // overwritten on reload by an old non-null value still sitting in localStorage.
+  useEffect(() => { LS.set(storageKey("jv_last_shield_use_date"), state.lastShieldUseDate ?? null); }, [state.lastShieldUseDate]);
 
   // ── Syncthing: push on tab hide / window close ──
   // We keep a ref to the latest state so the push can flush it to localStorage
@@ -1519,6 +1452,8 @@ export default function App() {
         showBanner("No sync file selected. Pick one in Profile → Settings.", "alert");
       } else if (e.message === "CORRUPT_FILE") {
         showBanner("Sync file is corrupt or not valid JSON. Re-export from another device.", "alert");
+      } else if (e.message === "SYNC_SCHEMA_OUTDATED") {
+        showBanner("Sync file was written by an older version of RITMOL. Re-export it from an up-to-date device.", "alert");
       } else if (e.message === "SYNC_FILE_TOO_LARGE") {
         showBanner("Sync file exceeds 10 MB — this is unexpected. Check the file.", "alert");
       } else {
@@ -1851,10 +1786,6 @@ export default function App() {
       }, 300);
     }
 
-    if (!silent && event?.clientX != null) {
-      spawnParticles(event.clientX, event.clientY);
-      spawnXPFloat(event.clientX, event.clientY - 20, amount);
-    }
     checkMissions("xp");
   }
 
@@ -2186,7 +2117,6 @@ export default function App() {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0a0a0a", color: "#e8e8e8", overflow: "hidden" }}>
-      <div id="particle-container" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 9998 }} />
 
       {/* Banner */}
       {banner && <Banner banner={banner} onClose={() => setBanner(null)} />}
@@ -2319,18 +2249,6 @@ export default function App() {
             setModal(null);
           }}
         />
-      )}
-      {modal?.type === "gacha" && (
-        <GachaModal
-          state={state} setState={setState} profile={profile} apiKey={apiKey}
-          onClose={() => setModal(null)}
-          onPull={(cost) => {
-            setState((s) => ({ ...s, xp: Math.max(0, s.xp - cost) }));
-          }}
-        />
-      )}
-      {modal?.type === "achievements" && (
-        <AchievementsModal state={state} onClose={() => setModal(null)} />
       )}
       {levelUpData && (
         <LevelUpModal data={levelUpData} onClose={() => setLevelUpData(null)} />
@@ -4262,10 +4180,6 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
   const [confirmReset, setConfirmReset] = useState(false);
   const confirmResetTimerRef = useRef(null);
 
-  function save() {
-    showBanner("Settings saved.", "success");
-  }
-
   function resetAll() {
     if (!confirmReset) {
       setConfirmReset(true);
@@ -4292,8 +4206,12 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
     try {
       const ts = await SyncManager.importFile(file);
       window.location.reload(); // reload so all state rehydrates from new localStorage
-    } catch {
-      showBanner("Import failed. File may be corrupt.", "alert");
+    } catch (err) {
+      if (err.message === "SYNC_SCHEMA_OUTDATED") {
+        showBanner("Import failed: file was written by an older version of RITMOL. Re-export it from an up-to-date device.", "alert");
+      } else {
+        showBanner("Import failed. File may be corrupt.", "alert");
+      }
     }
     e.target.value = "";
   }
@@ -4310,15 +4228,15 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
-      <div style={{ fontSize: "9px", color: "var(--muted)", letterSpacing: "2px" }}>APPEARANCE</div>
+      <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px" }}>APPEARANCE</div>
       <div style={{ display: "flex", gap: "8px" }}>
         <button
           type="button"
           onClick={() => setTheme("dark")}
           style={{
-            flex: 1, padding: "10px", border: `2px solid ${theme === "dark" ? "#fff" : "var(--border2)"}`,
+            flex: 1, padding: "10px", border: `2px solid ${theme === "dark" ? "#fff" : "#333"}`,
             background: theme === "dark" ? "#fff" : "transparent",
-            color: theme === "dark" ? "#000" : "var(--muted3)",
+            color: theme === "dark" ? "#000" : "#888",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
           }}
         >
@@ -4328,9 +4246,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
           type="button"
           onClick={() => setTheme("light")}
           style={{
-            flex: 1, padding: "10px", border: `2px solid ${theme === "light" ? "#000" : "var(--border2)"}`,
+            flex: 1, padding: "10px", border: `2px solid ${theme === "light" ? "#000" : "#333"}`,
             background: theme === "light" ? "#000" : "transparent",
-            color: theme === "light" ? "#fff" : "var(--muted3)",
+            color: theme === "light" ? "#fff" : "#888",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
           }}
         >
@@ -4338,7 +4256,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
         </button>
       </div>
 
-      <div style={{ height: "1px", background: "var(--border)", margin: "8px 0" }} />
+      <div style={{ height: "1px", background: "#333", margin: "8px 0" }} />
       {/* ── SYNCTHING SYNC ── */}
       <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px" }}>SYNCTHING SYNC</div>
       <SyncthingSetupGuide />
@@ -4420,8 +4338,6 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
           </button>
         </div>
       )}
-
-      <button onClick={save} style={primaryBtn}>SAVE SETTINGS</button>
 
       <div style={{ marginTop: "12px", padding: "12px", border: "1px dashed #222" }}>
         <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "8px" }}>DEPLOY GUIDE</div>
