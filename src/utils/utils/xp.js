@@ -1,4 +1,4 @@
-import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, RANKS, FOCUS_LEVELS, SESSION_TYPES } from "./constants";
+import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, RANKS, FOCUS_LEVELS, SESSION_TYPES } from "../constants";
 
 // ═══════════════════════════════════════════════════════════════
 // XP & LEVEL UTILS
@@ -25,3 +25,4 @@ export function calcSessionXP(type, durationMins, focusId, streakDays) {
 export function getXpPerLevel(state) { return state.dynamicCosts?.xpPerLevel ?? DEFAULT_XP_PER_LEVEL; }
 export function getGachaCost(state) { return state.dynamicCosts?.gachaCost ?? DEFAULT_GACHA_COST; }
 export function getStreakShieldCost(state) { return state.dynamicCosts?.streakShieldCost ?? DEFAULT_STREAK_SHIELD_COST; }
+

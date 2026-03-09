@@ -1,7 +1,7 @@
 import { callGemini } from "./gemini";
 import { LS, storageKey, today } from "../utils/storage";
 import { DAILY_TOKEN_LIMIT, DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "../constants";
-import { getLevel, getXpPerLevel } from "../utils/xp";
+import { getLevel } from "../utils/xp";
 
 // Ask AI to update dynamic costs (xpPerLevel, gachaCost, streakShieldCost) after level-up, gacha pull, or shield use.
 // event: "level_up" | "gacha_pull" | "streak_shield_use". Returns partial costs to merge into state.dynamicCosts.

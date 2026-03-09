@@ -12,7 +12,7 @@ export const DAILY_TOKEN_LIMIT = 80000;
 // XP / gacha defaults
 export const DEFAULT_XP_PER_LEVEL = 1000;
 export const DEFAULT_GACHA_COST = 100;
-export const DEFAULT_STREAK_SHIELD_COST = 1;
+export const DEFAULT_STREAK_SHIELD_COST = 300;
 
 // Session types & focus levels used by XP calc and UI.
 export const SESSION_TYPES = [
@@ -28,13 +28,13 @@ export const FOCUS_LEVELS = [
   { id: "high", label: "Hyperfocus", mult: 1.3 },
 ];
 
-// Ranks by level thresholds.
+// Ranks by level thresholds — includes decor/badge/font used by TopBar and ProfileTab.
 export const RANKS = [
-  { id: "novice", label: "Novice", min: 0 },
-  { id: "apprentice", label: "Apprentice", min: 5 },
-  { id: "adept", label: "Adept", min: 15 },
-  { id: "elite", label: "Elite", min: 30 },
-  { id: "ascendant", label: "Ascendant", min: 50 },
+  { id: "novice",     label: "Novice",      min: 0,  title: "Novice",      decor: "[ _ ]", badge: "░░░░░", font: "mono" },
+  { id: "apprentice", label: "Apprentice",  min: 5,  title: "Apprentice",  decor: "[ § ]", badge: "▒░░░░", font: "fell" },
+  { id: "adept",      label: "Adept",       min: 15, title: "Adept",       decor: "[ ◈ ]", badge: "▒▒░░░", font: "mono" },
+  { id: "elite",      label: "Elite",       min: 30, title: "Elite",       decor: "[ ◉ ]", badge: "▒▒▒▒░", font: "mono" },
+  { id: "ascendant",  label: "Ascendant",   min: 50, title: "Ascendant",   decor: "[ ✦ ]", badge: "█████", font: "fell" },
 ];
 
 // Habit starter pack.
@@ -52,11 +52,11 @@ export const STYLE_CSS = {
   typewriter: { border: "1px solid #333", background: "#050505" },
 };
 
-// Achievement rarities.
-export const ACHIEVEMENT_RARITIES = [
-  { id: "common", label: "Common" },
-  { id: "rare", label: "Rare" },
-  { id: "epic", label: "Epic" },
-  { id: "legendary", label: "Legendary" },
-];
+// Achievement rarities — keyed by id so UI can do ACHIEVEMENT_RARITIES[ach.rarity].
+export const ACHIEVEMENT_RARITIES = {
+  common:    { label: "COMMON",    glow: "#888" },
+  rare:      { label: "RARE",      glow: "#bbb" },
+  epic:      { label: "EPIC",      glow: "#ddd" },
+  legendary: { label: "LEGENDARY", glow: "#fff" },
+};
 

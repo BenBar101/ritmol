@@ -44,7 +44,7 @@ function SyncthingSetupGuide() {
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 3 — Link the file in RITMOL</div>
           <div>6. Come back here and click <span style={{ color: "#ccc" }}>LINK SYNCTHING FILE</span>.</div>
           <div>7. Navigate to your Syncthing folder and pick <span style={{ color: "#ccc" }}>ritmol-data.json</span>.</div>
-          <div style={{ color: "#555", fontSize: "10px" }}>&nbsp;&nbsp;&nbsp;(If the file doesn't exist yet, Push first — it will be created.)</div>
+          <div style={{ color: "#555", fontSize: "10px" }}>&nbsp;&nbsp;&nbsp;(If the file doesn&apos;t exist yet, Push first — it will be created.)</div>
           <div style={{ color: "#888", fontWeight: "bold", marginTop: "10px", marginBottom: "4px" }}>STEP 4 — Sync between devices</div>
           <div>8. On Device A: click <span style={{ color: "#ccc" }}>PUSH ↑</span> to write data to the file.</div>
           <div>9. Syncthing propagates the file to Device B automatically.</div>
@@ -75,7 +75,7 @@ function SyncOnboardingStep() {
   if (!FSAPI_SUPPORTED) {
     return (
       <div style={{ fontSize: "11px", color: "#666", lineHeight: "1.8", padding: "8px", border: "1px dashed #333" }}>
-        ⚠ Your browser doesn't support direct file access.<br />
+        ⚠ Your browser doesn&apos;t support direct file access.<br />
         Use <strong>Profile → Settings → Download / Import</strong> to sync manually after setup.
       </div>
     );
@@ -152,15 +152,37 @@ export default function Onboarding({ onComplete }) {
 
   const current = steps[step];
 
+  // Sanitize free-text profile fields at write-time: strip control chars and
+  // prompt-injection characters before they reach localStorage or the AI prompt.
+  function sanitizeField(str, maxLen = 300) {
+    if (typeof str !== "string") return "";
+    return str
+      .replace(/[<>{}[\]`"\\]/g, "")
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+      .slice(0, maxLen)
+      .trim();
+  }
+
+  function sanitizeForm(f) {
+    return {
+      name:         sanitizeField(f.name, 60),
+      major:        sanitizeField(f.major, 80),
+      books:        sanitizeField(f.books, 200),
+      interests:    sanitizeField(f.interests, 200),
+      semesterGoal: sanitizeField(f.semesterGoal, 200),
+    };
+  }
+
   function handleNext() {
     if (current.optional && !form[current.field]?.trim()) {
       setError("");
-      if (step < steps.length - 1) { setStep(step + 1); } else { onComplete(form); }
+      if (step < steps.length - 1) { setStep(step + 1); } else { onComplete(sanitizeForm(form)); }
       return;
     }
     if (current.type === "_infoOnly" || current.type === "_syncStep") {
       setError("");
-      if (step < steps.length - 1) { setStep(step + 1); } else { onComplete(form); }
+      if (step < steps.length - 1) { setStep(step + 1); } else { onComplete(sanitizeForm(form)); }
       return;
     }
     if (!form[current.field]?.trim()) {
@@ -171,7 +193,7 @@ export default function Onboarding({ onComplete }) {
     if (step < steps.length - 1) {
       setStep(step + 1);
     } else {
-      onComplete(form);
+      onComplete(sanitizeForm(form));
     }
   }
 

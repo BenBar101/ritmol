@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { today, LS, storageKey } from "./utils/storage";
+import { today } from "./utils/storage";
 import { STYLE_CSS, DAILY_TOKEN_LIMIT } from "./constants";
 import { callGemini } from "./api/gemini";
 import GeometricCorners from "./GeometricCorners";
 
-export default function HabitsTab({ state, setState, logHabit, awardXP, showBanner, profile, apiKey, trackTokens }) {
+export default function HabitsTab({ state, setState, logHabit, showBanner, profile, apiKey, trackTokens }) {
   const todayLog = state.habitLog[today()] || [];
   const categories = ["body", "mind", "work"];
   const [initializing, setInitializing] = useState(false);
@@ -82,7 +82,8 @@ Respond ONLY with JSON array:
         showBanner("Could not load personalized habits. Using defaults.", "info");
       })
       .finally(() => setInitializing(false));
-  }, [state.habitsInitialized, apiKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.habitsInitialized, apiKey, profile]);
 
   // Cancel any in-flight habit-init request on unmount.
   useEffect(() => () => { habitInitAbortRef.current?.abort(); }, []);

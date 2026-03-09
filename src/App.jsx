@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 // Utils & storage
 import { LS, storageKey, IS_DEV, getGeminiApiKey } from "./utils/storage";
 import { today, nowHour, nowMin } from "./utils/storage";
-import { getLevel, getLevelProgress, getRank, getXpPerLevel, getGachaCost, getStreakShieldCost, calcSessionXP } from "./utils/xp";
+import { getLevel, getRank, getXpPerLevel, getGachaCost, getStreakShieldCost, calcSessionXP } from "./utils/xp";
 import { initState, flushStateToStorage } from "./utils/state";
 
 // Constants
@@ -22,7 +22,7 @@ import Onboarding from "./Onboarding";
 import { TopBar, BottomNav, Banner } from "./Layout";
 import { GlobalStyles, ErrorBoundary } from "./GlobalStyles";
 import {
-  Modal, DailyLoginModal, SleepCheckinModal, ScreenTimeModal,
+  DailyLoginModal, SleepCheckinModal, ScreenTimeModal,
   SessionLogModal, LevelUpModal, AchievementToast,
 } from "./Modals";
 
@@ -39,16 +39,16 @@ import ProfileTab from "./ProfileTab";
 import { APP_ICON_URL } from "./utils/storage";
 
 function KeysConfigGate() {
-  const missing = [];
-  if (!getGeminiApiKey()) missing.push("geminiKey");
-  if (missing.length === 0) return null;
-
   const [syncFileConnected, setSyncFileConnected] = useState(false);
   const [syncChecking, setSyncChecking] = useState(true);
   const [syncError, setSyncError] = useState("");
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | error | success
 
+  const missing = [];
+  if (!getGeminiApiKey()) missing.push("geminiKey");
+
   useEffect(() => {
+    if (missing.length === 0) return;
     if (!FSAPI_SUPPORTED) {
       setSyncChecking(false);
       return;
@@ -67,7 +67,7 @@ function KeysConfigGate() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [missing.length]);
 
   async function handlePickSyncFile() {
     if (!FSAPI_SUPPORTED) return;
@@ -106,6 +106,8 @@ function KeysConfigGate() {
     }
   }
 
+  if (missing.length === 0) return null;
+
   return (
     <div style={{
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
@@ -114,9 +116,9 @@ function KeysConfigGate() {
       <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "16px", display: "block" }} />
       <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOL — CONFIGURATION REQUIRED</div>
       <div style={{ color: "#c44", fontSize: "12px", maxWidth: "420px", lineHeight: "1.8", marginBottom: "20px" }}>
-        No Gemini API key found in this session. Add <code>"geminiKey": "AIza..."</code> to your{" "}
+        No Gemini API key found in this session. Add <code>&ldquo;geminiKey&rdquo;: &ldquo;AIza...&rdquo;</code> to your{" "}
         <code>ritmol-data.json</code> sync file, then link it below so RITMOL can read it.
-        The key is never stored in the build or in GitHub — it lives only in your Syncthing file and this tab's sessionStorage.
+        The key is never stored in the build or in GitHub — it lives only in your Syncthing file and this tab&apos;s sessionStorage.
       </div>
 
       {FSAPI_SUPPORTED ? (
@@ -187,7 +189,6 @@ export default function App() {
   const [banner, setBanner] = useState(null);
   const [levelUpData, setLevelUpData] = useState(null);
   const [dailyQuote, setDailyQuote] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [lastSynced, setLastSynced] = useState(LS.get(storageKey("jv_last_synced"), null));
   const [theme, setThemeState] = useState(() => LS.get(storageKey(THEME_KEY), "dark"));
@@ -217,6 +218,7 @@ export default function App() {
   useEffect(() => {
     if (profile?.geminiKey) {
       setState((s) => {
+        // eslint-disable-next-line no-unused-vars
         const { geminiKey: _g, ...rest } = s.profile || {};
         return { ...s, profile: rest };
       });
@@ -232,6 +234,7 @@ export default function App() {
   // ── Persist state (granular — each slice only writes when it changes) ──
   useEffect(() => {
     if (!state.profile) return;
+    // eslint-disable-next-line no-unused-vars
     const { geminiKey: _stripped, ...profileToSave } = state.profile;
     LS.set(storageKey("jv_profile"), profileToSave);
   }, [state.profile]);
@@ -386,6 +389,7 @@ export default function App() {
       const missions = generateDailyMissions();
       setState((s) => ({ ...s, dailyMissions: missions, lastMissionDate: t }));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, state.lastMissionDate]);
 
   // ── Token tracker ──
@@ -416,12 +420,6 @@ export default function App() {
       LS.set(storageKey("jv_token_usage"), updated);
       return { ...s, tokenUsage: updated };
     });
-  }
-
-  function canCallGemini() {
-    const usage = (latestStateRef.current ?? state).tokenUsage;
-    if (!usage || usage.date !== today()) return true;
-    return usage.tokens < DAILY_TOKEN_LIMIT;
   }
 
   function consumeAiXpBudget(requested) {
@@ -457,7 +455,6 @@ export default function App() {
   useEffect(() => {
     if (!profile) return;
     fetchDailyQuote(null, profile, null).then(setDailyQuote);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
 
   // ── Scheduled prompts (sleep check-in, screen time, lecture reminders) ──
@@ -502,6 +499,7 @@ export default function App() {
       }
     }, 60000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
 
   // ── Streak panic check ──
@@ -628,7 +626,8 @@ export default function App() {
   }
 
   // ── Mission checker ──
-  function checkMissions(type) {
+  // eslint-disable-next-line no-unused-vars
+  function checkMissions(_type) {
     const t = today();
     let pendingToasts = [];
     let pendingLevelUp = null;
@@ -764,6 +763,7 @@ export default function App() {
 
     const sanitizeStr = (s, max = MAX_STR_LEN) => {
       if (typeof s !== "string") return "";
+      // eslint-disable-next-line no-control-regex
       const noControl = s.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
       // Fix #12: include single-quote in the strip set alongside the existing chars.
       return noControl.slice(0, max).replace(/[<>"`&']/g, "");
@@ -911,6 +911,7 @@ export default function App() {
     return (
       <Onboarding
         onComplete={(profile) => {
+          // eslint-disable-next-line no-unused-vars
           const { geminiKey: _g, ...profileWithoutKey } = profile;
           setState((s) => ({ ...s, profile: profileWithoutKey }));
           LS.set(storageKey("jv_profile"), profileWithoutKey);

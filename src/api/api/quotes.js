@@ -1,4 +1,4 @@
-import { IS_DEV, DEV_PREFIX, LS, storageKey, today } from "./utils/storage";
+import { IS_DEV, DEV_PREFIX, LS, storageKey, today } from "../utils/storage";
 
 // ═══════════════════════════════════════════════════════════════
 // DAILY QUOTE  (Quotable API — no tokens consumed)
@@ -18,12 +18,13 @@ const QUOTABLE_FALLBACK_TAGS = ["technology","science","education","wisdom","ins
 function _extractAuthorTokens(booksStr) {
   if (!booksStr || typeof booksStr !== "string") return [];
   return booksStr
-    .split(/[,;|\/\n]+/)
+    .split(/[,;|/\n]+/)
     .map(s => s.trim().split(/\s+/).pop()) // last word of each segment
     .filter(t => t && t.length >= 4)
     .slice(0, 5); // cap: no more than 5 attempts
 }
 
+// eslint-disable-next-line no-unused-vars
 export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
   // _apiKey and _onTokens kept in signature for call-site compatibility but unused —
   // Quotable is free and consumes no Gemini tokens.
@@ -38,7 +39,7 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
       if (k && k.startsWith(quotePrefix) && k !== key) staleKeys.push(k);
     }
     staleKeys.forEach((k) => localStorage.removeItem(k));
-  } catch {}
+  } catch { /* localStorage may be unavailable — silently skip eviction */ }
 
   const cached = LS.get(key);
   if (cached) return cached;
@@ -46,10 +47,7 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
   if (_quoteInFlight) return null;
   _quoteInFlight = true;
 
-  // FIX: create a fresh timeout signal per fetch instead of one shared signal.
-  // A single AbortSignal.timeout(8000) starts counting immediately — if the first
-  // fetch takes 5 s the fallback fetch only has 3 s remaining, causing spurious
-  // timeouts. Each call now gets its own independent 8-second budget.
+  // Create a fresh timeout signal per fetch so each attempt gets its own independent budget.
   const makeSignal = () => AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined;
 
   try {
@@ -96,7 +94,7 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
             hit = { quote: q.content, author: q.author, source: q.authorSlug || "" };
           }
         }
-      } catch {}
+      } catch { /* Network error on token lookup — try next */ }
     }
 
     if (hit) {
@@ -107,9 +105,13 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
         confident: true,
       };
       LS.set(key, safe);
+      _quoteInFlight = false;
       return safe;
     }
+  } catch {
+    // Outer catch: unexpected error — fall through to reset flag and return null.
   } finally {
+    // Always reset the in-flight flag so future calls are not permanently blocked.
     _quoteInFlight = false;
   }
   return null;

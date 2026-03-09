@@ -1,13 +1,13 @@
 import { callGemini } from "./gemini";
-import { LS, storageKey, today } from "./utils/storage";
-import { DAILY_TOKEN_LIMIT, DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "./constants";
-import { getLevel, getXpPerLevel } from "./utils/xp";
+import { LS, storageKey, today } from "../utils/storage";
+import { DAILY_TOKEN_LIMIT, DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "../constants";
+import { getLevel } from "../utils/xp";
 
 // Ask AI to update dynamic costs (xpPerLevel, gachaCost, streakShieldCost) after level-up, gacha pull, or shield use.
 // event: "level_up" | "gacha_pull" | "streak_shield_use". Returns partial costs to merge into state.dynamicCosts.
 export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   if (!apiKey) return {};
-  // Fix #4: honour the daily token budget.
+  // Honour the daily token budget.
   const storedUsage = LS.get(storageKey("jv_token_usage"));
   if (storedUsage && storedUsage.date === today() && storedUsage.tokens >= DAILY_TOKEN_LIMIT) return {};
   const d = state.dynamicCosts || {};
@@ -21,9 +21,7 @@ export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   const month = now.getMonth(), date = now.getDate();
   const holidayHint = (month === 11 && date === 25) ? "Christmas" : (month === 0 && date === 1) ? "New Year" : (month === 6 && date === 4) ? "US Independence Day" : null;
   const VALID_EVENTS = new Set(["level_up", "gacha_pull", "streak_shield_use"]);
-  // FIX (security): whitelist the event string before embedding it in the prompt.
-  // An unexpected value would still be benign here (it's our own call sites), but
-  // defence-in-depth means we should never interpolate an unchecked string into a prompt.
+  // Whitelist the event string before embedding it in the prompt.
   const safeEvent = VALID_EVENTS.has(event) ? event : "unknown";
   const prompt = `You are the RITMOL system adjusting economy parameters. Event: ${safeEvent}.
 Current costs: xpPerLevel=${xpPerLevel}, gachaCost=${gachaCost}, streakShieldCost=${streakShieldCost}. Hunter level=${level}, total XP=${state.xp}.

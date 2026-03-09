@@ -4,6 +4,7 @@ import { getLevelProgress } from "./utils/xp";
 // ═══════════════════════════════════════════════════════════════
 // TOP BAR
 // ═══════════════════════════════════════════════════════════════
+// eslint-disable-next-line no-unused-vars
 export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatus, lastSynced, onPush, onPull, syncFileConnected }) {
   const progress = getLevelProgress(xp, xpPerLevel);
   const pct = (progress / xpPerLevel) * 100;

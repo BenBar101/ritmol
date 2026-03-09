@@ -16,7 +16,7 @@ export const LS = {
       }
     }
   },
-  del: (k) => { try { localStorage.removeItem(k); } catch {} },
+  del: (k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
 // Returns today's date in YYYY-MM-DD using LOCAL time (not UTC).
@@ -69,6 +69,6 @@ export function setGeminiApiKey(key) {
     } else {
       sessionStorage.removeItem(GEMINI_SESSION_KEY);
     }
-  } catch {}
+  } catch { /* sessionStorage may be unavailable */ }
 }
 

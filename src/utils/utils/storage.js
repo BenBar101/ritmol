@@ -1,4 +1,4 @@
-import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "./constants";
+import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "../constants";
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS
@@ -11,12 +11,12 @@ export const LS = {
     try {
       localStorage.setItem(k, JSON.stringify(v));
     } catch (e) {
-      if (e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
-        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ls-quota-exceeded'));
+      if (e && (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED")) {
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("ls-quota-exceeded"));
       }
     }
   },
-  del: (k) => { try { localStorage.removeItem(k); } catch {} },
+  del: (k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
 // Returns today's date in YYYY-MM-DD using LOCAL time (not UTC).
@@ -69,5 +69,6 @@ export function setGeminiApiKey(key) {
     } else {
       sessionStorage.removeItem(GEMINI_SESSION_KEY);
     }
-  } catch {}
+  } catch { /* sessionStorage may be unavailable */ }
 }
+

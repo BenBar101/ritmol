@@ -43,6 +43,7 @@ export function initState() {
 // Single authoritative function so no state field is ever missed in sync paths.
 export function flushStateToStorage(s) {
   if (!s?.profile) return;
+  // eslint-disable-next-line no-unused-vars
   const { geminiKey: _stripped, ...profileToSave } = s.profile;
   LS.set(storageKey("jv_profile"),           profileToSave);
   LS.set(storageKey("jv_xp"),                s.xp);
@@ -67,7 +68,8 @@ export function flushStateToStorage(s) {
   LS.set(storageKey("jv_token_usage"),       s.tokenUsage);
   LS.set(storageKey("jv_timers"),            s.activeTimers);
   LS.set(storageKey("jv_habit_suggestions"), s.pendingHabitSuggestions);
-  // NOTE: jv_gcal_connected is omitted here — persisted by its own granular useEffect in App.
+  LS.set(storageKey("jv_gcal_connected"),    s.gCalConnected);
+  LS.set(storageKey("jv_habits_init"),       s.habitsInitialized);
   if (s.dynamicCosts) LS.set(storageKey("jv_dynamic_costs"), s.dynamicCosts);
   // Always write lastShieldUseDate including null — null means "no shield used yet".
   LS.set(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);

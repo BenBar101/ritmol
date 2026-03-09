@@ -1,17 +1,49 @@
 import { useState, useEffect, useRef } from "react";
-import { today, LS, storageKey, getGeminiApiKey } from "./utils/storage";
+import { today, getGeminiApiKey } from "./utils/storage";
 import { flushStateToStorage } from "./utils/state";
-import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT } from "./constants";
+import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT, RANKS } from "./constants";
+import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "./constants";
 import { getLevelProgress } from "./utils/xp";
 import { callGemini } from "./api/gemini";
 import { fetchGCalEvents, loadGoogleGIS } from "./api/gcal";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
-import { primaryBtn, inputStyle } from "./Onboarding";
+import { primaryBtn } from "./Onboarding";
 import { updateDynamicCosts } from "./api/dynamicCosts";
 
+// Keys belonging to this app but not starting with "jv_" — must be wiped on full reset.
+const APP_CONSTANT_KEYS = new Set([DATA_DISCLOSURE_SEEN_KEY, THEME_KEY, "jv_last_synced"]);
+
+function SyncthingSetupGuide() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: "12px", border: "1px solid #333", fontFamily: "'Share Tech Mono', monospace" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: "100%", padding: "10px 12px", background: "transparent", border: "none",
+        color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
+        letterSpacing: "1px", display: "flex", justifyContent: "space-between", cursor: "pointer",
+      }}>
+        <span>▸ HOW TO SET UP SYNCTHING SYNC</span>
+        <span>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "12px", borderTop: "1px solid #222", fontSize: "11px", color: "#666", lineHeight: "2" }}>
+          <div style={{ color: "#aaa", marginBottom: "8px" }}>One-time setup per device. No account needed. Free forever.</div>
+          <div>1. Install Syncthing from <span style={{ color: "#ccc" }}>syncthing.net</span></div>
+          <div>2. Create a shared folder and link devices.</div>
+          <div>3. Click LINK SYNCTHING FILE and pick your sync JSON file.</div>
+          <div>4. Push / Pull from Profile → Settings to sync across devices.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// eslint-disable-next-line no-unused-vars
 export default function ProfileTab({ state, setState, profile, level, rank, xpPerLevel, awardXP, showBanner, showToast, unlockAchievement, executeCommands, apiKey, buildSystemPrompt, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme, streakShieldCost, gachaCost, trackTokens, latestStateRef }) {
   const [section, setSection] = useState("overview");
+  // showGacha state is reserved for future gacha modal implementation
+  // eslint-disable-next-line no-unused-vars
   const [showGacha, setShowGacha] = useState(false);
 
   const sections = ["overview", "achievements", "calendar", "gacha", "settings"];
@@ -56,16 +88,16 @@ export default function ProfileTab({ state, setState, profile, level, rank, xpPe
         ))}
       </div>
 
-      {section === "overview" && <ProfileOverview state={state} setState={setState} profile={profile} level={level} rank={rank} streakShieldCost={streakShieldCost} apiKey={apiKey} showBanner={showBanner} latestStateRef={latestStateRef} />}
+      {section === "overview" && <ProfileOverview state={state} setState={setState} profile={profile} level={level} rank={rank} streakShieldCost={streakShieldCost} apiKey={apiKey} showBanner={showBanner} latestStateRef={latestStateRef} trackTokens={trackTokens} />}
       {section === "achievements" && <AchievementsSection state={state} />}
       {section === "calendar" && <CalendarSection state={state} setState={setState} profile={profile} apiKey={apiKey} buildSystemPrompt={buildSystemPrompt} showBanner={showBanner} executeCommands={executeCommands} />}
       {section === "gacha" && <GachaSection state={state} setState={setState} profile={profile} apiKey={apiKey} gachaCost={gachaCost} showBanner={showBanner} showToast={showToast} trackTokens={trackTokens} latestStateRef={latestStateRef} />}
-      {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} syncFileConnected={syncFileConnected} onPush={onPush} onPull={onPull} onPickSyncFile={onPickSyncFile} onForgetSyncFile={onForgetSyncFile} confirmForgetSync={confirmForgetSync} theme={theme} setTheme={setTheme} />}
+      {section === "settings" && <SettingsSection profile={profile} setState={setState} showBanner={showBanner} syncStatus={syncStatus} lastSynced={lastSynced} syncFileConnected={syncFileConnected} onPush={onPush} onPull={onPull} onPickSyncFile={onPickSyncFile} onForgetSyncFile={onForgetSyncFile} confirmForgetSync={confirmForgetSync} theme={theme} setTheme={setTheme} latestStateRef={latestStateRef} />}
     </div>
   );
 }
 
-function ProfileOverview({ state, setState, profile, level, rank, streakShieldCost, apiKey, showBanner, latestStateRef }) {
+function ProfileOverview({ state, setState, profile, level, streakShieldCost, apiKey, showBanner, trackTokens }) {
   const totalSessions = (state.sessions || []).length;
   const totalHabitsLogged = Object.values(state.habitLog || {}).reduce((acc, arr) => acc + arr.length, 0);
   const totalTasksDone = (state.tasks || []).filter((t) => t.done).length;
@@ -154,7 +186,7 @@ function ProfileOverview({ state, setState, profile, level, rank, streakShieldCo
         <div style={{ border: "1px solid #222", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
           <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "6px" }}>SEMESTER OBJECTIVE</div>
           <div style={{ fontSize: "13px", fontStyle: "italic", color: "#aaa", fontFamily: "'IM Fell English', serif" }}>
-            "{profile.semesterGoal}"
+            &ldquo;{profile.semesterGoal}&rdquo;
           </div>
         </div>
       )}
@@ -196,7 +228,7 @@ function AchievementsSection({ state }) {
                 <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>{ach.desc}</div>
                 {ach.flavorText && (
                   <div style={{ fontSize: "10px", color: "#444", marginTop: "4px", fontStyle: "italic", fontFamily: "'IM Fell English', serif" }}>
-                    "{ach.flavorText}"
+                    &ldquo;{ach.flavorText}&rdquo;
                   </div>
                 )}
               </div>
@@ -208,6 +240,7 @@ function AchievementsSection({ state }) {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, showBanner, executeCommands }) {
   const [form, setForm] = useState({ title: "", type: "exam", start: "", end: "" });
   const [gCalLoading, setGCalLoading] = useState(false);
@@ -417,7 +450,12 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
 
     try {
       const prompt = `Generate a gacha pull for a STEM university student.
-Hunter profile: ${JSON.stringify({ name: profile?.name, books: profile?.books, interests: profile?.interests, major: profile?.major })}
+Hunter profile: ${JSON.stringify({
+        name:      (profile?.name      || "").replace(/[<>]/g, "").slice(0, 60),
+        books:     (profile?.books     || "").replace(/[<>]/g, "").slice(0, 200),
+        interests: (profile?.interests || "").replace(/[<>]/g, "").slice(0, 200),
+        major:     (profile?.major     || "").replace(/[<>]/g, "").slice(0, 80),
+      })}
 Existing collection (don't duplicate): ${JSON.stringify(collection.slice(-50).map(c => c.id))}
 
 Generate ONE of these (weighted random — 60% rank_cosmetic, 40% chronicle):
@@ -486,7 +524,7 @@ Respond ONLY with JSON:
 
       setLastPull(safeCard);
       showToast({ icon: safeCard.type === "chronicle" ? "≡" : "◈", title: safeCard.title, desc: safeCard.rarity.toUpperCase() + " PULL", rarity: safeCard.rarity, isAchievement: false });
-    } catch (e) {
+    } catch {
       showBanner("Pull failed. System error.", "alert");
     }
     setPulling(false);
@@ -589,7 +627,8 @@ function GachaCard({ card, compact }) {
   );
 }
 
-function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme }) {
+// eslint-disable-next-line no-unused-vars
+function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced, syncFileConnected, onPush, onPull, onPickSyncFile, onForgetSyncFile, confirmForgetSync, theme, setTheme, latestStateRef }) {
   const importRef = useRef(null);
   // Fix: replace window.confirm with a two-step in-app confirmation — window.confirm() is
   // blocked in PWA standalone mode and some embedded contexts (same reason forgetSyncFile was fixed).
@@ -620,7 +659,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const ts = await SyncManager.importFile(file);
+      await SyncManager.importFile(file);
       window.location.reload(); // reload so all state rehydrates from new localStorage
     } catch (err) {
       if (err.message === "SYNC_SCHEMA_OUTDATED") {

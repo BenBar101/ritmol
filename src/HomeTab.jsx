@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { today } from "./utils/storage";
+import { today, nowHour } from "./utils/storage";
 import { DAILY_TOKEN_LIMIT } from "./constants";
 
-export default function HomeTab({ state, setState, profile, apiKey, level, rank, dailyQuote, awardXP, logHabit, showBanner, showToast, executeCommands, setTab, buildSystemPrompt }) {
+// eslint-disable-next-line no-unused-vars
+export default function HomeTab({ state, setState, profile, _apiKey, _level, rank, dailyQuote, _awardXP, logHabit, showBanner, _showToast, _executeCommands, setTab, _buildSystemPrompt }) {
   const todayLog = state.habitLog[today()] || [];
   const totalHabits = state.habits.length;
   const doneHabits = todayLog.length;
@@ -40,10 +41,10 @@ export default function HomeTab({ state, setState, profile, apiKey, level, rank,
           border: "1px solid #333", padding: "16px",
         }}>
           <div style={{ fontFamily: "'IM Fell English', serif", fontSize: "13px", fontStyle: "italic", color: "#ccc", lineHeight: "1.6" }}>
-            "{dailyQuote.quote}"
+            &ldquo;{dailyQuote.quote}&rdquo;
           </div>
           <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#555", marginTop: "8px" }}>
-            — {dailyQuote.author}, {dailyQuote.source}
+            — {dailyQuote.author}
           </div>
         </div>
       )}
@@ -89,7 +90,7 @@ export default function HomeTab({ state, setState, profile, apiKey, level, rank,
       <div style={{ display: "flex", alignItems: "center", gap: "16px", border: "1px solid #1a1a1a", padding: "12px" }}>
         <HabitRing done={doneHabits} total={totalHabits} />
         <div style={{ fontFamily: "'Share Tech Mono', monospace" }}>
-          <div style={{ fontSize: "11px", color: "#888" }}>TODAY'S PROTOCOLS</div>
+          <div style={{ fontSize: "11px", color: "#888" }}>TODAY&apos;S PROTOCOLS</div>
           <div style={{ fontSize: "20px", fontWeight: "bold" }}>{doneHabits} / {totalHabits}</div>
           <div style={{ fontSize: "10px", color: "#555" }}>{totalHabits - doneHabits} remaining</div>
         </div>
@@ -238,18 +239,23 @@ function HabitRing({ done, total }) {
 
 function CountdownTimer({ timer, onExpire }) {
   const [remaining, setRemaining] = useState(Math.max(0, timer.endsAt - Date.now()));
+  // Keep onExpire in a ref so the interval callback always calls the latest version
+  // without needing to be restarted when the parent re-renders with a new inline function.
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
+
   useEffect(() => {
     if (timer.endsAt <= Date.now()) {
-      onExpire();
+      onExpireRef.current();
       return;
     }
     const iv = setInterval(() => {
       const r = Math.max(0, timer.endsAt - Date.now());
       setRemaining(r);
-      if (r === 0) { clearInterval(iv); onExpire(); }
+      if (r === 0) { clearInterval(iv); onExpireRef.current(); }
     }, 1000);
     return () => clearInterval(iv);
-  }, [timer.endsAt]);
+  }, [timer.endsAt]); // onExpire accessed via ref — no stale closure risk
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
   return (

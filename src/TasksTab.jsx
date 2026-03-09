@@ -1,14 +1,6 @@
 import { useState } from "react";
 import { today } from "./utils/storage";
-import { primaryBtn, inputStyle } from "./Onboarding";
-import { STYLE_CSS } from "./constants";
-
-const inputStyleDefault = {
-  width: "100%", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
-  color: "#e8e8e8", padding: "10px", fontSize: "14px",
-  fontFamily: "'Share Tech Mono', monospace", outline: "none", resize: "none",
-  borderRadius: "0",
-};
+import { primaryBtn } from "./Onboarding";
 
 export default function TasksTab({ state, setState, awardXP, showBanner, checkMissions, actionLocksRef }) {
   const [newTask, setNewTask] = useState("");
@@ -21,14 +13,24 @@ export default function TasksTab({ state, setState, awardXP, showBanner, checkMi
   const doneTasks = (state.tasks || []).filter((t) => t.done);
   const activeGoals = (state.goals || []).filter((g) => !g.done);
 
+  // Sanitize free-text user input before storing in state/localStorage.
+  function sanitizeText(str, maxLen = 300) {
+    if (typeof str !== "string") return "";
+    return str
+      .replace(/[<>{}[\]`"\\]/g, "")
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+      .slice(0, maxLen)
+      .trim();
+  }
+
   function addTask() {
     if (!newTask.trim()) return;
+    const safeText = sanitizeText(newTask, 500);
+    if (!safeText) return;
     setState((s) => ({
       ...s,
-      // Fix #10 (bug): use the same "t_<timestamp>_<random>" string format as AI-created tasks
-      // (executeCommands "add_task" case). Using Date.now() as a plain number caused a type
-      // mismatch when the AI tried to complete a user-created task via its string ID validator.
-      tasks: [...(s.tasks || []), { id: `t_${crypto.randomUUID()}`, text: newTask, priority: newPriority, done: false, addedBy: "user" }],
+      tasks: [...(s.tasks || []), { id: `t_${crypto.randomUUID()}`, text: safeText, priority: newPriority, done: false, addedBy: "user" }],
     }));
     setNewTask("");
   }
@@ -57,13 +59,26 @@ export default function TasksTab({ state, setState, awardXP, showBanner, checkMi
 
   function addGoal() {
     if (!goalForm.title) return;
+    const safeTitle  = sanitizeText(goalForm.title, 200);
+    const safeCourse = sanitizeText(goalForm.course, 100);
+    // Validate due date format — only store a date that matches YYYY-MM-DD.
+    const safeDue    = typeof goalForm.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(goalForm.due) ? goalForm.due : "";
+    if (!safeTitle) return;
     setState((s) => ({
       ...s,
-      goals: [...(s.goals || []), { id: `g_${crypto.randomUUID()}`, ...goalForm, done: false, addedBy: "user", submissionCount: 0 }],
+      goals: [...(s.goals || []), {
+        id: `g_${crypto.randomUUID()}`,
+        title: safeTitle,
+        course: safeCourse,
+        due: safeDue,
+        done: false,
+        addedBy: "user",
+        submissionCount: 0,
+      }],
     }));
     setGoalForm({ title: "", course: "", due: "" });
     setShowGoalForm(false);
-    showBanner(`Goal logged: ${goalForm.title}`, "success");
+    showBanner(`Goal logged: ${safeTitle}`, "success");
   }
 
   function submitGoal(id) {
@@ -80,7 +95,6 @@ export default function TasksTab({ state, setState, awardXP, showBanner, checkMi
     showBanner("Goal submitted. +50 XP", "success");
   }
 
-  const priorityColor = { low: "#444", medium: "#888", high: "#fff" };
   const priorityLabel = { low: "▁", medium: "▃", high: "█" };
 
   return (

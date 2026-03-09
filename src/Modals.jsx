@@ -168,7 +168,7 @@ export function SessionLogModal({ onClose, onSubmit, state }) {
                 color: focus === f.id ? "#000" : "#666",
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
               }}>
-                {f.symbol}<br />{f.label.toUpperCase()}
+                {f.label.toUpperCase()}
               </button>
             ))}
           </div>

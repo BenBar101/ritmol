@@ -1,20 +1,48 @@
 # RITMOL
 
-A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **localStorage**. All application logic and UI live in **`src/App.jsx`**. Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
+A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **localStorage**. Application logic and UI are split across modular `src/` files (root: **`src/App.jsx`**). Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
 
-**Using the app (static site):** You don’t need to clone this repo — just open the deployed static site (e.g. GitHub Pages). The app expects a single JSON data file in the same format as **`example-data/ritmol-data.json`** (with `_schemaVersion`, `geminiKey`, and your app data). In the app, go to **Profile → Settings → SYNCTHING SYNC** to link or import that file.
+**Using the app (static site):** You don't need to clone this repo — just open the deployed static site (e.g. GitHub Pages). The app expects a single JSON data file in the same format as **`example-data/ritmol-data.json`** (with `_schemaVersion`, `geminiKey`, and your app data). In the app, go to **Profile → Settings → SYNCTHING SYNC** to link or import that file.
 
 ### Features
 
 - **Tabs:** Home (daily quote, missions, quick actions), Habits (track with XP), Tasks & Goals, RITMOL (AI chat), Profile.
 - **Profile sections:** Overview (Hunter card, streak shield, rank ladder), Achievements, Calendar (Google Calendar events), Gacha, Settings (Syncthing sync, theme).
-- **RPG mechanics:** XP, levels, ranks (Rookie → Transcendent), streak and streak shields, daily missions, achievements, gacha (AI-generated rewards). Costs (XP per level, gacha, streak shield) can be updated by the AI.
-- **AI (Gemini 2.5 Flash):** Daily token budget shown as "neural energy"; when exhausted, AI features (chat, gacha, daily quote, habit suggestions, etc.) are disabled until the next day. Chat can run commands (add task, set daily goal, suggest sessions, unlock achievement, etc.). See **Gemini API Key** below for how to obtain and configure your key.
+- **RPG mechanics:** XP, levels, ranks (Novice → Apprentice → Adept → Elite → Ascendant), streak and streak shields, daily missions, achievements, gacha (AI-generated rewards). Costs (XP per level, gacha, streak shield) can be adjusted dynamically by the AI after significant events.
+- **AI (Gemini 2.5 Flash):** Daily token budget shown as "neural energy"; when exhausted, AI features (chat, gacha, habit suggestions, etc.) are disabled until the next day. Chat can run commands (add task, set daily goal, suggest sessions, unlock achievement, etc.). See **Gemini API Key** below for how to obtain and configure your key.
 - **Study:** Session logging (lecture, tirgul, homework, prep) with focus level, timers, sleep/screen log, daily goal. Optional Google Calendar integration.
+- **Daily quote:** Sourced from the free Quotable API — matched to your listed books/authors where possible, themed STEM/philosophy/wisdom fallback otherwise. No AI tokens consumed.
 
 ### Project structure
 
-- **`src/App.jsx`** — all app logic, UI, sync, and auth.
+```
+src/
+  App.jsx               — root state, sync wiring, XP/mission/streak logic
+  ChatTab.jsx           — AI chat UI
+  HabitsTab.jsx         — habit tracking and AI-personalised protocol init
+  TasksTab.jsx          — tasks and goals
+  HomeTab.jsx           — dashboard: quote, missions, quick stats
+  ProfileTab.jsx        — hunter card, achievements, gacha, settings, calendar
+  Onboarding.jsx        — first-run wizard
+  Layout.jsx            — TopBar, BottomNav, Banner
+  Modals.jsx            — DailyLogin, SleepCheckin, ScreenTime, SessionLog, LevelUp, AchievementToast
+  GlobalStyles.jsx      — CSS reset and shared styles; ErrorBoundary
+  GeometricCorners.jsx  — decorative SVG corner component
+  constants.js          — shared constants (ranks, session types, focus levels, XP defaults)
+  api/
+    gemini.js           — callGemini() with timeout, abort, token counting
+    gcal.js             — Google Calendar REST + GIS token client
+    quotes.js           — Quotable API daily quote fetch
+    systemPrompt.js     — builds the RITMOL system prompt; sanitizeForPrompt()
+    dynamicCosts.js     — AI-driven XP economy adjustments
+  sync/
+    SyncManager.js      — File System Access API sync: push/pull/import/download; payload validation
+  utils/
+    storage.js          — LS helpers, storageKey() dev/prod isolation, Gemini key in sessionStorage
+    state.js            — initState(), flushStateToStorage()
+    xp.js               — XP/level/rank math, session XP calc
+```
+
 - **`index.html`** — entry point; includes SPA redirect handling for GitHub Pages.
 - **`vite.config.js`** — Vite config; `base` is set from `VITE_BASE_PATH` (e.g. repo name for GitHub Pages).
 - **`.github/workflows/deploy.yml`** — GitHub Actions workflow: build and deploy `dist` to Pages (no secrets or Variables required).
@@ -67,9 +95,22 @@ These are **accepted risks** for this project. RITMOL is a **personal life compa
 
 The maintainer does **not** aim to defend against a determined local attacker with full access to your machine. The goal is to make remote abuse of a public URL difficult while keeping the architecture simple, and to assume that if someone can already rummage through your browser storage or home directory, they are not going to start by attacking your habit tracker.
 
+### Security implementation notes
+
+The sync layer enforces several layers of defence:
+
+- **Key allowlist:** Only keys in `SYNC_KEYS` are written from an incoming sync payload — unknown keys are silently dropped.
+- **Schema versioning:** `SYNC_SCHEMA_VERSION` is checked on every Pull/Import; outdated files are rejected before any data is applied.
+- **Per-key validators (`SYNC_VALIDATORS`):** Every sync key has a typed validator checking structure, value ranges, string lengths, and allowed sub-keys. Log objects (habit/sleep/screen) enforce date-string key format and a ~2-year key cap. Array fields (missions, timers, habit suggestions) enforce per-item shape.
+- **Prototype pollution guard:** `isSafeSyncValue()` rejects payloads containing `__proto__`, `constructor`, or `prototype` keys.
+- **Payload size cap:** `assertPayloadSize()` rejects payloads over 10 MB before writing, so a large Push cannot produce a file that every subsequent Pull immediately rejects.
+- **Prompt injection mitigation:** `sanitizeForPrompt()` strips XML-breakout characters and control characters from all user-derived strings injected into the system prompt. Chat history is re-sanitised at replay time so previously-stored messages cannot break out of the `<HUNTER_DATA>` boundary.
+- **AI output sanitisation:** Commands returned by Gemini are validated against a strict allowlist; all string fields pass through `sanitizeStr()`. AI-awarded XP is capped per-command, per-response, and per-day.
+- **geminiKey isolation:** The key is read from `ritmol-data.json` into `sessionStorage` on Pull/Import and is never written back out on Push. It is never stored in localStorage.
+
 ### Important Rules
 
-1. **Never commit your real `ritmol-data.json`** (or any file containing API keys) into the repo. The repo’s **`example-data/ritmol-data.json`** is a format reference only.
+1. **Never commit your real `ritmol-data.json`** (or any file containing API keys) into the repo. The repo's **`example-data/ritmol-data.json`** is a format reference only.
 2. **All config is in the JSON file:** Add `geminiKey`, `googleClientId` (if you use Google sign-in), and any other options to your own `ritmol-data.json`. Pull in the app to load them. No GitHub Variables or build-time secrets are required.
 
 ### Non-Goals
@@ -85,7 +126,7 @@ The project intentionally avoids:
 
 Contributors and automated tools should **not** add server components or cloud sync services unless the project scope changes. The goal is to keep the system **simple, portable, and peer-to-peer friendly**.
 
-**Config lives in your JSON file:** Add `geminiKey` (and optionally `googleClientId` for Google sign-in) as top-level fields in your `ritmol-data.json`. In the app, go to **Profile → Settings → SYNCTHING SYNC**, link or import that file, and click **Pull ↓**. The app reads keys into **sessionStorage** for the tab’s lifetime; they are not written back out on Push. If you open a fresh tab without Pulling, the app may show a configuration screen until you Pull. The app enforces a **daily token budget** for Gemini (shown as "neural energy" in the UI); when exhausted, AI features are disabled until the next day.
+**Config lives in your JSON file:** Add `geminiKey` (and optionally `googleClientId` for Google sign-in) as top-level fields in your `ritmol-data.json`. In the app, go to **Profile → Settings → SYNCTHING SYNC**, link or import that file, and click **Pull ↓**. The app reads keys into **sessionStorage** for the tab's lifetime; they are not written back out on Push. If you open a fresh tab without Pulling, the app may show a configuration screen until you Pull. The app enforces a **daily token budget** for Gemini (shown as "neural energy" in the UI); when exhausted, AI features are disabled until the next day.
 
 ---
 
@@ -128,20 +169,12 @@ Data is stored in **localStorage**. To use the same data on multiple devices, RI
 1. **Install Syncthing** on all your devices from [syncthing.net](https://syncthing.net/). Create a shared folder (e.g. `~/ritmol-sync/`) and share it between your devices.
 2. **On first use**, go to **Profile → Settings → SYNCTHING SYNC** and click **LINK SYNCTHING FILE**. Pick (or create) `ritmol-data.json` inside your Syncthing folder. The browser remembers this file handle across sessions.
 3. **Push ↑** — writes your current data to the file. Syncthing picks it up and distributes it to your other devices.
-4. **Pull ↓** — reads the file that Syncthing has updated from another device and loads it into the app. Also re-reads `geminiKey` from the file into `sessionStorage`.
+4. **Pull ↓** — reads the file that Syncthing has updated from another device, loads it into the app, **and re-reads `geminiKey` from the file into `sessionStorage`**.
 5. The app also **auto-pushes** when you switch tabs or close the browser, so your file is always up to date.
 
 > **Browser support:** File System Access API works in **Chrome and Edge** (desktop). Firefox and iOS Safari do not support it. On unsupported browsers, the app falls back to **Download** (saves a JSON file) and **Import** (loads a JSON file via file picker). You move the downloaded file to your Syncthing folder manually in that case.
 
 The sync file must be **valid JSON** and may not exceed **10 MB**. If you Pull or Import a corrupt or oversized file, the app shows an error and does not overwrite your local data.
-
-### Implementation notes (sync & security)
-
-The app applies a number of safeguards documented in code comments in `src/App.jsx`:
-
-- **Sync:** Corrupt or oversized sync files are rejected (no tab crash). Only allowlisted keys (`SYNC_KEYS`) are written from incoming payloads; `geminiKey` is extracted into `sessionStorage` only and never re-exported in Push. Incoming payloads are validated with `SYNC_VALIDATORS` per key; schema version is enforced (`SYNC_SCHEMA_VERSION`, `buildSyncPayload` / `applySyncPayload`). Timers and habit suggestions are included in the sync payload. Dev and prod use separate localStorage prefixes and **separate sync file handles** (different IndexedDB key); in dev you can link a test file and use **Pull** to refresh the dev copy without affecting production. Before each Push (manual or auto-push on tab hide), the app **flushes the latest in-memory state to localStorage** so the sync file always reflects current data. The sync file handle is stored in **IndexedDB**; the DB connection is **cached and reused** (and cleared on error so the next call retries) for reliability on low-end devices.
-- **Auth:** If you use Google sign-in, the client ID comes from your data file (`googleClientId`). JWT payload is validated (iss, aud, exp, email_verified); malformed tokens are rejected. The in-app session (nonce in sessionStorage) is a **UX guard**; sign-in retry is rate-limited. Unlinking the sync file uses an in-app confirmation for PWA compatibility.
-- **AI safety:** All user-supplied and prompt data (profile, tasks, goals, habits, data tables sent to the AI) is **sanitized** to reduce JSON/prompt injection. Token usage is capped per day; AI-awarded XP is capped per day to prevent runaway accumulation.
 
 ### Onboarding (new device)
 
@@ -151,13 +184,13 @@ The last step of the onboarding wizard prompts you to link your Syncthing file. 
 
 ## Using the static site (no clone)
 
-The app is meant to be used as a **static site** (e.g. the GitHub Pages deployment). You don’t clone the repo or set any variables — you just open the URL.
+The app is meant to be used as a **static site** (e.g. the GitHub Pages deployment). You don't clone the repo or set any variables — you just open the URL.
 
 1. Open the deployed site (e.g. `https://YOUR_USERNAME.github.io/ritmol/`).
 2. Have a JSON file in the same format as **`example-data/ritmol-data.json`** (with `_schemaVersion`, `geminiKey`, and optionally `googleClientId`). Create one from scratch or copy the example and add your keys.
 3. In the app go to **Profile → Settings → SYNCTHING SYNC**, then **LINK SYNCTHING FILE** (or **Import** on unsupported browsers) and choose that file. Click **Pull ↓** to load your config and data.
 
-That’s it. All config and data live in your JSON file; the static host never sees your keys.
+That's it. All config and data live in your JSON file; the static host never sees your keys.
 
 ---
 

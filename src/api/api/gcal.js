@@ -38,8 +38,10 @@ export async function fetchGCalEvents(accessToken, maxResults = 30) {
   }
 }
 
+// Fix #7: Normalise to NFC before lowercasing so Unicode variants (full-width chars,
+// copy-pasted text from some calendar clients) match correctly.
 export function detectEventType(title) {
-  const t = title.toLowerCase();
+  const t = title.normalize("NFC").toLowerCase();
   if (t.includes("exam") || t.includes("midterm") || t.includes("final") || t.includes("test")) return "exam";
   if (t.includes("lecture") || t.includes("class")) return "lecture";
   if (t.includes("hw") || t.includes("homework") || t.includes("assignment") || t.includes("due")) return "homework";

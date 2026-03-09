@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { today, LS, storageKey } from "./utils/storage";
 import { DAILY_TOKEN_LIMIT, DATA_DISCLOSURE_SEEN_KEY } from "./constants";
 import { callGemini } from "./api/gemini";
 
-export default function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, awardXP, trackTokens }) {
+export default function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, trackTokens }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -14,13 +14,14 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
   // trackTokens / setState from firing against an unmounted component.
   const abortRef = useRef(null);
 
-  const messages = state.chatHistory || [];
+  const messages = useMemo(() => state.chatHistory || [], [state.chatHistory]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   useEffect(() => {
     checkMissions("chat");
-  }, [messages.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]); // checkMissions identity is stable (defined in App root) — dep omitted intentionally
 
   // Fix #12: cancel any in-flight Gemini request when the tab unmounts (user navigates away).
   useEffect(() => () => { abortRef.current?.abort(); }, []);
@@ -160,7 +161,7 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
           display: "flex", alignItems: "flex-start", gap: "8px",
         }}>
           <span style={{ flex: 1 }}>
-            RITMOL sends your habits, tasks, goals, sleep, and calendar summary to Google's Gemini API to personalize responses. No data is stored by us beyond your chat history.
+            RITMOL sends your habits, tasks, goals, sleep, and calendar summary to Google&apos;s Gemini API to personalize responses. No data is stored by us beyond your chat history.
           </span>
           <button
             type="button"
@@ -256,23 +257,23 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
 }
 
 function ChatMessage({ msg }) {
-  const isRitmof = msg.role === "assistant";
+  const isRitmol = msg.role === "assistant";
   return (
     <div style={{
       display: "flex", flexDirection: "column",
-      alignItems: isRitmof ? "flex-start" : "flex-end",
+      alignItems: isRitmol ? "flex-start" : "flex-end",
       gap: "3px",
     }}>
-      {isRitmof && (
+      {isRitmol && (
         <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#444", letterSpacing: "2px" }}>
           RITMOL ◈
         </div>
       )}
       <div style={{
         maxWidth: "85%", padding: "10px 12px",
-        background: isRitmof ? "#0d0d0d" : "#1a1a1a",
-        border: isRitmof ? "1px solid #222" : "1px solid #333",
-        fontFamily: isRitmof ? "'Share Tech Mono', monospace" : "'Share Tech Mono', monospace",
+        background: isRitmol ? "#0d0d0d" : "#1a1a1a",
+        border: isRitmol ? "1px solid #222" : "1px solid #333",
+        fontFamily: isRitmol ? "'Share Tech Mono', monospace" : "'Share Tech Mono', monospace",
         fontSize: "13px", lineHeight: "1.5", color: "#e8e8e8",
       }}>
         {msg.content}
