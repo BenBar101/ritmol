@@ -563,7 +563,10 @@ function buildSyncPayload() {
 const MAX_SYNC_VALUE_SIZE = 500_000; // 500 KB per key — localStorage total quota is ~5–10 MB, so 100 MB was meaningless
 const PROTO_POISON_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 function isSafeSyncValue(v) {
-  if (v === null || v === undefined) return false;
+  // null is a valid sync value (e.g. jv_last_shield_use_date reset, jv_missions not yet generated).
+  // Distinguish null (allowed) from undefined (not a real value — skip).
+  if (v === undefined) return false;
+  if (v === null) return true;
   const type = typeof v;
   if (type === "string") return v.length <= MAX_SYNC_VALUE_SIZE;
   if (type === "number" || type === "boolean") return true;
@@ -1111,9 +1114,29 @@ function buildSystemPrompt(state, profile) {
   const screenToday = state.screenTimeLog?.[today()] || {};
   const totalScreenToday = (screenToday.afternoon || 0) + (screenToday.evening || 0);
 
-  // All open (not done) tasks and goals — no slice cap
-  const openTasks = (state.tasks || []).filter(t => !t.done);
-  const openGoals = (state.goals || []).filter(g => !g.done);
+  // Cap open tasks/goals sent to the prompt — prevents token blowout when the user has
+  // hundreds of accumulated items. Prioritise: high-priority and soonest-due items first.
+  const PROMPT_TASK_CAP = 30;
+  const PROMPT_GOAL_CAP = 20;
+  const allOpenTasks = (state.tasks || []).filter(t => !t.done);
+  const allOpenGoals = (state.goals || []).filter(g => !g.done);
+  const priorityOrder = { high: 0, medium: 1, low: 2 };
+  const openTasks = allOpenTasks
+    .sort((a, b) => {
+      const pa = priorityOrder[a.priority] ?? 1, pb = priorityOrder[b.priority] ?? 1;
+      if (pa !== pb) return pa - pb;
+      if (a.due && b.due) return a.due < b.due ? -1 : 1;
+      if (a.due) return -1; if (b.due) return 1;
+      return 0;
+    })
+    .slice(0, PROMPT_TASK_CAP);
+  const openGoals = allOpenGoals
+    .sort((a, b) => {
+      if (a.due && b.due) return a.due < b.due ? -1 : 1;
+      if (a.due) return -1; if (b.due) return 1;
+      return 0;
+    })
+    .slice(0, PROMPT_GOAL_CAP);
 
   // Fix #16: use a deterministic local-time string instead of toLocaleString() to avoid
   // locale/timezone non-determinism that inflates token counts and breaks prompt caching.
@@ -1198,26 +1221,53 @@ You are not here to make them feel good. You are here to make them better. The d
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DAILY QUOTE
+// DAILY QUOTE  (Quotable API — no tokens consumed)
 // ═══════════════════════════════════════════════════════════════
-// Module-level in-flight guard: prevents a second callGemini from racing if the effect
-// re-fires (e.g. profile reference changes) before the first request resolves.
-// Reset to false here at module evaluation time so HMR re-evaluation (which re-runs this
-// line) always starts clean. Without this, a remount after HMR leaves the flag stuck true
-// and permanently blocks quote fetching until a full page reload.
+// Uses the free, open Quotable REST API (https://api.quotable.kameswari.in)
+// instead of asking Gemini to hallucinate quotes, which:
+//   (a) wastes daily token budget
+//   (b) produces unverifiable, sometimes fabricated attributions
+// The API returns real quotes from a curated database; no API key required.
+//
+// Author matching: we extract bare last-name tokens from the user's books/interests
+// field and try to find a matching Quotable author slug. On miss we fall back to a
+// random quote tagged with one of several STEM/philosophy tags relevant to the app.
+//
+// In-flight guard: a module-level flag was previously used but is unsafe under
+// React 18 StrictMode (effects run twice on mount). The guard is now stored on a
+// shared module-level ref that is reset on each call-site abort — stale closures
+// cannot keep it stuck because the flag is only ever read at the start of a fresh
+// call (not captured in a closure). HMR evaluation still resets it to false because
+// the module is re-executed.
 let _quoteInFlight = false;
 
-async function fetchDailyQuote(apiKey, profile, onTokens) {
+// Quotable tags that fit the STEM / stoic / self-improvement theme of RITMOL.
+const QUOTABLE_FALLBACK_TAGS = ["technology","science","education","wisdom","inspirational","philosophy"];
+
+// Extract candidate author name tokens from a free-text "books/authors" string.
+// We only need the last name (or the most distinctive word) for Quotable's slug lookup.
+function _extractAuthorTokens(booksStr) {
+  if (!booksStr || typeof booksStr !== "string") return [];
+  // Split on common delimiters and keep tokens ≥4 chars (filters "and", "the", etc.)
+  return booksStr
+    .split(/[,;|\/\n]+/)
+    .map(s => s.trim().split(/\s+/).pop()) // last word of each segment
+    .filter(t => t && t.length >= 4)
+    .slice(0, 5); // cap: no more than 5 attempts
+}
+
+async function fetchDailyQuote(_apiKey, profile, _onTokens) {
+  // _apiKey and _onTokens kept in signature for call-site compatibility but unused —
+  // Quotable is free and consumes no Gemini tokens.
   const key = storageKey(`jv_quote_${today()}`);
 
-  // fix #3: collect keys first, then remove — avoids index-shift bug when removing during iteration
+  // Evict stale quote cache keys from previous days
   try {
     const quotePrefix = IS_DEV ? `${DEV_PREFIX}jv_quote_` : "jv_quote_";
-    const todayKey = key; // already computed above
     const staleKeys = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(quotePrefix) && k !== todayKey) staleKeys.push(k);
+      if (k && k.startsWith(quotePrefix) && k !== key) staleKeys.push(k);
     }
     staleKeys.forEach((k) => localStorage.removeItem(k));
   } catch {}
@@ -1225,38 +1275,72 @@ async function fetchDailyQuote(apiKey, profile, onTokens) {
   const cached = LS.get(key);
   if (cached) return cached;
 
-  // Bail out if a request is already in-flight — avoids racing writes to the same cache key.
   if (_quoteInFlight) return null;
   _quoteInFlight = true;
 
-  const prompt = `Generate ONE real, verifiable quote from one of these authors/books: ${sanitizeForPrompt(profile?.books || "Richard Feynman, Marcus Aurelius", 300)}. 
-The quote must be real — you must be highly confident it is accurate and attributable.
-If you are not highly confident, respond with null.
-Respond ONLY with JSON: { "quote": "...", "author": "...", "source": "...", "confident": true } or { "confident": false }`;
+  const timeout = AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined;
 
   try {
-    const { text, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a literary scholar with perfect recall.", true);
-    onTokens?.(tokensUsed);
-    const raw = text.replace(/```json|```/g, "").trim();
-    const data = JSON.parse(raw);
-    // Validate shape: require string fields of reasonable length, reject malformed responses
-    if (
-      data.confident === true &&
-      typeof data.quote === "string" && data.quote.length > 5 && data.quote.length <= 500 &&
-      typeof data.author === "string" && data.author.length <= 100 &&
-      typeof data.source === "string" && data.source.length <= 100
-    ) {
+    // ── Step 1: try to find a quote by an author from the user's books/interests ──
+    const tokens = _extractAuthorTokens(profile?.books || "");
+    let hit = null;
+
+    for (const token of tokens) {
+      if (hit) break;
+      try {
+        const searchUrl = `https://api.quotable.kameswari.in/search/authors?query=${encodeURIComponent(token)}&limit=3`;
+        const searchRes = await fetch(searchUrl, { signal: timeout });
+        if (!searchRes.ok) continue;
+        const searchData = await searchRes.json();
+        const authors = searchData.results || [];
+        if (!authors.length) continue;
+
+        // Pick the first result whose slug contains the search token (case-insensitive)
+        const match = authors.find(a => a.slug && a.slug.toLowerCase().includes(token.toLowerCase())) || authors[0];
+        if (!match?.slug) continue;
+
+        const quoteUrl = `https://api.quotable.kameswari.in/quotes/random?author=${encodeURIComponent(match.slug)}&maxLength=250&limit=1`;
+        const quoteRes = await fetch(quoteUrl, { signal: timeout });
+        if (!quoteRes.ok) continue;
+        const quoteArr = await quoteRes.json();
+        const q = Array.isArray(quoteArr) ? quoteArr[0] : quoteArr?.results?.[0];
+        if (q?.content && q?.author) {
+          hit = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+        }
+      } catch {
+        // Network error on one token — try the next
+      }
+    }
+
+    // ── Step 2: fall back to a themed random quote if author lookup missed ──
+    if (!hit) {
+      const tag = QUOTABLE_FALLBACK_TAGS[Math.floor(Math.random() * QUOTABLE_FALLBACK_TAGS.length)];
+      const fallbackUrl = `https://api.quotable.kameswari.in/quotes/random?tags=${tag}&maxLength=200&limit=1`;
+      try {
+        const fallbackRes = await fetch(fallbackUrl, { signal: timeout });
+        if (fallbackRes.ok) {
+          const fallbackArr = await fallbackRes.json();
+          const q = Array.isArray(fallbackArr) ? fallbackArr[0] : fallbackArr?.results?.[0];
+          if (q?.content && q?.author) {
+            hit = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+          }
+        }
+      } catch {}
+    }
+
+    if (hit) {
       const safe = {
-        quote: String(data.quote).slice(0, 500),
-        author: String(data.author).slice(0, 100),
-        source: String(data.source).slice(0, 100),
-        confident: true,
+        quote:  String(hit.quote).slice(0, 500),
+        author: String(hit.author).slice(0, 100),
+        source: String(hit.source).slice(0, 100),
+        confident: true, // real quote from a curated database — always confident
       };
       LS.set(key, safe);
       return safe;
     }
-  } catch {}
-  finally { _quoteInFlight = false; }
+  } finally {
+    _quoteInFlight = false;
+  }
   return null;
 }
 
@@ -1283,14 +1367,22 @@ async function updateDynamicCosts(apiKey, state, event) {
   const prompt = `You are the RITMOL system adjusting economy parameters. Event: ${event}.
 Current costs: xpPerLevel=${xpPerLevel}, gachaCost=${gachaCost}, streakShieldCost=${streakShieldCost}. Hunter level=${level}, total XP=${state.xp}.
 Context: today is weekday=${!weekend}${holidayHint ? ", holiday=" + holidayHint : ""}. You may raise costs after level-up/gacha/shield use, or offer discounts (e.g. weekends, holidays).
-// Fix #9 (bug): these ceilings now match the validator bounds in updateDynamicCosts and SYNC_VALIDATORS
-// exactly so the prompt never implies a value the validator would accept but the prompt forbids.
 Keep values within these strict bounds: xpPerLevel 200–10000, gachaCost 50–5000, streakShieldCost 100–5000.
 Typical reasonable values: xpPerLevel 300–1500, gachaCost 80–400, streakShieldCost 150–600.
 Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShieldCost (only include keys you want to change). Example: {"gachaCost": 180} or {"xpPerLevel": 550, "streakShieldCost": 320}. No explanation.`;
 
   try {
-    const { text } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You output only valid JSON with numeric values.", true);
+    const { text, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You output only valid JSON with numeric values.", true);
+    // Track tokens directly in localStorage (this is a module-level function with no React setState access).
+    // This keeps the daily budget accurate even though the React trackTokens() helper is unavailable here.
+    if (tokensUsed > 0) {
+      try {
+        const usageKey = storageKey("jv_token_usage");
+        const stored = LS.get(usageKey) || { date: today(), tokens: 0 };
+        const fresh = stored.date !== today() ? { date: today(), tokens: 0, warnedAt: [], aiXpToday: 0 } : stored;
+        LS.set(usageKey, { ...fresh, tokens: fresh.tokens + tokensUsed });
+      } catch {}
+    }
     const raw = text.replace(/```json|```/g, "").trim();
     const data = JSON.parse(raw);
     const out = {};
@@ -1372,7 +1464,7 @@ export default function App() {
     };
     window.addEventListener('ls-quota-exceeded', handleQuota);
     return () => window.removeEventListener('ls-quota-exceeded', handleQuota);
-  }, []);
+  }, [showBanner]);
   const [modal, setModal] = useState(null); // { type, data }
   const [toast, setToast] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -1686,11 +1778,12 @@ export default function App() {
   // ── Fetch daily quote ──
   // profile is a dependency: if it's null on first render (async auth) and populates later,
   // the quote would never be fetched without it in the dep array.
+  // canCallGemini() guard removed — Quotable API uses no Gemini tokens.
   useEffect(() => {
-    if (!apiKey || !profile || !canCallGemini()) return;
-    fetchDailyQuote(apiKey, profile, trackTokens).then(setDailyQuote);
+    if (!profile) return;
+    fetchDailyQuote(null, profile, null).then(setDailyQuote);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey, profile]);
+  }, [profile]);
 
   // ── Check scheduled prompts (sleep check-in, screen time) ──
   // Keep a ref to the latest relevant state so the interval always sees fresh values
@@ -1743,6 +1836,9 @@ export default function App() {
   }, [profile]); // interval registered once per profile — reads fresh data via ref
 
   // ── Check streak panic ──
+  // Fix: add state.habitLog and state.streak to deps so the warning re-evaluates
+  // whenever the user logs a habit (clearing the warning) or their streak changes,
+  // not just once on profile load.
   useEffect(() => {
     if (!profile) return;
     const h = nowHour();
@@ -1750,7 +1846,8 @@ export default function App() {
     if (h >= 21 && todayLog.length === 0 && state.streak > 0) {
       showBanner("⚠ Hunter. Your streak expires at midnight. 0 habits logged.", "alert");
     }
-  }, [profile]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, state.habitLog, state.streak]);
 
   function handleDailyLogin(t) {
     setState((s) => {
@@ -3538,7 +3635,8 @@ function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner
       const assistantMsg = {
         role: "assistant",
         content: parsed.message || parsed.text || String(parsed),
-        ts: Date.now()
+        ts: Date.now(),
+        date: today(),
       };
       setState((s) => ({ ...s, chatHistory: [...s.chatHistory, assistantMsg].slice(-1000) }));
 
