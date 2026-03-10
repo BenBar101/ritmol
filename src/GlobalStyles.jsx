@@ -151,6 +151,12 @@ export class ErrorBoundary extends React.Component {
   }
   render() {
     if (this.state.hasError) {
+      const redact = (s) => (typeof s === "string"
+        ? s
+            .replace(/AIza[A-Za-z0-9_-]{35}/g, "[key]")
+            .replace(/eyJ[\w.-]+/g, "[token]")
+            .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]")
+        : String(s ?? ""));
       return (
         <div style={{
           minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
@@ -160,7 +166,7 @@ export class ErrorBoundary extends React.Component {
           <div style={{ fontSize: "12px", color: "#aaa", maxWidth: "360px", lineHeight: "1.6", marginBottom: "24px" }}>
             Something went wrong. Reload the page to continue.
           </div>
-          {/* Show error details only in dev builds — stack traces reveal internal structure in prod. */}
+          {/* Show redacted error details only in dev builds — stack traces reveal internal structure in prod. */}
           {(typeof import.meta !== "undefined" && import.meta.env?.DEV) && (
           <details style={{ marginBottom: "16px", maxWidth: "400px", textAlign: "left" }}>
             <summary style={{ fontSize: "10px", color: "#555", cursor: "pointer", marginBottom: "6px" }}>▶ Error details</summary>
@@ -169,9 +175,9 @@ export class ErrorBoundary extends React.Component {
               overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
               border: "1px solid #222", lineHeight: "1.5",
             }}>
-              {this.state.error?.message ?? String(this.state.error)}
+              {redact(this.state.error?.message ?? String(this.state.error))}
               {"\n\n"}
-              {this.state.error?.stack ?? ""}
+              {redact(this.state.error?.stack ?? "")}
             </pre>
           </details>
           )}

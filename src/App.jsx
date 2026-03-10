@@ -259,12 +259,22 @@ export default function App() {
   useEffect(() => { LS.set(storageKey("jv_cal_events"), state.calendarEvents); }, [state.calendarEvents]);
   useEffect(() => { LS.set(storageKey("jv_chat"), state.chatHistory); }, [state.chatHistory]);
   useEffect(() => { LS.set(storageKey("jv_daily_goal"), state.dailyGoal); }, [state.dailyGoal]);
-  useEffect(() => { LS.set(storageKey("jv_timers"), state.activeTimers); }, [state.activeTimers]);
+  useEffect(() => {
+    LS.set(
+      storageKey("jv_timers"),
+      Array.isArray(state.activeTimers) ? state.activeTimers : [],
+    );
+  }, [state.activeTimers]);
   useEffect(() => { LS.set(storageKey("jv_sleep_log"), state.sleepLog); }, [state.sleepLog]);
   useEffect(() => { LS.set(storageKey("jv_screen_log"), state.screenTimeLog); }, [state.screenTimeLog]);
   useEffect(() => { LS.set(storageKey("jv_missions"), state.dailyMissions); }, [state.dailyMissions]);
   useEffect(() => { LS.set(storageKey("jv_mission_date"), state.lastMissionDate); }, [state.lastMissionDate]);
-  useEffect(() => { LS.set(storageKey("jv_habit_suggestions"), state.pendingHabitSuggestions); }, [state.pendingHabitSuggestions]);
+  useEffect(() => {
+    LS.set(
+      storageKey("jv_habit_suggestions"),
+      Array.isArray(state.pendingHabitSuggestions) ? state.pendingHabitSuggestions : [],
+    );
+  }, [state.pendingHabitSuggestions]);
   useEffect(() => { LS.set(storageKey("jv_chronicles"), state.chronicles); }, [state.chronicles]);
   useEffect(() => { LS.set(storageKey("jv_gcal_connected"), state.gCalConnected); }, [state.gCalConnected]);
   useEffect(() => { LS.set(storageKey("jv_token_usage"), state.tokenUsage); }, [state.tokenUsage]);
@@ -336,6 +346,7 @@ export default function App() {
       setSyncStatus("error");
       if (e.message === "NO_HANDLE") showBanner("No sync file selected. Pick one in Profile → Settings.", "alert");
       else if (e.message === "PERMISSION_DENIED") showBanner("Write permission denied. Try again and allow access.", "alert");
+      else if (e.message === "SYNC_BUSY") showBanner("Sync already in progress. Please wait.", "warning");
       else showBanner(`Push failed: ${(e.message || "").slice(0, 80)}`, "alert");
     }
   }
@@ -364,6 +375,7 @@ export default function App() {
       else if (e.message === "CORRUPT_FILE") showBanner("Sync file is corrupt or not valid JSON. Re-export from another device.", "alert");
       else if (e.message === "SYNC_SCHEMA_OUTDATED") showBanner("Sync file was written by an older version of RITMOL. Re-export it from an up-to-date device.", "alert");
       else if (e.message === "SYNC_FILE_TOO_LARGE") showBanner("Sync file exceeds 10 MB — this is unexpected. Check the file.", "alert");
+      else if (e.message === "SYNC_BUSY") showBanner("Sync already in progress. Please wait.", "warning");
       else showBanner(`Pull failed: ${(e.message || "").slice(0, 80)}`, "alert");
     } finally {
       // Always release the mutex so auto-push can resume after Pull completes or fails.
@@ -434,8 +446,10 @@ export default function App() {
     if (safeAmount === 0) return;
     const t = today();
     setState((s) => {
-      const usage = s.tokenUsage || { date: t, tokens: 0 };
-      const fresh = usage.date !== t ? { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 } : usage;
+      const usage = s.tokenUsage || { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 };
+      const fresh = usage.date !== t
+        ? { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 }
+        : { ...usage, aiXpToday: typeof usage.aiXpToday === "number" ? usage.aiXpToday : 0 };
       const prevTokens = fresh.tokens;
       const newTokens = prevTokens + safeAmount;
       const updated = { ...fresh, tokens: newTokens };
@@ -477,8 +491,14 @@ export default function App() {
       // same loop sees the correct accumulated total.
       aiXpTodayRef.current = { date: t, value: alreadyAwarded + allowed };
       setState((s) => {
-        const usage = s.tokenUsage || { date: t, tokens: 0 };
-        const fresh = usage.date !== t ? { date: t, tokens: 0, warnedAt: [] } : usage;
+        const usage = s.tokenUsage || { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 };
+        const fresh = usage.date !== t
+          ? { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 }
+          : {
+              ...usage,
+              aiXpToday: typeof usage.aiXpToday === "number" ? usage.aiXpToday : 0,
+              warnedAt: Array.isArray(usage.warnedAt) ? usage.warnedAt : [],
+            };
         const updated = { ...fresh, aiXpToday: aiXpTodayRef.current.value };
         LS.set(storageKey("jv_token_usage"), updated);
         return { ...s, tokenUsage: updated };
@@ -581,6 +601,12 @@ export default function App() {
       let newShields = s.streakShields;
       let bannerMsg = null;
 
+      // Reject future-dated lastLoginDate values that may have arrived via a crafted
+      // sync file. Treat as if no prior login exists and reset the streak.
+      if (s.lastLoginDate && s.lastLoginDate > effectiveDate) {
+        return { ...s, lastLoginDate: effectiveDate, streak: 0 };
+      }
+
       if (s.lastLoginDate === yesterday) {
         newStreak = s.streak + 1;
       } else if (s.lastLoginDate === effectiveDate) {
@@ -664,30 +690,37 @@ export default function App() {
       : 0;
     if (safeAmount === 0) return;
 
-    const currentState = latestStateRef.current ?? state;
-    const xpPl = getXpPerLevel(currentState);
-    // Guard: only count this XP toward level-up detection once.
-    // If lastLevelUpXpRef already saw this XP snapshot, skip level-up.
-    const baseXpForDetection = Math.max(currentState.xp, lastLevelUpXpRef.current);
-    const oldLevel = getLevel(baseXpForDetection, xpPl);
-    const newXP = currentState.xp + safeAmount;
-    const newLevel = getLevel(newXP, xpPl);
-    const didLevelUp = newLevel > oldLevel && !silent;
-    if (didLevelUp) lastLevelUpXpRef.current = newXP;
-    const snapshotForApi = didLevelUp
-      ? { ...currentState, xp: newXP, dynamicCosts: currentState.dynamicCosts }
-      : null;
+    setState((s) => {
+      const newXP = (s.xp || 0) + safeAmount;
+      const xpPl = getXpPerLevel(s);
+      const baseXpForDetection = Math.max(
+        typeof s.xp === "number" && isFinite(s.xp) ? s.xp : 0,
+        lastLevelUpXpRef.current === -1 ? 0 : lastLevelUpXpRef.current,
+      );
+      const oldLevel = getLevel(baseXpForDetection, xpPl);
+      const newLevel = getLevel(newXP, xpPl);
+      const didLevelUp = newLevel > oldLevel && !silent;
 
-    setState((s) => ({ ...s, xp: s.xp + safeAmount }));
+      if (didLevelUp) {
+        lastLevelUpXpRef.current = newXP;
+        const snapshot = { ...s, xp: newXP };
+        setTimeout(() => {
+          setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
+          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
+            .then((costs) => {
+              if (costs && Object.keys(costs).length) {
+                setState((prev) => ({
+                  ...prev,
+                  dynamicCosts: { ...prev.dynamicCosts, ...costs },
+                }));
+              }
+            })
+            .catch(() => {});
+        }, 300);
+      }
 
-    if (didLevelUp) {
-      setTimeout(() => {
-        setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
-        updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "level_up", trackTokens).then((costs) => {
-          if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-        }).catch(() => {});
-      }, 300);
-    }
+      return { ...s, xp: newXP };
+    });
   }
 
   // ── Mission checker ──
@@ -715,14 +748,18 @@ export default function App() {
         if (m.type === "task") progress = (s.tasks || []).filter((tk) => tk.doneDate === t).length;
         if (m.type === "chat") progress = (s.chatHistory || []).some(msg => msg.role === "user" && msg.date === t) ? 1 : 0;
         if (progress >= m.target) {
-          bonusXP += m.xp;
-          toastsThisRun.push({ icon: "◈", title: "Mission Complete", desc: m.desc, xp: m.xp, rarity: "common" });
+          const missionXp = typeof m.xp === "number" && isFinite(m.xp) && m.xp > 0
+            ? Math.min(m.xp, 2000)
+            : 0;
+          bonusXP += missionXp;
+          toastsThisRun.push({ icon: "◈", title: "Mission Complete", desc: m.desc, xp: missionXp, rarity: "common" });
           return { ...m, done: true };
         }
         return m;
       });
 
-      const newXP = s.xp + bonusXP;
+      const safeBonus = typeof bonusXP === "number" && isFinite(bonusXP) && bonusXP >= 0 ? bonusXP : 0;
+      const newXP = s.xp + safeBonus;
       if (bonusXP > 0) {
         const xpPl = getXpPerLevel(s);
         const oldLevel = getLevel(s.xp, xpPl);
@@ -732,7 +769,7 @@ export default function App() {
         }
       }
       pendingData.toasts = toastsThisRun;
-      return { ...s, dailyMissions: updated, xp: s.xp + bonusXP };
+      return { ...s, dailyMissions: updated, xp: s.xp + safeBonus };
     });
 
     // queueMicrotask fires after React has committed the state update, so
@@ -928,7 +965,15 @@ export default function App() {
         case "add_habit": {
           const incomingLabel = sanitizeStr(cmd.label);
           setState((s) => {
-            if (s.habits.find((h) => sanitizeStr(h.label) === incomingLabel)) return s;
+            if (
+              s.habits.find(
+                (h) =>
+                  (h.label || "").toLowerCase().trim() ===
+                  (incomingLabel || "").toLowerCase().trim(),
+              )
+            ) {
+              return s;
+            }
             if (s.habits.length >= MAX_HABITS_TOTAL) return s;
             const newHabit = {
               id: `habit_${crypto.randomUUID()}`,

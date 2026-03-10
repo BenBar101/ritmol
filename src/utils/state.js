@@ -99,8 +99,14 @@ export function flushStateToStorage(s) {
   LS.set(storageKey("jv_mission_date"),      s.lastMissionDate);
   LS.set(storageKey("jv_chronicles"),        s.chronicles);
   LS.set(storageKey("jv_token_usage"),       s.tokenUsage);
-  LS.set(storageKey("jv_timers"),            s.activeTimers);
-  LS.set(storageKey("jv_habit_suggestions"), s.pendingHabitSuggestions);
+  LS.set(
+    storageKey("jv_timers"),
+    Array.isArray(s.activeTimers) ? s.activeTimers : [],
+  );
+  LS.set(
+    storageKey("jv_habit_suggestions"),
+    Array.isArray(s.pendingHabitSuggestions) ? s.pendingHabitSuggestions : [],
+  );
   LS.set(storageKey("jv_gcal_connected"),    s.gCalConnected);
   LS.set(storageKey("jv_habits_init"),       s.habitsInitialized);
   if (s.dynamicCosts) LS.set(storageKey("jv_dynamic_costs"), s.dynamicCosts);

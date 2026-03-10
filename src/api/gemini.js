@@ -93,7 +93,11 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
           m.length > 60 ? "[token]" : m
         )
         .slice(0, 200);
-      throw new Error(`Gemini ${res.status}: ${safeBody}`);
+      // Final guard: if the re-thrown error message somehow contains the key, redact it.
+      const safeErrorMsg = (`Gemini ${res.status}: ${safeBody}`)
+        .replace(/AIza[A-Za-z0-9_-]{35}/g, "[key]")
+        .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]");
+      throw new Error(safeErrorMsg);
     }
 
     const data = await res.json();
@@ -112,6 +116,10 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
 
     return { text, tokensUsed };
   } finally {
-    _cleanup?.();
+    try {
+      _cleanup?.();
+    } catch {
+      // cleanup errors must never propagate
+    }
   }
 }

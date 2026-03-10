@@ -15,6 +15,11 @@ import { sanitizeForPrompt } from "./api/systemPrompt";
 // Keys belonging to this app but not starting with "jv_" — must be wiped on full reset.
 const APP_CONSTANT_KEYS = new Set([DATA_DISCLOSURE_SEEN_KEY, THEME_KEY, "jv_last_synced"]);
 
+// Strip control chars, BiDi overrides/zero-width chars from stored gacha fields at render time.
+// Also used by GachaCard to defensively clean up legacy cards saved before stricter sanitizers.
+// eslint-disable-next-line no-control-regex
+const SAFE_GACHA_RENDER_REGEX = /[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g;
+
 function SyncthingSetupGuide() {
   const [open, setOpen] = useState(false);
   return (
@@ -647,17 +652,18 @@ function GachaCard({ card, compact }) {
   const s = styleMap[card.style] || styleMap.ascii;
   const r = ACHIEVEMENT_RARITIES[card.rarity] || ACHIEVEMENT_RARITIES.common;
 
-  // Fix [PR-3]: sanitize card fields at render time to clean up cards stored before
-  // the stripGachaStr sanitizer was added. React auto-escapes HTML, so XSS is not
-  // possible, but stored control characters or BiDi overrides can still reach the DOM
-  // from pre-sanitizer entries and cause visual confusion.
-  const SAFE_GACHA_RENDER_REGEX = new RegExp(
-    "[\\x00-\\x1F\\x7F-\\x9F\\u200B-\\u200D\\uFEFF\\u202A-\\u202E\\u2066-\\u2069]".replace(/\\x00-\\x1F/, "\u0000-\u001F"),
-    "g",
-  );
-  const safeRenderStr = (v) => typeof v === "string"
-    ? v.replace(SAFE_GACHA_RENDER_REGEX, "")
-    : (v ?? "");
+  // Defence-in-depth: sanitize card fields at render time to clean up entries stored before
+  // the stricter stripGachaStr sanitizer was added. React auto-escapes HTML, but we still
+  // strip control chars, BiDi overrides, zero-width chars, ANSI escape sequences, and
+  // angle brackets so text cannot visually mimic tags or terminal control codes.
+  const safeRenderStr = (v) => {
+    if (typeof v !== "string") return v ?? "";
+    return v
+      .replace(SAFE_GACHA_RENDER_REGEX, "")
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1B\[[0-9;]*[mGKHF]/g, "") // ANSI escape sequences
+      .replace(/[<>]/g, "");
+  };
 
   return (
     <div style={{

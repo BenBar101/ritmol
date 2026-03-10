@@ -283,11 +283,15 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
 
 function ChatMessage({ msg }) {
   const isRitmol = msg.role === "assistant";
-  // Fix: strip angle brackets from displayed content — even though React escapes HTML in
-  // text nodes, this is defence-in-depth against stored content that was injected via a
-  // tampered sync file and contains HTML-like structures that could mislead users.
+  // Defence-in-depth: strip control characters, BiDi overrides / zero-width chars, and
+  // angle brackets from displayed content to prevent visual spoofing or odd terminal
+  // behaviours even though React escapes HTML in text nodes.
   const safeContent = typeof msg.content === "string"
-    ? msg.content.replace(/[<>]/g, "")
+    ? msg.content
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+        .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "")
+        .replace(/[<>]/g, "")
     : String(msg.content ?? "");
   return (
     <div style={{

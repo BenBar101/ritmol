@@ -48,24 +48,40 @@ const isNullOrDateStr = (v) => v === null || isDateStr(v);
 const MAX_LOG_ENTRIES = 800; // ~2 years of daily entries
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_LOG_VALUE_SIZE = 4096; // per-entry byte cap to prevent log value bloat
+const MAX_LOG_OBJECT_BYTES = MAX_LOG_VALUE_SIZE * MAX_LOG_ENTRIES;
 
 function isLogObj(v) {
   if (!isObj(v)) return false;
   const keys = Object.keys(v);
   if (keys.length > MAX_LOG_ENTRIES) return false;
-  // Fix: also validate that each value is a safe primitive or small array/object,
-  // not an unbounded blob. A crafted sync file could store megabytes in a single
-  // log entry otherwise, bypassing the per-key size check.
-  return keys.every(k => {
+  let totalBytes = 0;
+  for (const k of keys) {
     if (!DATE_KEY_RE.test(k)) return false;
     const val = v[k];
-    // Allow: null, bool, number, short string, array of short strings, small plain object
-    if (val === null || typeof val === "boolean" || typeof val === "number") return true;
-    if (typeof val === "string") return val.length <= MAX_LOG_VALUE_SIZE;
-    if (Array.isArray(val)) return val.length <= 200 && val.every(item => typeof item === "string" && item.length <= 200);
-    if (isObj(val)) return JSON.stringify(val).length <= MAX_LOG_VALUE_SIZE;
-    return false;
-  });
+    // Allow: null, bool, number — do not contribute to byte budget.
+    if (val === null || typeof val === "boolean" || typeof val === "number") continue;
+
+    let size = 0;
+    if (typeof val === "string") {
+      if (val.length > MAX_LOG_VALUE_SIZE) return false;
+      size = val.length;
+    } else if (Array.isArray(val)) {
+      if (val.length > 200) return false;
+      const serialized = JSON.stringify(val);
+      if (serialized.length > MAX_LOG_VALUE_SIZE) return false;
+      size = serialized.length;
+    } else if (isObj(val)) {
+      const serialized = JSON.stringify(val);
+      if (serialized.length > MAX_LOG_VALUE_SIZE) return false;
+      size = serialized.length;
+    } else {
+      return false;
+    }
+
+    totalBytes += size;
+    if (totalBytes > MAX_LOG_OBJECT_BYTES) return false;
+  }
+  return true;
 }
 
 export const SYNC_VALIDATORS = {
@@ -75,7 +91,7 @@ export const SYNC_VALIDATORS = {
   jv_xp:                  (v) => isNumber(v) && v >= 0 && v <= 100_000_000,
   jv_streak:              (v) => isNumber(v) && v >= 0 && v <= 36500,
   jv_shields:             (v) => isNumber(v) && v >= 0 && v <= 10000,
-  jv_last_login:          (v) => isNullOrDateStr(v),
+  jv_last_login:          (v) => v === null || (isDateStr(v) && v <= today()),
   jv_habits:              (v) => isArray(v) && v.length <= 500,
   jv_habit_log:           (v) => isLogObj(v),
   jv_tasks:               (v) => isArray(v) && v.length <= 5000,
@@ -92,6 +108,11 @@ export const SYNC_VALIDATORS = {
       if (!['user', 'assistant'].includes(item.role)) return false;
       if (typeof item.content !== 'string') return false;
       if (item.content.length > 4000) return false; // ~1k token cap per message
+      // Reject stored chat messages that contain control characters, BiDi overrides,
+      // or zero-width characters. These should never be persisted; callers must
+      // re-enter clean content instead of silently sanitizing dangerous payloads.
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\u202A-\u202E\u2066-\u2069\uFEFF]/.test(item.content)) return false;
       if (item.ts !== undefined && !(typeof item.ts === 'number' && isFinite(item.ts) && item.ts > 0)) return false;
       return true;
     });
@@ -101,7 +122,19 @@ export const SYNC_VALIDATORS = {
   jv_timers:              (v) => isArray(v) && v.length <= 50,
   jv_sleep_log:           (v) => isLogObj(v),
   jv_screen_log:          (v) => isLogObj(v),
-  jv_missions:            (v) => v === null || (isArray(v) && v.length <= 20),
+  jv_missions:            (v) => {
+    if (v === null) return true;
+    if (!isArray(v) || v.length > 20) return false;
+    return v.every((m) =>
+      isObj(m) &&
+      typeof m.id === "string" && m.id.length <= 40 &&
+      typeof m.desc === "string" && m.desc.length <= 200 &&
+      typeof m.xp === "number" && isFinite(m.xp) && m.xp >= 0 && m.xp <= 2000 &&
+      typeof m.done === "boolean" &&
+      ["habits", "session", "task", "chat"].includes(m.type) &&
+      typeof m.target === "number" && isFinite(m.target) && m.target >= 0 && m.target <= 100
+    );
+  },
   jv_mission_date:        (v) => isNullOrDateStr(v),
   jv_habit_suggestions:   (v) => isArray(v) && v.length <= 200,
   jv_chronicles:          (v) => isArray(v) && v.length <= 500,
@@ -167,6 +200,7 @@ export function assertPayloadSize(text) {
 // ── Persist / restore file handle via IndexedDB ───────────────────
 // File handles can't be stored in localStorage, use IndexedDB.
 let _cachedHandle = null;
+let _opInProgress = false;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -294,6 +328,7 @@ export const SyncManager = {
   async push() {
     const handle = await SyncManager.getHandle();
     if (!handle) throw new Error("NO_HANDLE");
+    if (_opInProgress) throw new Error("SYNC_BUSY");
 
     let perm;
     try {
@@ -310,9 +345,15 @@ export const SyncManager = {
     const text = JSON.stringify(payload, null, 2);
     assertPayloadSize(text);
 
-    const writable = await handle.createWritable();
-    await writable.write(text);
-    await writable.close();
+    let writable;
+    _opInProgress = true;
+    try {
+      writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    } finally {
+      _opInProgress = false;
+    }
 
     const ts = Date.now();
     return ts;
@@ -322,15 +363,21 @@ export const SyncManager = {
   async pull() {
     const handle = await SyncManager.getHandle();
     if (!handle) throw new Error("NO_HANDLE");
+    if (_opInProgress) throw new Error("SYNC_BUSY");
 
-    const file = await handle.getFile();
-    const text = await file.text();
-    const payload = parseAndValidate(text);
-    extractSecretsFromPayload(payload);
-    applyPayload(payload);
+    _opInProgress = true;
+    try {
+      const file = await handle.getFile();
+      const text = await file.text();
+      const payload = parseAndValidate(text);
+      extractSecretsFromPayload(payload);
+      applyPayload(payload);
 
-    const ts = Date.now();
-    return ts;
+      const ts = Date.now();
+      return ts;
+    } finally {
+      _opInProgress = false;
+    }
   },
 
   /** Import from a file picker (fallback for browsers without FSAPI write). */

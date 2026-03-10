@@ -11,10 +11,19 @@ export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   const storedUsage = LS.get(storageKey("jv_token_usage"));
   if (storedUsage && storedUsage.date === today() && storedUsage.tokens >= DAILY_TOKEN_LIMIT) return {};
   const d = state.dynamicCosts || {};
-  const xpPerLevel = d.xpPerLevel ?? DEFAULT_XP_PER_LEVEL;
-  const gachaCost = d.gachaCost ?? DEFAULT_GACHA_COST;
-  const streakShieldCost = d.streakShieldCost ?? DEFAULT_STREAK_SHIELD_COST;
-  const level = getLevel(state.xp, xpPerLevel);
+  const xpPerLevel = Math.floor(
+    Math.max(200, Math.min(10000, Number(d.xpPerLevel ?? DEFAULT_XP_PER_LEVEL) || DEFAULT_XP_PER_LEVEL)),
+  );
+  const gachaCost = Math.floor(
+    Math.max(50, Math.min(5000, Number(d.gachaCost ?? DEFAULT_GACHA_COST) || DEFAULT_GACHA_COST)),
+  );
+  const streakShieldCost = Math.floor(
+    Math.max(
+      100,
+      Math.min(5000, Number(d.streakShieldCost ?? DEFAULT_STREAK_SHIELD_COST) || DEFAULT_STREAK_SHIELD_COST),
+    ),
+  );
+  const level = Math.floor(Math.max(0, Number(getLevel(state.xp, xpPerLevel)) || 0));
   const now = new Date();
   const day = now.getDay();
   const weekend = day === 0 || day === 6;
@@ -23,8 +32,9 @@ export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   const VALID_EVENTS = new Set(["level_up", "gacha_pull", "streak_shield_use"]);
   // Whitelist the event string before embedding it in the prompt.
   const safeEvent = VALID_EVENTS.has(event) ? event : "unknown";
+  const safeTotalXp = Math.floor(Math.max(0, Number(state.xp) || 0));
   const prompt = `You are the RITMOL system adjusting economy parameters. Event: ${safeEvent}.
-Current costs: xpPerLevel=${xpPerLevel}, gachaCost=${gachaCost}, streakShieldCost=${streakShieldCost}. Hunter level=${level}, total XP=${state.xp}.
+Current costs: xpPerLevel=${xpPerLevel}, gachaCost=${gachaCost}, streakShieldCost=${streakShieldCost}. Hunter level=${level}, total XP=${safeTotalXp}.
 Context: today is weekday=${!weekend}${holidayHint ? ", holiday=" + holidayHint : ""}. You may raise costs after level-up/gacha/shield use, or offer discounts (e.g. weekends, holidays).
 Keep values within these strict bounds: xpPerLevel 200–10000, gachaCost 50–5000, streakShieldCost 100–5000.
 Typical reasonable values: xpPerLevel 300–1500, gachaCost 80–400, streakShieldCost 150–600.
@@ -36,9 +46,18 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
     const match = text.match(/\{[\s\S]*\}/);
     const data = match ? JSON.parse(match[0]) : {};
     const out = {};
-    if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 200 && data.xpPerLevel <= 10000) out.xpPerLevel = Math.round(data.xpPerLevel);
-    if (typeof data.gachaCost === "number" && data.gachaCost >= 50 && data.gachaCost <= 5000) out.gachaCost = Math.round(data.gachaCost);
-    if (typeof data.streakShieldCost === "number" && data.streakShieldCost >= 100 && data.streakShieldCost <= 5000) out.streakShieldCost = Math.round(data.streakShieldCost);
+    if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 200 && data.xpPerLevel <= 10000) {
+      const proposed = Math.round(data.xpPerLevel);
+      out.xpPerLevel = Math.min(proposed, xpPerLevel * 2);
+    }
+    if (typeof data.gachaCost === "number" && data.gachaCost >= 50 && data.gachaCost <= 5000) {
+      const proposed = Math.round(data.gachaCost);
+      out.gachaCost = Math.min(proposed, gachaCost * 2);
+    }
+    if (typeof data.streakShieldCost === "number" && data.streakShieldCost >= 100 && data.streakShieldCost <= 5000) {
+      const proposed = Math.round(data.streakShieldCost);
+      out.streakShieldCost = Math.min(proposed, streakShieldCost * 2);
+    }
     return out;
   } catch {
     return {};

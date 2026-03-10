@@ -43,7 +43,10 @@ export function sanitizeForPrompt(str, maxLen = 200) {
   // Fix [P-2]: added single-quote ' to the character class.
   return out
     .replace(/[<>{}[\]`"'\\]/g, "")          // ASCII injection chars
-    .replace(/[\u2039\u203A\u27E8\u27E9\u276C\u276D\u276E\u276F\uFE3D\uFE3E\u2329\u232A]/g, "") // angle homoglyphs
+    // Strip Unicode quote-like characters (double/single, guillemets, etc.)
+    .replace(/[\u201C\u201D\u2018\u2019\u00AB\u00BB\u2039\u203A]/g, "")
+    // Strip angle-bracket homoglyphs that could visually mimic tags.
+    .replace(/[\u27E8\u27E9\u276C\u276D\u276E\u276F\uFE3D\uFE3E\u2329\u232A]/g, "")
     .slice(0, maxLen);
 }
 
@@ -55,16 +58,26 @@ export function sanitizeForPrompt(str, maxLen = 200) {
  */
 export function buildSystemPrompt(state, profile) {
   const xpPerLevel = getXpPerLevel(state);
-  const level = getLevel(state.xp ?? 0, xpPerLevel);
+  const rawLevel = getLevel(state.xp ?? 0, xpPerLevel);
+  const level = Math.floor(Math.max(0, Number(rawLevel) || 0));
   const rank = getRank(level);
 
   const t = today();
-  const todayHabits = (state.habitLog?.[t] || []).length;
-  const totalHabits = (state.habits || []).length;
-  const pendingTasks = (state.tasks || []).filter(t => !t.done).length;
-  const activeGoals = (state.goals || []).filter(g => !g.done).length;
-  const streakDays = state.streak ?? 0;
-  const shields = state.streakShields ?? 0;
+  const todayHabitsRaw = (state.habitLog?.[t] || []).length;
+  const totalHabitsRaw = (state.habits || []).length;
+  const pendingTasksRaw = (state.tasks || []).filter((task) => !task.done).length;
+  const activeGoalsRaw = (state.goals || []).filter((g) => !g.done).length;
+  const streakDaysRaw = state.streak ?? 0;
+  const shieldsRaw = state.streakShields ?? 0;
+
+  const safeXp = Math.floor(Math.max(0, Number(state.xp) || 0));
+  const safeNextLevelXp = Math.floor(Math.max(0, (level + 1) * xpPerLevel));
+  const streakDays = Math.floor(Math.max(0, Number(streakDaysRaw) || 0));
+  const shields = Math.floor(Math.max(0, Number(shieldsRaw) || 0));
+  const todayHabits = Math.floor(Math.max(0, Number(todayHabitsRaw) || 0));
+  const totalHabits = Math.floor(Math.max(0, Number(totalHabitsRaw) || 0));
+  const pendingTasks = Math.floor(Math.max(0, Number(pendingTasksRaw) || 0));
+  const activeGoals = Math.floor(Math.max(0, Number(activeGoalsRaw) || 0));
 
   // Sanitize all user-derived values before embedding
   const safeName = sanitizeForPrompt(profile?.name ?? "Hunter", 60);
@@ -87,7 +100,7 @@ export function buildSystemPrompt(state, profile) {
 Name: ${safeName}
 Major: ${safeMajor}
 Level: ${level} (${rank.title})
-XP: ${state.xp ?? 0} / next level at ${(level + 1) * xpPerLevel}
+  XP: ${safeXp} / next level at ${safeNextLevelXp}
 Streak: ${streakDays} days
 Streak Shields: ${shields}
 Books/Interests: ${safeBooks}
@@ -108,13 +121,17 @@ You can issue commands by including a "commands" array in your JSON response. Al
 - add_goal: { cmd, title, course, due }
 - complete_task: { cmd, id }
 - clear_done_tasks: { cmd }
-- award_xp: { cmd, amount (max 500), reason }
+- award_xp: { cmd, amount (1-500 per command, max 1500 XP total per response), reason }
 - announce: { cmd, text, type (info/warning/success/alert) }
 - set_daily_goal: { cmd, text }
 - add_habit: { cmd, label, category (body/mind/work), xp (1-200), icon, style (ascii/dots/geometric/typewriter) }
 - unlock_achievement: { cmd, id, title, desc, flavorText, icon, xp, rarity (common/rare/epic/legendary) }
 - add_timer: { cmd, label, emoji, minutes (1-1440) }
 - suggest_sessions: { cmd }
+
+ECONOMY RULES: Total XP awarded via award_xp or unlock_achievement across ALL commands in one
+response MUST NOT exceed 1500. Only award XP for concrete, verifiable actions the hunter just
+described completing — never award XP preemptively or for things they "will do."
 
 Always respond with ONLY a JSON object: { "message": "your response here", "commands": [] }
 Keep message under 300 chars unless detail is essential. Use the hunter's name. Stay in character.`;
