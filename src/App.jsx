@@ -303,29 +303,35 @@ export default function App() {
   const lastLevelUpXpRef = useRef(-1);
 
   useEffect(() => {
-    const push = async () => {
-      // Fix [S-2]: skip auto-push if a Pull is in progress. The Pull will
-      // write its own flush once it completes.
-      if (isPullingRef.current) return;
-      const handle = await SyncManager.getHandle().catch(() => null);
-      if (!handle) return;
-      const s = latestStateRef.current;
-      if (!s?.profile) return;
-      flushStateToStorage(s);
-      try {
-        const ts = await SyncManager.push();
-        LS.set(storageKey("jv_last_synced"), String(ts));
-        setSyncStatus("synced");
-        setLastSynced(ts);
-      } catch (e) {
-        console.warn("Syncthing push on hide failed:", e.message);
-      }
+    let pushDebounceTimer = null;
+    const schedulePush = () => {
+      if (pushDebounceTimer) return; // already scheduled
+      pushDebounceTimer = setTimeout(async () => {
+        pushDebounceTimer = null;
+        // Fix [S-2]: skip auto-push if a Pull is in progress. The Pull will
+        // write its own flush once it completes.
+        if (isPullingRef.current) return;
+        const handle = await SyncManager.getHandle().catch(() => null);
+        if (!handle) return;
+        const s = latestStateRef.current;
+        if (!s?.profile) return;
+        flushStateToStorage(s);
+        try {
+          const ts = await SyncManager.push();
+          LS.set(storageKey("jv_last_synced"), String(ts));
+          setSyncStatus("synced");
+          setLastSynced(ts);
+        } catch (e) {
+          console.warn("Syncthing push on hide failed:", e.message);
+        }
+      }, 250);
     };
-    const handleVisibility = () => { if (document.visibilityState === "hidden") push(); };
-    const handlePageHide   = () => push();
+    const handleVisibility = () => { if (document.visibilityState === "hidden") schedulePush(); };
+    const handlePageHide   = () => schedulePush();
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("pagehide", handlePageHide);
     return () => {
+      if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("pagehide", handlePageHide);
     };
@@ -365,6 +371,8 @@ export default function App() {
       // Fix [A-5]: reset the AI XP budget ref so the newly-pulled tokenUsage is
       // used as the source-of-truth, not the stale pre-Pull accumulated value.
       aiXpTodayRef.current = null;
+      // Reset lastLevelUpXpRef so level-up detection matches the pulled XP value.
+      lastLevelUpXpRef.current = -1;
       LS.set(storageKey("jv_last_synced"), String(ts));
       setLastSynced(ts);
       setSyncStatus("synced");
@@ -477,10 +485,10 @@ export default function App() {
     // Fix #5: read and write aiXpTodayRef synchronously so that multiple calls within
     // the same executeCommands run see the accumulated total, not a stale snapshot.
     if (aiXpTodayRef.current === null || aiXpTodayRef.current.date !== t) {
-      // Initialise from persisted state on the first call of the day.
-      const stateSource = latestStateRef.current ?? state;
-      const usage = stateSource.tokenUsage || { date: t, tokens: 0 };
-      const baseXp = (usage.date === t ? usage.aiXpToday : 0) || 0;
+      // Initialise from persisted localStorage on the first call of the day — this
+      // is always at least as fresh as latestStateRef, which lags by one render.
+      const persisted = LS.get(storageKey("jv_token_usage"));
+      const baseXp = (persisted && persisted.date === t ? persisted.aiXpToday : 0) || 0;
       aiXpTodayRef.current = { date: t, value: baseXp };
     }
     const alreadyAwarded = aiXpTodayRef.current.value;
@@ -663,9 +671,10 @@ export default function App() {
         }, 0);
       }
       setTimeout(() => setModal({ type: "daily_login", xp: loginXP, streak: newStreak }), 0);
-      _loginInProgressRef.current = false;
       return { ...s, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate, xp: newXP };
     });
+    // Release mutex after setState is enqueued, not inside the updater (safer in React 18 StrictMode).
+    queueMicrotask(() => { _loginInProgressRef.current = false; });
   }
 
   function generateDailyMissions() {
@@ -758,8 +767,11 @@ export default function App() {
         return m;
       });
 
-      const safeBonus = typeof bonusXP === "number" && isFinite(bonusXP) && bonusXP >= 0 ? bonusXP : 0;
-      const newXP = s.xp + safeBonus;
+      const safeBonus = Math.min(
+        typeof bonusXP === "number" && isFinite(bonusXP) && bonusXP >= 0 ? bonusXP : 0,
+        10_000
+      );
+      const newXP = Math.min(s.xp + safeBonus, 100_000_000);
       if (bonusXP > 0) {
         const xpPl = getXpPerLevel(s);
         const oldLevel = getLevel(s.xp, xpPl);
@@ -769,7 +781,7 @@ export default function App() {
         }
       }
       pendingData.toasts = toastsThisRun;
-      return { ...s, dailyMissions: updated, xp: s.xp + safeBonus };
+      return { ...s, dailyMissions: updated, xp: newXP };
     });
 
     // queueMicrotask fires after React has committed the state update, so
@@ -947,7 +959,10 @@ export default function App() {
           setState((s) => ({ ...s, tasks: (s.tasks || []).filter((t) => !t.done) }));
           break;
         case "award_xp": {
-          const amount = Math.min(Math.max(0, Number(cmd.amount) || 0), MAX_XP_PER_CMD);
+          const rawAmount = Number(cmd.amount);
+          const amount = (isFinite(rawAmount) && rawAmount > 0)
+            ? Math.min(Math.floor(rawAmount), MAX_XP_PER_CMD)
+            : 0;
           const cappedByResponse = Math.min(amount, Math.max(0, MAX_XP_PER_RESPONSE - totalXPThisRun));
           const allowed = consumeAiXpBudget(cappedByResponse);
           if (allowed <= 0) break;
@@ -1147,16 +1162,17 @@ export default function App() {
           period={modal.period}
           onClose={() => setModal(null)}
           onSubmit={(mins) => {
+            const safeMins = Math.min(Math.max(0, Number(mins) || 0), 1440);
             setState((s) => ({
               ...s,
               screenTimeLog: {
                 ...s.screenTimeLog,
-                [today()]: { ...(s.screenTimeLog?.[today()] || {}), [modal.period]: mins },
+                [today()]: { ...(s.screenTimeLog?.[today()] || {}), [modal.period]: safeMins },
               },
             }));
-            const xp = mins < 60 ? 40 : mins < 120 ? 25 : mins < 180 ? 15 : 10;
+            const xp = safeMins < 60 ? 40 : safeMins < 120 ? 25 : safeMins < 180 ? 15 : 10;
             awardXP(xp, null, true);
-            showBanner(`Screen time logged. ${mins < 60 ? "Impressive discipline." : "Noted."} +${xp} XP`, mins < 60 ? "success" : "info");
+            showBanner(`Screen time logged. ${safeMins < 60 ? "Impressive discipline." : "Noted."} +${xp} XP`, safeMins < 60 ? "success" : "info");
             setModal(null);
           }}
         />

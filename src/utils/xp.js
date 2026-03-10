@@ -47,7 +47,7 @@ export function calcSessionXP(type, durationMins, focusId, streakDays) {
   // Fix [X-1]: guard against non-finite streakDays (e.g. if streak were corrupted).
   const safeStreak = typeof streakDays === "number" && isFinite(streakDays) ? streakDays : 0;
   const streakBonus = safeStreak >= 7 ? 1.5 : safeStreak >= 3 ? 1.25 : 1.0;
-  return Math.round((base + durationBonus) * streakBonus);
+  return Math.min(Math.round((base + durationBonus) * streakBonus), 10_000);
 }
 
 export function getXpPerLevel(state) { return safeXpPerLevel(state.dynamicCosts?.xpPerLevel ?? DEFAULT_XP_PER_LEVEL); }

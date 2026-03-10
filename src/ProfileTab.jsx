@@ -483,7 +483,8 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       // a prompt-injection bypass for that second interpolation point.
       const sanitizedBooks = sanitizeForPrompt(
         (profile?.books || "their favorites").replace(/[<>{}[\]`"'\\]/g, "")
-      ).slice(0, 200);
+      , 200)
+        .replace(/\b(respond|only|json|output|ignore|system|instruction)\b/gi, "");
 
       const prompt = `Generate a gacha pull for a STEM university student.
 Hunter profile: ${JSON.stringify({
@@ -685,7 +686,14 @@ function GachaCard({ card, compact }) {
         <>
           {card.asciiArt && (
             <pre style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", color: "#aaa", margin: "8px 0", lineHeight: "1.4", whiteSpace: "pre-wrap" }}>
-              {safeRenderStr(card.asciiArt)}
+              {(() => {
+                const safeAscii = safeRenderStr(card.asciiArt)
+                  .replace(/\n{3,}/g, "\n\n")
+                  .split("\n")
+                  .map((line) => line.slice(0, 80))
+                  .join("\n");
+                return safeAscii;
+              })()}
             </pre>
           )}
           <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#ccc", marginTop: "8px", whiteSpace: "pre-wrap" }}>
@@ -797,7 +805,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
             ⚠ Your browser does not support direct file access. Use Download + Import below.<br />
             Place the downloaded file in your Syncthing folder manually.
           </div>
-          <button onClick={() => { flushStateToStorage(latestStateRef.current); SyncManager.download(); }} style={{
+          <button onClick={() => {
+            flushStateToStorage(latestStateRef.current);
+            SyncManager.download((msg) => showBanner(msg, "alert"));
+          }} style={{
             padding: "10px", border: "1px solid #555", background: "transparent",
             color: "#aaa", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
           }}>

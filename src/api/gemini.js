@@ -81,21 +81,16 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      // Fix [G-1]: Redact both JWT-format tokens (eyJ...) AND Gemini API key format
-      // (AIzaSy... — 39 chars total). Gemini 400/403 error bodies frequently echo the
-      // key verbatim in the message ("API key not valid. [key: AIzaSy...]"), which would
-      // surface in ErrorBoundary, browser console, and the in-chat error message.
+      // Fix [G-1]: Redact both JWT-format tokens (eyJ...) AND Gemini API key format.
       const safeBody = errBody
         .replace(/eyJ[\w.-]+/g, "[token]")          // JWT bearer tokens
-        .replace(/AIza[A-Za-z0-9_-]{35}/g, "[key]") // Gemini API keys
+        .replace(/AIza[A-Za-z0-9_-]{34,45}/g, "[key]") // Gemini API keys (widened length)
         .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]") // Google OAuth access tokens
-        .replace(/[A-Za-z0-9_-]{40,}/g, (m) =>          // Any other long token-like strings
-          m.length > 60 ? "[token]" : m
-        )
+        .replace(/[A-Za-z0-9_-]{40,}/g, "[token]") // Any other long token-like strings
         .slice(0, 200);
       // Final guard: if the re-thrown error message somehow contains the key, redact it.
       const safeErrorMsg = (`Gemini ${res.status}: ${safeBody}`)
-        .replace(/AIza[A-Za-z0-9_-]{35}/g, "[key]")
+        .replace(/AIza[A-Za-z0-9_-]{34,45}/g, "[key]")
         .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]");
       throw new Error(safeErrorMsg);
     }

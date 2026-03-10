@@ -85,21 +85,75 @@ function isLogObj(v) {
 }
 
 export const SYNC_VALIDATORS = {
-  jv_profile:             (v) => v === null || (isObj(v) && !Object.prototype.hasOwnProperty.call(v, "geminiKey") && !Object.prototype.hasOwnProperty.call(v, "googleClientId")),
+  jv_profile:             (v) => {
+    if (v === null) return true;
+    if (!isObj(v)) return false;
+    if (Object.prototype.hasOwnProperty.call(v, "geminiKey")) return false;
+    if (Object.prototype.hasOwnProperty.call(v, "googleClientId")) return false;
+    if (v.name !== undefined && !(typeof v.name === "string" && v.name.length <= 60)) return false;
+    if (v.major !== undefined && !(typeof v.major === "string" && v.major.length <= 80)) return false;
+    if (v.interests !== undefined && !(typeof v.interests === "string" && v.interests.length <= 200)) return false;
+    if (v.books !== undefined && !(typeof v.books === "string" && v.books.length <= 200)) return false;
+    if (v.semesterGoal !== undefined && !(typeof v.semesterGoal === "string" && v.semesterGoal.length <= 300)) return false;
+    return true;
+  },
   // Fix: add upper bounds — a crafted sync file with jv_xp: 1e18 would
   // otherwise instantly grant max level or an implausible streak/shield count.
   jv_xp:                  (v) => isNumber(v) && v >= 0 && v <= 100_000_000,
   jv_streak:              (v) => isNumber(v) && v >= 0 && v <= 36500,
   jv_shields:             (v) => isNumber(v) && v >= 0 && v <= 10000,
+  // NOTE: today() is called lazily inside the lambda (at validation time).
+  // Do NOT hoist it to a module-level const — it would capture the date at startup.
   jv_last_login:          (v) => v === null || (isDateStr(v) && v <= today()),
-  jv_habits:              (v) => isArray(v) && v.length <= 500,
+  jv_habits:              (v) => isArray(v) && v.length <= 500 && v.every((h) =>
+    isObj(h) &&
+    typeof h.id === "string" && h.id.length <= 64 && /^[\w-]+$/.test(h.id) &&
+    typeof h.label === "string" && h.label.length <= 200 &&
+    typeof h.xp === "number" && isFinite(h.xp) && h.xp >= 1 && h.xp <= 200 &&
+    ["body","mind","work"].includes(h.category) &&
+    (h.icon === undefined || (typeof h.icon === "string" && h.icon.length <= 2))
+  ),
   jv_habit_log:           (v) => isLogObj(v),
-  jv_tasks:               (v) => isArray(v) && v.length <= 5000,
+  jv_tasks:               (v) => isArray(v) && v.length <= 5000 && v.every((t) =>
+    isObj(t) &&
+    typeof t.id === "string" && t.id.length <= 64 && /^[\w-]+$/.test(t.id) &&
+    typeof t.text === "string" && t.text.length <= 500 &&
+    typeof t.done === "boolean" &&
+    (t.priority === undefined || ["low","medium","high"].includes(t.priority)) &&
+    (t.due === null || t.due === undefined || (typeof t.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.due)))
+  ),
   jv_goals:               (v) => isArray(v) && v.length <= 1000,
-  jv_sessions:            (v) => isArray(v) && v.length <= 10000,
-  jv_achievements:        (v) => isArray(v) && v.length <= 2000,
-  jv_gacha:               (v) => isArray(v) && v.length <= 2000,
-  jv_cal_events:          (v) => isArray(v) && v.length <= 2000,
+  jv_sessions:            (v) => isArray(v) && v.length <= 10000 && v.every((s) =>
+    isObj(s) &&
+    typeof s.id === "string" && s.id.length <= 64 && /^[\w-]+$/.test(s.id) &&
+    (s.date === undefined || (typeof s.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.date))) &&
+    (s.course === undefined || (typeof s.course === "string" && s.course.length <= 100)) &&
+    (s.notes === undefined || (typeof s.notes === "string" && s.notes.length <= 300)) &&
+    (s.duration === undefined || (typeof s.duration === "number" && isFinite(s.duration) && s.duration >= 0 && s.duration <= 600)) &&
+    (s.type === undefined || ["lecture","self_study","project","exam_prep"].includes(s.type))
+  ),
+  jv_achievements:        (v) => isArray(v) && v.length <= 2000 && v.every((a) =>
+    isObj(a) &&
+    typeof a.id === "string" && a.id.length <= 100 &&
+    typeof a.title === "string" && a.title.length <= 300 &&
+    (a.xp === undefined || (typeof a.xp === "number" && isFinite(a.xp) && a.xp >= 0 && a.xp <= 500)) &&
+    (a.rarity === undefined || ["common","rare","epic","legendary"].includes(a.rarity))
+  ),
+  jv_gacha:               (v) => isArray(v) && v.length <= 2000 && v.every((c) =>
+    isObj(c) &&
+    typeof c.id === "string" && c.id.length <= 80 &&
+    ["rank_cosmetic","chronicle"].includes(c.type) &&
+    ["common","rare","epic","legendary"].includes(c.rarity) &&
+    (typeof c.content === "string" && c.content.length <= 1000) &&
+    (c.asciiArt === null || c.asciiArt === undefined || (typeof c.asciiArt === "string" && c.asciiArt.length <= 500))
+  ),
+  jv_cal_events:          (v) => isArray(v) && v.length <= 2000 && v.every((e) =>
+    isObj(e) &&
+    typeof e.id === "string" && e.id.length <= 150 &&
+    typeof e.title === "string" && e.title.length <= 200 &&
+    (e.start === null || (typeof e.start === "string" && !isNaN(new Date(e.start).getTime()))) &&
+    (e.type === undefined || ["lecture","tirgul","exam","assignment","other"].includes(e.type))
+  ),
   jv_chat:                (v) => {
     if (!isArray(v)) return false;
     if (v.length > 5000) return false;
@@ -119,7 +173,12 @@ export const SYNC_VALIDATORS = {
   },
   // Fix: accept null for unset state in addition to non-empty strings.
   jv_daily_goal:          (v) => v === null || (isString(v) && v.length <= 500),
-  jv_timers:              (v) => isArray(v) && v.length <= 50,
+  jv_timers:              (v) => isArray(v) && v.length <= 50 && v.every((t) =>
+    isObj(t) &&
+    typeof t.id === "string" && t.id.length <= 64 &&
+    typeof t.label === "string" && t.label.length <= 300 &&
+    typeof t.endsAt === "number" && isFinite(t.endsAt) && t.endsAt > 0 && t.endsAt <= Date.now() + 172_800_000
+  ),
   jv_sleep_log:           (v) => isLogObj(v),
   jv_screen_log:          (v) => isLogObj(v),
   jv_missions:            (v) => {
@@ -136,9 +195,18 @@ export const SYNC_VALIDATORS = {
     );
   },
   jv_mission_date:        (v) => isNullOrDateStr(v),
-  jv_habit_suggestions:   (v) => isArray(v) && v.length <= 200,
-  jv_chronicles:          (v) => isArray(v) && v.length <= 500,
+  jv_habit_suggestions:   (v) => isArray(v) && v.length <= 200 && v.every((s) =>
+    typeof s === "string" && s.length <= 200
+  ),
+  jv_chronicles:          (v) => isArray(v) && v.length <= 500 && v.every((c) =>
+    isObj(c) &&
+    typeof c.id === "string" && c.id.length <= 80 &&
+    (c.content === undefined || (typeof c.content === "string" && c.content.length <= 2000)) &&
+    (c.date === undefined || (typeof c.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.date)))
+  ),
   jv_gcal_connected:      (v) => isBool(v),
+  // NOTE: today() is called lazily inside the lambda (at validation time).
+  // Do NOT hoist it to a module-level const — it would capture the date at startup.
   jv_token_usage:         (v) => {
     if (!isObj(v)) return false;
     if (v.date !== undefined) {
@@ -176,7 +244,7 @@ export const SYNC_VALIDATORS = {
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export function isSafeSyncValue(v, depth = 0) {
-  if (depth > 8) return false;
+  if (depth >= 6) return false;
   if (isObj(v)) {
     for (const k of Object.keys(v)) {
       if (DANGEROUS_KEYS.has(k)) return false;
@@ -184,7 +252,8 @@ export function isSafeSyncValue(v, depth = 0) {
     }
   } else if (isArray(v)) {
     for (const item of v) {
-      if (!isSafeSyncValue(item, depth + 1)) return false;
+      // Arrays do not add a depth level — only object nesting does.
+      if (!isSafeSyncValue(item, depth)) return false;
     }
   }
   return true;
@@ -245,8 +314,13 @@ async function clearHandleFromDB() {
 function buildPayload() {
   const payload = { _schemaVersion: SYNC_SCHEMA_VERSION };
   for (const key of SYNC_KEYS) {
-    const stored = LS.get(storageKey(key));
+    let stored = LS.get(storageKey(key));
     if (stored !== null && stored !== undefined) {
+      if (key === "jv_profile" && stored && typeof stored === "object") {
+        // eslint-disable-next-line no-unused-vars
+        const { geminiKey: _gk, googleClientId: _gc, ...safeProfile } = stored;
+        stored = safeProfile;
+      }
       payload[key] = stored;
     }
   }
@@ -257,7 +331,13 @@ function buildPayload() {
 function applyPayload(payload) {
   for (const key of SYNC_KEYS) {
     if (Object.prototype.hasOwnProperty.call(payload, key)) {
-      const val = payload[key];
+      let val = payload[key];
+      // Belt-and-suspenders: strip secrets from profile even if a future validator regresses.
+      if (key === "jv_profile" && val && typeof val === "object") {
+        // eslint-disable-next-line no-unused-vars
+        const { geminiKey: _gk, googleClientId: _gc, ...safeProfile } = val;
+        val = safeProfile;
+      }
       const validator = SYNC_VALIDATORS[key];
       if (validator && !validator(val)) continue; // skip invalid values
       if (!isSafeSyncValue(val)) continue;        // skip dangerous values
@@ -329,34 +409,32 @@ export const SyncManager = {
     const handle = await SyncManager.getHandle();
     if (!handle) throw new Error("NO_HANDLE");
     if (_opInProgress) throw new Error("SYNC_BUSY");
-
-    let perm;
+    _opInProgress = true; // acquire BEFORE any await
     try {
-      perm = await handle.queryPermission({ mode: "readwrite" });
-      if (perm !== "granted") {
-        perm = await handle.requestPermission({ mode: "readwrite" });
+      let perm;
+      try {
+        perm = await handle.queryPermission({ mode: "readwrite" });
+        if (perm !== "granted") {
+          perm = await handle.requestPermission({ mode: "readwrite" });
+        }
+      } catch {
+        throw new Error("PERMISSION_DENIED");
       }
-    } catch {
-      throw new Error("PERMISSION_DENIED");
-    }
-    if (perm !== "granted") throw new Error("PERMISSION_DENIED");
+      if (perm !== "granted") throw new Error("PERMISSION_DENIED");
 
-    const payload = buildPayload();
-    const text = JSON.stringify(payload, null, 2);
-    assertPayloadSize(text);
+      const payload = buildPayload();
+      const text = JSON.stringify(payload, null, 2);
+      assertPayloadSize(text);
 
-    let writable;
-    _opInProgress = true;
-    try {
-      writable = await handle.createWritable();
+      const writable = await handle.createWritable();
       await writable.write(text);
       await writable.close();
+
+      const ts = Date.now();
+      return ts;
     } finally {
       _opInProgress = false;
     }
-
-    const ts = Date.now();
-    return ts;
   },
 
   /** Read the linked sync file and apply it to localStorage. */
@@ -382,17 +460,29 @@ export const SyncManager = {
 
   /** Import from a file picker (fallback for browsers without FSAPI write). */
   async importFile(file) {
-    const text = await file.text();
-    const payload = parseAndValidate(text);
-    extractSecretsFromPayload(payload);
-    applyPayload(payload);
-    return Date.now();
+    if (_opInProgress) throw new Error("SYNC_BUSY");
+    _opInProgress = true;
+    try {
+      const text = await file.text();
+      const payload = parseAndValidate(text);
+      extractSecretsFromPayload(payload);
+      applyPayload(payload);
+      return Date.now();
+    } finally {
+      _opInProgress = false;
+    }
   },
 
   /** Download current state as a JSON file (fallback for browsers without FSAPI write). */
-  download() {
+  download(onError) {
     const payload = buildPayload();
     const text = JSON.stringify(payload, null, 2);
+    try {
+      assertPayloadSize(text);
+    } catch {
+      onError?.("Export file too large (> 10 MB). Clear old chat history or sessions first.");
+      return;
+    }
     const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

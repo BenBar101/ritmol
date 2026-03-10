@@ -33,6 +33,7 @@ export function sanitizeForPrompt(str, maxLen = 200) {
     if (code === 8232 || code === 8233) continue;  // U+2028 LINE SEP, U+2029 PARA SEP
     if (code >= 8203 && code <= 8205) continue;    // U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ
     if (code === 65279) continue;                  // U+FEFF BOM / zero-width no-break space
+    if (code === 8239 || code === 8199) continue;  // U+202F Narrow NBSP, U+2007 Figure Space
     // Block bidirectional override/embedding/isolate controls
     // U+202A-202E (LTR/RTL embedding, override, pop directional)
     // U+2066-U+2069 (directional isolates)
@@ -91,7 +92,10 @@ export function buildSystemPrompt(state, profile) {
   // injection from breaking out of the HUNTER_DATA boundary.
   const recentChatSummary = (state.chatHistory || [])
     .slice(-6)
-    .map(m => `${m.role === "user" ? "Hunter" : "RITMOL"}: ${sanitizeForPrompt(m.content, 300)}`)
+    .map(m => {
+      const safe = sanitizeForPrompt(m.content, 300).replace(/\s{2,}/g, " ").trim();
+      return `${m.role === "user" ? "Hunter" : "RITMOL"}: ${safe}`;
+    })
     .join("\n");
 
   return `You are RITMOL — the AI companion of a gamified life-OS for STEM university students. Solo Leveling RPG aesthetic. Be brief, punchy, motivating. Never break character.
