@@ -40,17 +40,27 @@ export default function TasksTab({ state, setState, awardXP, showBanner, checkMi
     actionLocksRef.current.add(id);
     setTimeout(() => actionLocksRef.current.delete(id), 500);
 
-    const task = (state.tasks || []).find(t => t.id === id);
-    if (!task || task.done) return;
-
-    const doneDate = today(); // Fix: capture outside updater — clock call is impure
-    setState((s) => ({
-      ...s,
-      tasks: s.tasks.map((t) => t.id === id ? { ...t, done: true, doneDate } : t),
-    }));
-    awardXP(25, event);
-    checkMissions("task");
-    showBanner("Task complete. +25 XP", "success");
+    // Fix: move the task.done guard inside the setState updater so we read the
+    // authoritative (latest) task state, not a potentially stale closure snapshot.
+    // Use a flag written before the updater returns so the callers below run only
+    // when the task genuinely transitioned from undone → done.
+    const doneDate = today(); // capture outside updater — clock call is impure
+    let didComplete = false;
+    setState((s) => {
+      const task = (s.tasks || []).find(t => t.id === id);
+      if (!task || task.done) return s; // already done in latest state — no-op
+      didComplete = true;
+      return {
+        ...s,
+        tasks: s.tasks.map((t) => t.id === id ? { ...t, done: true, doneDate } : t),
+      };
+    });
+    queueMicrotask(() => {
+      if (!didComplete) return;
+      awardXP(25, event);
+      checkMissions("task");
+      showBanner("Task complete. +25 XP", "success");
+    });
   }
 
   function deleteTask(id) {
@@ -128,6 +138,7 @@ export default function TasksTab({ state, setState, awardXP, showBanner, checkMi
               onChange={(e) => setNewTask(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addTask()}
               placeholder="New task..."
+              maxLength={500}
               style={{ flex: 1, background: "#111", border: "1px solid #333", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
             />
             <select
@@ -197,12 +208,14 @@ export default function TasksTab({ state, setState, awardXP, showBanner, checkMi
                 value={goalForm.title}
                 onChange={(e) => setGoalForm((f) => ({ ...f, title: e.target.value }))}
                 placeholder="Assignment / goal title..."
+                maxLength={200}
                 style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
               />
               <input
                 value={goalForm.course}
                 onChange={(e) => setGoalForm((f) => ({ ...f, course: e.target.value }))}
                 placeholder="Course name..."
+                maxLength={100}
                 style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
               />
               <input

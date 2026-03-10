@@ -10,6 +10,7 @@ import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
 import { primaryBtn } from "./Onboarding";
 import { updateDynamicCosts } from "./api/dynamicCosts";
+import { sanitizeForPrompt } from "./api/systemPrompt";
 
 // Keys belonging to this app but not starting with "jv_" — must be wiped on full reset.
 const APP_CONSTANT_KEYS = new Set([DATA_DISCLOSURE_SEEN_KEY, THEME_KEY, "jv_last_synced"]);
@@ -107,24 +108,25 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
   function buyShield() {
     if (!canBuyShield || !apiKey) return;
 
-    // Fix: use a functional updater so we always operate on the latest committed state,
-    // avoiding stale-closure overwrites when React batches concurrent setState calls.
-    // Capture a snapshot for the async updateDynamicCosts call after the update commits.
-    let snapshotForApi = null;
+    // Fix: resolve snapshot synchronously via a Promise so the async cost
+    // update never fires with a null snapshot (the setTimeout approach could
+    // race if React hadn't flushed the updater before the 0ms timer fired).
+    let resolveSnapshot;
+    const snapshotPromise = new Promise((res) => { resolveSnapshot = res; });
+
     setState((s) => {
-      if (s.xp < streakShieldCost) return s; // re-check inside updater in case XP changed
+      if (s.xp < streakShieldCost) { resolveSnapshot(null); return s; }
       const next = { ...s, xp: Math.max(0, s.xp - streakShieldCost), streakShields: (s.streakShields || 0) + 1 };
-      snapshotForApi = next;
+      resolveSnapshot(next);
       return next;
     });
 
-    // Fire async cost update after a tick so snapshotForApi is populated
-    setTimeout(() => {
+    snapshotPromise.then((snapshotForApi) => {
       if (!snapshotForApi) return;
       updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_use", trackTokens).then((costs) => {
         if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
       }).catch(() => {});
-    }, 0);
+    });
 
     showBanner(`Streak shield purchased. Cost: ${streakShieldCost} XP. Next cost may change.`, "success");
   }
@@ -186,7 +188,15 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
         <div style={{ border: "1px solid #222", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
           <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "6px" }}>SEMESTER OBJECTIVE</div>
           <div style={{ fontSize: "13px", fontStyle: "italic", color: "#aaa", fontFamily: "'IM Fell English', serif" }}>
-            &ldquo;{profile.semesterGoal}&rdquo;
+            {/* Fix [PR-1]: strip Unicode BiDi override characters (U+202A–U+202E, U+2066–U+2069)
+                and zero-width chars before display. A crafted sync file can embed RIGHT-TO-LEFT
+                OVERRIDE (U+202E) in semesterGoal to visually disguise text — e.g. making
+                "goal" appear as "laog" — a visual spoofing/confusion attack. React auto-escapes
+                HTML but does not filter Unicode overrides. */}
+            &ldquo;{sanitizeForPrompt(
+              (profile.semesterGoal || "")
+                .replace(/[\u202A-\u202E\u2066-\u2069\u200B-\u200D\uFEFF]/g, "")
+            )}&rdquo;
           </div>
         </div>
       )}
@@ -253,7 +263,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
     // Fix: sanitize user-supplied fields before persisting. These values end up in localStorage,
     // the sync file, and (via buildSystemPrompt) in the AI prompt — sanitize at write time so
     // prompt injection characters don't reach any of those sinks.
-    const safeTitle = form.title.replace(/[<>{}[\]`"]/g, "").slice(0, 200).trim();
+    const safeTitle = sanitizeForPrompt(form.title.replace(/[<>{}[\]`"'\\]/g, "")).slice(0, 200).trim();
     const safeType  = ["exam","lecture","homework","tirgul","other"].includes(form.type) ? form.type : "other";
     const safeStart = typeof form.start === "string" && /^\d{4}-\d{2}-\d{2}/.test(form.start) ? form.start : "";
     const safeEnd   = typeof form.end === "string" && /^\d{4}-\d{2}-\d{2}/.test(form.end) ? form.end : "";
@@ -273,6 +283,13 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
   async function syncGoogleCalendar() {
     const clientId = profile?.googleClientId || (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
     if (!clientId) { showBanner("No Google Client ID configured.", "alert"); return; }
+    // Fix: validate clientId format before passing to Google OAuth — a crafted value from
+    // the profile object (e.g. via an old sync file) could trigger unexpected behaviour.
+    // Google OAuth client IDs always match *.apps.googleusercontent.com
+    if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(clientId)) {
+      showBanner("Invalid Google Client ID format. Check your ritmol-data.json.", "alert");
+      return;
+    }
     setGCalLoading(true);
     try {
       await loadGoogleGIS();
@@ -426,19 +443,25 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
   // Abort controller so unmounting mid-pull cancels the Gemini request and prevents
   // trackTokens / setState firing against an unmounted component.
   const gachaAbortRef = useRef(null);
+  // Fix: ref-level guard prevents double-deduction if doPull is called twice
+  // before the first setPulling(true) re-render has flushed (e.g. rapid taps).
+  const pullingRef = useRef(false);
 
   // Cancel any in-flight pull on unmount.
   useEffect(() => () => { gachaAbortRef.current?.abort(); }, []);
 
   async function doPull() {
-    if (!canAfford || pulling || !apiKey) {
+    if (pullingRef.current || !canAfford || pulling || !apiKey) {
       if (!canAfford) showBanner(`Insufficient XP. Need ${gachaCost} XP to pull.`, "alert");
       if (!apiKey) showBanner("No API key. Configure in settings.", "alert");
       return;
     }
+    pullingRef.current = true;
     const usage = state.tokenUsage;
     if (usage && usage.date === today() && usage.tokens >= DAILY_TOKEN_LIMIT) {
       showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
+      // Fix: reset the lock so the button is not permanently disabled after this early return.
+      pullingRef.current = false;
       return;
     }
 
@@ -449,12 +472,21 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
     setPulling(true);
 
     try {
+      // Fix [PR-2]: extract sanitized books once and reuse it in BOTH the JSON block
+      // AND the chronicle sub-prompt. The original code sanitized books in the JSON
+      // block but interpolated raw profile?.books in the prose instruction line, creating
+      // a prompt-injection bypass for that second interpolation point.
+      const sanitizedBooks = sanitizeForPrompt(
+        (profile?.books || "their favorites").replace(/[<>{}[\]`"'\\]/g, "")
+      ).slice(0, 200);
+
       const prompt = `Generate a gacha pull for a STEM university student.
 Hunter profile: ${JSON.stringify({
-        name:      (profile?.name      || "").replace(/[<>]/g, "").slice(0, 60),
-        books:     (profile?.books     || "").replace(/[<>]/g, "").slice(0, 200),
-        interests: (profile?.interests || "").replace(/[<>]/g, "").slice(0, 200),
-        major:     (profile?.major     || "").replace(/[<>]/g, "").slice(0, 80),
+        // Fix: apply full sanitization (control chars + injection chars) not just angle-bracket strip.
+        name:      sanitizeForPrompt((profile?.name      || "").replace(/[<>{}[\]`"\\]/g, "")).slice(0, 60),
+        books:     sanitizedBooks,
+        interests: sanitizeForPrompt((profile?.interests || "").replace(/[<>{}[\]`"\\]/g, "")).slice(0, 200),
+        major:     sanitizeForPrompt((profile?.major     || "").replace(/[<>{}[\]`"\\]/g, "")).slice(0, 80),
       })}
 Existing collection (don't duplicate): ${JSON.stringify(collection.slice(-50).map(c => c.id))}
 
@@ -462,7 +494,7 @@ Generate ONE of these (weighted random — 60% rank_cosmetic, 40% chronicle):
 
 For rank_cosmetic: a black-and-white ASCII/geometric/typewriter/dot-matrix rank badge/crest design for this hunter. Make it unique and beautiful. Style must match their interests.
 
-For chronicle: Write a vivid, atmospheric scene or passage from one of the hunter's favorite books (${profile?.books ?? "their favorites"}). Write it as a beautifully typeset literary fragment — original prose inspired by the style and world of that book. 50-100 words. Include the book/author it's inspired by.
+For chronicle: Write a vivid, atmospheric scene or passage from one of the hunter's favorite books (${sanitizedBooks}). Write it as a beautifully typeset literary fragment — original prose inspired by the style and world of that book. 50-100 words. Include the book/author it's inspired by.
 
 Respond ONLY with JSON:
 {
@@ -477,7 +509,7 @@ Respond ONLY with JSON:
 }`;
 
       const { text: raw, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a master of literary atmosphere and ASCII art. Respond only in JSON.", true, controller.signal);
-      if (controller.signal.aborted) { setPulling(false); return; }
+      if (controller.signal.aborted) { setPulling(false); pullingRef.current = false; return; }
       trackTokens(tokensUsed);
       const match = raw.match(/\{[\s\S]*\}/);
       if (!match) throw new Error("Failed to parse Gacha JSON");
@@ -485,40 +517,59 @@ Respond ONLY with JSON:
 
       // Fix #11 (security): construct the stored card explicitly — never spread the raw AI
       // object so unexpected keys cannot pollute the gachaCollection state/localStorage.
+      // Fix: also strip control chars from all string fields before persisting — the AI
+      // response is external input and could contain C0/C1 controls or zero-width chars
+      // that would be silently stored then rendered or re-injected into prompts.
+      const stripGachaStr = (s, max) => typeof s === "string" ? sanitizeForPrompt(s).replace(/[\u200B-\u200D\uFEFF]/g, "").slice(0, max) : null;
       const safeCard = {
         id:       typeof card.id === "string" ? card.id.slice(0, 80).replace(/[^a-zA-Z0-9_-]/g, "_") : `gacha_${crypto.randomUUID()}`, // Fix: was Date.now()
         type:     ["rank_cosmetic","chronicle"].includes(card.type) ? card.type : "rank_cosmetic",
         rarity:   ["common","rare","epic","legendary"].includes(card.rarity) ? card.rarity : "common",
-        title:    typeof card.title === "string" ? card.title.slice(0, 120) : "Unknown",
-        content:  typeof card.content === "string" ? card.content.slice(0, 1000) : "",
+        title:    stripGachaStr(card.title, 120) ?? "Unknown",
+        content:  stripGachaStr(card.content, 1000) ?? "",
         style:    ["ascii","dots","geometric","typewriter"].includes(card.style) ? card.style : "ascii",
-        source:   typeof card.source === "string" ? card.source.slice(0, 120) : null,
-        asciiArt: typeof card.asciiArt === "string" ? card.asciiArt.slice(0, 500) : null,
+        source:   stripGachaStr(card.source, 120),
+        asciiArt: stripGachaStr(card.asciiArt, 500),
       };
-
-      if (collection.find(c => c.id === safeCard.id)) {
-        showBanner("Duplicate generated. No XP consumed.", "info");
-        setPulling(false);
-        return;
-      }
 
       // Build the snapshot for updateDynamicCosts from the latest ref (best available XP value).
       const currentState = latestStateRef?.current ?? state;
-      const snapshotForCosts = {
+
+      // Duplicate check and XP deduction both happen inside the updater so they read
+      // authoritative (latest-committed) state. A stale-closure check here would allow
+      // a rapid double-tap to pass both checks and store two identical cards.
+      let isDuplicate = false;
+      let snapshotForCosts = null;
+      setState((s) => {
+        // Fix: cap gachaCollection to match sync validator bound.
+        if ((s.gachaCollection || []).length >= 2000) { isDuplicate = true; return s; }
+        // Authoritative duplicate check using committed state.
+        if ((s.gachaCollection || []).find(c => c.id === safeCard.id)) { isDuplicate = true; return s; }
+        // Guard: ensure the XP cost is still affordable in latest state.
+        if (s.xp < gachaCost) { isDuplicate = true; return s; }
+        const next = {
+          ...s,
+          xp: Math.max(0, s.xp - gachaCost),
+          gachaCollection: [...(s.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
+        };
+        snapshotForCosts = next;
+        return next;
+      });
+
+      if (isDuplicate) {
+        showBanner("Duplicate generated or insufficient XP. No XP consumed.", "info");
+        setPulling(false);
+        pullingRef.current = false;
+        return;
+      }
+
+      const costsSnapshot = snapshotForCosts ?? {
         ...currentState,
         xp: Math.max(0, currentState.xp - gachaCost),
         gachaCollection: [...(currentState.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
       };
 
-      // Use an updater function so this setState is safely batched with concurrent updates
-      // instead of clobbering them by spreading a stale snapshot directly.
-      setState((s) => ({
-        ...s,
-        xp: Math.max(0, s.xp - gachaCost),
-        gachaCollection: [...(s.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
-      }));
-
-      updateDynamicCosts(getGeminiApiKey(), snapshotForCosts, "gacha_pull", trackTokens).then((costs) => {
+      updateDynamicCosts(getGeminiApiKey(), costsSnapshot, "gacha_pull", trackTokens).then((costs) => {
         if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
       }).catch(() => {});
 
@@ -528,6 +579,7 @@ Respond ONLY with JSON:
       showBanner("Pull failed. System error.", "alert");
     }
     setPulling(false);
+    pullingRef.current = false;
   }
 
   return (
@@ -595,6 +647,18 @@ function GachaCard({ card, compact }) {
   const s = styleMap[card.style] || styleMap.ascii;
   const r = ACHIEVEMENT_RARITIES[card.rarity] || ACHIEVEMENT_RARITIES.common;
 
+  // Fix [PR-3]: sanitize card fields at render time to clean up cards stored before
+  // the stripGachaStr sanitizer was added. React auto-escapes HTML, so XSS is not
+  // possible, but stored control characters or BiDi overrides can still reach the DOM
+  // from pre-sanitizer entries and cause visual confusion.
+  const SAFE_GACHA_RENDER_REGEX = new RegExp(
+    "[\\x00-\\x1F\\x7F-\\x9F\\u200B-\\u200D\\uFEFF\\u202A-\\u202E\\u2066-\\u2069]".replace(/\\x00-\\x1F/, "\u0000-\u001F"),
+    "g",
+  );
+  const safeRenderStr = (v) => typeof v === "string"
+    ? v.replace(SAFE_GACHA_RENDER_REGEX, "")
+    : (v ?? "");
+
   return (
     <div style={{
       border: `1px solid ${r.glow}`, padding: "16px",
@@ -603,9 +667,9 @@ function GachaCard({ card, compact }) {
     }} onClick={() => compact && setExpanded(!expanded)}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
         <div>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px" }}>{card.title}</div>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px" }}>{safeRenderStr(card.title)}</div>
           <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#555", marginTop: "2px" }}>
-            {card.type === "chronicle" ? `CHRONICLE · ${card.source}` : "RANK COSMETIC"} · {r.label}
+            {card.type === "chronicle" ? `CHRONICLE · ${safeRenderStr(card.source)}` : "RANK COSMETIC"} · {r.label}
           </div>
         </div>
         {compact && <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", color: "#444" }}>{expanded ? "▲" : "▼"}</span>}
@@ -615,11 +679,11 @@ function GachaCard({ card, compact }) {
         <>
           {card.asciiArt && (
             <pre style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", color: "#aaa", margin: "8px 0", lineHeight: "1.4", whiteSpace: "pre-wrap" }}>
-              {card.asciiArt}
+              {safeRenderStr(card.asciiArt)}
             </pre>
           )}
           <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#ccc", marginTop: "8px", whiteSpace: "pre-wrap" }}>
-            {card.content}
+            {safeRenderStr(card.content)}
           </div>
         </>
       )}

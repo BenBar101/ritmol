@@ -143,6 +143,7 @@ export function SessionLogModal({ onClose, onSubmit, state }) {
           value={course}
           onChange={(e) => setCourse(e.target.value)}
           placeholder="Course / subject..."
+          maxLength={100}
           style={{ ...inputStyle(sStyle), marginBottom: "12px" }}
         />
 
@@ -175,7 +176,7 @@ export function SessionLogModal({ onClose, onSubmit, state }) {
         </div>
 
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)..."
-          rows={2} style={{ ...inputStyle(sStyle), marginBottom: "12px" }} />
+          rows={2} maxLength={500} style={{ ...inputStyle(sStyle), marginBottom: "12px" }} />
 
         <div style={{ textAlign: "center", fontSize: "20px", fontWeight: "bold", marginBottom: "12px" }}>
           +{xpPreview} XP

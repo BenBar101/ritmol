@@ -25,6 +25,10 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
     generationConfig: {
       temperature: 0.7,
       maxOutputTokens: 1024,
+      // Fix: set response_mime_type when jsonMode is requested so the API enforces
+      // valid JSON output — this prevents partial/malformed JSON responses that
+      // crash the JSON.parse call in callers.
+      ...(jsonMode ? { response_mime_type: "application/json" } : {}),
     },
   };
 
@@ -49,7 +53,19 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
       signal.removeEventListener("abort", abort);
     };
   } else {
-    effectiveSignal = AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined;
+    // No caller signal provided.
+    if (AbortSignal.timeout) {
+      effectiveSignal = AbortSignal.timeout(30000);
+    } else {
+      // Fix: AbortSignal.timeout is unavailable (older browsers) and no caller signal
+      // was provided. Without this fallback the fetch would run with NO timeout at all,
+      // potentially hanging forever. Use a manual AbortController so the 30-second
+      // deadline always fires regardless of browser support.
+      const fallback = new AbortController();
+      const tid = setTimeout(() => fallback.abort(), 30000);
+      effectiveSignal = fallback.signal;
+      _cleanup = () => clearTimeout(tid);
+    }
   }
 
   try {
@@ -65,7 +81,19 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      throw new Error(`Gemini ${res.status}: ${errBody.slice(0, 200)}`);
+      // Fix [G-1]: Redact both JWT-format tokens (eyJ...) AND Gemini API key format
+      // (AIzaSy... — 39 chars total). Gemini 400/403 error bodies frequently echo the
+      // key verbatim in the message ("API key not valid. [key: AIzaSy...]"), which would
+      // surface in ErrorBoundary, browser console, and the in-chat error message.
+      const safeBody = errBody
+        .replace(/eyJ[\w.-]+/g, "[token]")          // JWT bearer tokens
+        .replace(/AIza[A-Za-z0-9_-]{35}/g, "[key]") // Gemini API keys
+        .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]") // Google OAuth access tokens
+        .replace(/[A-Za-z0-9_-]{40,}/g, (m) =>          // Any other long token-like strings
+          m.length > 60 ? "[token]" : m
+        )
+        .slice(0, 200);
+      throw new Error(`Gemini ${res.status}: ${safeBody}`);
     }
 
     const data = await res.json();

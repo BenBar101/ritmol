@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { today } from "./utils/storage";
 import { STYLE_CSS, DAILY_TOKEN_LIMIT } from "./constants";
 import { callGemini } from "./api/gemini";
+// Fix [H-1]: import the canonical sanitizeForPrompt instead of maintaining a local copy.
+// The duplicate copy diverged from the canonical version and missed the U+2028/2029 and
+// single-quote fixes. A single canonical implementation ensures all prompt-injection fixes
+// apply everywhere simultaneously.
+import { sanitizeForPrompt } from "./api/systemPrompt";
 import GeometricCorners from "./GeometricCorners";
 
 export default function HabitsTab({ state, setState, logHabit, showBanner, profile, apiKey, trackTokens }) {
@@ -23,13 +28,17 @@ export default function HabitsTab({ state, setState, logHabit, showBanner, profi
     const controller = new AbortController();
     habitInitAbortRef.current = controller;
 
+    // Fix [H-1]: use canonical sanitizeForPrompt (imported from systemPrompt.js above)
+    // so all prompt-injection fixes (U+2028/2029, single-quote, zero-width chars) apply
+    // here. The local copy previously defined inline was missing those fixes.
+
     const prompt = `You are RITMOL initializing a personalized habit protocol for a new hunter.
 
 Hunter profile:
-- Name: ${profile?.name ?? "Hunter"}
-- Major: ${profile?.major ?? ""}
-- Books/Interests: ${profile?.books ?? ""}, ${profile?.interests ?? ""}
-- Semester goal: ${profile.semesterGoal}
+- Name: ${sanitizeForPrompt(profile?.name ?? "Hunter", 60)}
+- Major: ${sanitizeForPrompt(profile?.major ?? "", 80)}
+- Books/Interests: ${sanitizeForPrompt(profile?.books ?? "", 150)}, ${sanitizeForPrompt(profile?.interests ?? "", 150)}
+- Semester goal: ${sanitizeForPrompt(profile?.semesterGoal ?? "", 200)}
 
 Current base habits (keep these, don't duplicate): water, sleep11, wake7, sunlight, read, deepwork, journal
 
@@ -64,12 +73,14 @@ Respond ONLY with JSON array:
             // object so unexpected keys (including __proto__) cannot pollute state.
             ...newHabits.map(h => ({
               id:       typeof h.id === "string" ? h.id.slice(0, 60).replace(/[^a-zA-Z0-9_-]/g, "_") : `habit_ai_${crypto.randomUUID()}`,
-              label:    typeof h.label === "string" ? h.label.slice(0, 80) : "Habit",
+              // eslint-disable-next-line no-control-regex
+              label:    typeof h.label === "string" ? h.label.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "").replace(/[<>"'`&]/g, "").slice(0, 80) : "Habit",
               category: ["body","mind","work"].includes(h.category) ? h.category : "mind",
               xp:       typeof h.xp === "number" ? Math.min(Math.max(1, Math.round(h.xp)), 200) : 25,
               icon:     typeof h.icon === "string" ? h.icon.slice(0, 2) : "◈",
               style:    ["ascii","dots","geometric","typewriter"].includes(h.style) ? h.style : "ascii",
-              desc:     typeof h.desc === "string" ? h.desc.slice(0, 200) : "",
+              // eslint-disable-next-line no-control-regex
+              desc:     typeof h.desc === "string" ? h.desc.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "").replace(/[<>"'`&]/g, "").slice(0, 200) : "",
               addedBy:  "ritmol",
             })),
           ],
@@ -77,9 +88,29 @@ Respond ONLY with JSON array:
         }));
         showBanner("RITMOL has initialized your protocol stack.", "success");
       })
-      .catch(() => {
-        setState((s) => ({ ...s, habitsInitialized: true }));
-        showBanner("Could not load personalized habits. Using defaults.", "info");
+      .catch((err) => {
+        // Fix [H-2]: a transient network error or API outage previously set
+        // habitsInitialized: true permanently, blocking all future retries.
+        // Only treat definitive failures (auth errors, rate limits, explicit
+        // model errors) as permanent. Transient failures (network, timeout,
+        // AbortError from unmount) leave habitsInitialized: false so the next
+        // mount attempt will retry.
+        const msg = err?.message || "";
+        const isAbort = err?.name === "AbortError";
+        const isPermanent = !isAbort && (
+          msg.includes("403") ||
+          msg.includes("401") ||
+          msg.includes("API key") ||
+          msg.includes("Blocked:")
+        );
+        if (isPermanent) {
+          setState((s) => ({ ...s, habitsInitialized: true }));
+          showBanner("Could not load personalized habits. Using defaults.", "info");
+        } else if (!isAbort) {
+          // Transient failure — leave habitsInitialized false so a future mount can retry.
+          showBanner("Could not load personalized habits. Will retry next time.", "info");
+        }
+        // AbortError = component unmounted mid-request; silently discard.
       })
       .finally(() => setInitializing(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps

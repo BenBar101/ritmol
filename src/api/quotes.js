@@ -30,7 +30,9 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
   // Quotable is free and consumes no Gemini tokens.
   const key = storageKey(`jv_quote_${today()}`);
 
-  // Evict stale quote cache keys from previous days
+  // Evict stale quote cache keys from previous days.
+  // Fix: collect all keys first BEFORE deleting — iterating localStorage while
+  // modifying it is undefined behaviour in some browsers (key indices can shift).
   try {
     const quotePrefix = IS_DEV ? `${DEV_PREFIX}jv_quote_` : "jv_quote_";
     const staleKeys = [];
@@ -38,6 +40,7 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
       const k = localStorage.key(i);
       if (k && k.startsWith(quotePrefix) && k !== key) staleKeys.push(k);
     }
+    // Delete only after the snapshot is complete.
     staleKeys.forEach((k) => localStorage.removeItem(k));
   } catch { /* localStorage may be unavailable — silently skip eviction */ }
 
@@ -46,6 +49,12 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
 
   if (_quoteInFlight) return null;
   _quoteInFlight = true;
+
+  // Validate quote shape before caching to avoid storing malformed objects
+  function isValidQuote(q) {
+    return q && typeof q.quote === "string" && q.quote.trim() &&
+           typeof q.author === "string" && q.author.trim();
+  }
 
   // Create a fresh timeout signal per fetch so each attempt gets its own independent budget.
   const makeSignal = () => AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined;
@@ -74,7 +83,8 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
         const quoteArr = await quoteRes.json();
         const q = Array.isArray(quoteArr) ? quoteArr[0] : quoteArr?.results?.[0];
         if (q?.content && q?.author) {
-          hit = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+          const candidate = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+          if (isValidQuote(candidate)) hit = candidate;
         }
       } catch {
         // Network error on one token — try the next
@@ -91,21 +101,26 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
           const fallbackArr = await fallbackRes.json();
           const q = Array.isArray(fallbackArr) ? fallbackArr[0] : fallbackArr?.results?.[0];
           if (q?.content && q?.author) {
-            hit = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+            const candidate = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+            if (isValidQuote(candidate)) hit = candidate;
           }
         }
       } catch { /* Network error on token lookup — try next */ }
     }
 
     if (hit) {
+      // Strip control characters and limit lengths before persisting to localStorage.
+      // A compromised or spoofed API response should not be able to store content that
+      // could be injected into the system prompt or rendered with unexpected characters.
+      // eslint-disable-next-line no-control-regex
+      const stripCtrl = (s) => String(s).replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "").replace(/[<>]/g, "");
       const safe = {
-        quote:  String(hit.quote).slice(0, 500),
-        author: String(hit.author).slice(0, 100),
-        source: String(hit.source).slice(0, 100),
+        quote:  stripCtrl(hit.quote).slice(0, 500),
+        author: stripCtrl(hit.author).slice(0, 100),
+        source: stripCtrl(hit.source).slice(0, 100),
         confident: true,
       };
       LS.set(key, safe);
-      _quoteInFlight = false;
       return safe;
     }
   } catch {

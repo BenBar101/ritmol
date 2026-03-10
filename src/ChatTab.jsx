@@ -3,6 +3,11 @@ import { today, LS, storageKey } from "./utils/storage";
 import { DAILY_TOKEN_LIMIT, DATA_DISCLOSURE_SEEN_KEY } from "./constants";
 import { callGemini } from "./api/gemini";
 
+// Module-level — compiled once
+// eslint-disable-next-line no-control-regex
+const STRIP_FOR_API_RE = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u200B-\u200D\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const INJECTION_CHARS_RE = /[<>{}`"'\\]/g;
+
 export default function ChatTab({ state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, trackTokens }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -48,7 +53,12 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const userMsg = { role: "user", content: text, ts: Date.now(), date: today() };
+    const sanitizedUserContent = text
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029\u200B-\u200D\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
+      .replace(/[\u2039\u203A\u27E8\u27E9\u276C-\u276F\uFE3D\uFE3E\u2329\u232A]/g, "") // angle homoglyphs
+      .slice(0, MAX_INPUT_LENGTH);
+    const userMsg = { role: "user", content: sanitizedUserContent, ts: Date.now(), date: today() };
     const newHistory = [...messages, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
     setInput("");
@@ -56,15 +66,17 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
 
     try {
       const systemPrompt = buildSystemPrompt(state, profile);
-      // Only send last 20 messages to avoid context overflow.
-      // Fix #2/#3 (security): strip angle brackets from ALL replayed messages — not just
-      // new user input — so content stored before sanitization was added (or injected via
-      // a crafted sync file) cannot break out of the HUNTER_DATA XML-like boundary.
-      // Assistant messages are AI-generated but were stored in localStorage and could
-      // have been tampered with via a sync file.
+      // Fix [C-2]: use the canonical sanitization set (control chars + injection chars)
+      // when re-sending stored messages to the API, not just angle brackets. Old stored
+      // messages may predate sanitization, and assistant messages could have been tampered
+      // via a crafted sync file. This prevents stored injections from breaking out of the
+      // HUNTER_DATA boundary on replay into future API calls.
+      const stripForApi = (s) => typeof s === "string"
+        ? s.replace(STRIP_FOR_API_RE, "").replace(INJECTION_CHARS_RE, "").slice(0, 2000)
+        : "";
       const apiMessages = newHistory.slice(-20).map((m) => ({
         role: m.role,
-        content: m.content.replace(/[<>]/g, ""),
+        content: stripForApi(m.content),
       }));
       const { text: raw, tokensUsed } = await callGemini(apiKey, apiMessages, systemPrompt, true, controller.signal);
       trackTokens?.(tokensUsed);
@@ -89,9 +101,18 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
         }
       }
 
+      const rawContent = parsed.message || parsed.text || String(parsed);
+      // Fix: sanitize AI-returned message content before persisting to localStorage and
+      // the sync file. Although systemPrompt.js re-sanitizes on replay, storing raw
+      // content means control characters or oversized strings end up on disk.
+      const safeContent = rawContent
+        // eslint-disable-next-line no-control-regex -- intentional: strip control chars
+        .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+        .slice(0, 2000);
+
       const assistantMsg = {
         role: "assistant",
-        content: parsed.message || parsed.text || String(parsed),
+        content: safeContent,
         ts: Date.now(),
         date: today(),
       };
@@ -133,7 +154,10 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
     r.lang = "en-US";
     r.onresult = (e) => {
       const transcript = e.results[0][0].transcript;
-      sendMessage(transcript);
+      // Fix: enforce the same MAX_INPUT_LENGTH cap on voice transcripts as on typed input —
+      // an unusually long transcript could bypass the typed-input guard and burn the token budget.
+      const trimmed = transcript.slice(0, MAX_INPUT_LENGTH);
+      sendMessage(trimmed);
       setIsListening(false);
     };
     r.onerror = () => setIsListening(false);
@@ -182,11 +206,12 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
           </div>
         )}
         {messages.map((msg, i) => (
-          // Fix #7 (bug): use msg.ts (creation timestamp) as the React key instead of
-          // array index. Index-based keys cause stale rendering when messages are removed
-          // (e.g. after a Pull) because React reuses DOM nodes by position, not identity.
-          // ts is set at message creation and is unique within a session.
-          <ChatMessage key={msg.ts ?? i} msg={msg} />
+          // Fix [C-1]: use a compound key (ts + role + index) instead of ts alone.
+          // Two messages created within the same millisecond (e.g. user message + immediate
+          // error) share the same ts, producing duplicate keys and incorrect React diffing.
+          // Including role and index makes the key unique without using index alone (which
+          // causes stale rendering when the array shrinks after a Pull).
+          <ChatMessage key={`${msg.ts ?? i}_${msg.role}_${i}`} msg={msg} />
         ))}
         {loading && (
           <div style={{ display: "flex", gap: "6px", padding: "8px 0" }}>
@@ -258,6 +283,12 @@ export default function ChatTab({ state, setState, profile, apiKey, executeComma
 
 function ChatMessage({ msg }) {
   const isRitmol = msg.role === "assistant";
+  // Fix: strip angle brackets from displayed content — even though React escapes HTML in
+  // text nodes, this is defence-in-depth against stored content that was injected via a
+  // tampered sync file and contains HTML-like structures that could mislead users.
+  const safeContent = typeof msg.content === "string"
+    ? msg.content.replace(/[<>]/g, "")
+    : String(msg.content ?? "");
   return (
     <div style={{
       display: "flex", flexDirection: "column",
@@ -276,7 +307,7 @@ function ChatMessage({ msg }) {
         fontFamily: isRitmol ? "'Share Tech Mono', monospace" : "'Share Tech Mono', monospace",
         fontSize: "13px", lineHeight: "1.5", color: "#e8e8e8",
       }}>
-        {msg.content}
+        {safeContent}
       </div>
     </div>
   );

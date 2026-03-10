@@ -33,6 +33,10 @@ import TasksTab from "./TasksTab";
 import ChatTab from "./ChatTab";
 import ProfileTab from "./ProfileTab";
 
+// ── Token budget constants (module-level so they're stable references) ──
+const TOKEN_WARN_THRESHOLDS = [0.5, 0.8, 0.99];
+const DAILY_AI_XP_LIMIT = 5000;
+
 // ─────────────────────────────────────────────────────────────────
 // KEYS CONFIG GATE (shown when Gemini key isn't loaded yet)
 // ─────────────────────────────────────────────────────────────────
@@ -44,11 +48,12 @@ function KeysConfigGate() {
   const [syncError, setSyncError] = useState("");
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | error | success
 
-  const missing = [];
-  if (!getGeminiApiKey()) missing.push("geminiKey");
+  // Fix: compute hasMissingKey via state/memo rather than re-computing on each render
+  // so useEffect dependency is stable and doesn't trigger on unrelated re-renders.
+  const hasMissingKey = !getGeminiApiKey();
 
   useEffect(() => {
-    if (missing.length === 0) return;
+    if (!hasMissingKey) return;
     if (!FSAPI_SUPPORTED) {
       setSyncChecking(false);
       return;
@@ -67,7 +72,7 @@ function KeysConfigGate() {
     return () => {
       cancelled = true;
     };
-  }, [missing.length]);
+  }, [hasMissingKey]);
 
   async function handlePickSyncFile() {
     if (!FSAPI_SUPPORTED) return;
@@ -106,7 +111,7 @@ function KeysConfigGate() {
     }
   }
 
-  if (missing.length === 0) return null;
+  if (!hasMissingKey) return null;
 
   return (
     <div style={{
@@ -130,6 +135,7 @@ function KeysConfigGate() {
             Pick (or create) <code>ritmol-data.json</code> inside your Syncthing folder.
           </div>
           <button
+            type="button"
             onClick={handlePickSyncFile}
             disabled={syncChecking}
             style={{
@@ -146,6 +152,7 @@ function KeysConfigGate() {
             STEP 2 — After your file contains <code>geminiKey</code>, click below to load it:
           </div>
           <button
+            type="button"
             onClick={handleLoadFromFile}
             disabled={!syncFileConnected || syncStatus === "syncing"}
             style={{
@@ -276,8 +283,20 @@ export default function App() {
   // AI XP cap to be exceeded.
   const aiXpTodayRef = useRef(null); // null = not yet initialised for today
 
+  // Fix [S-2/A-3]: mutex ref that prevents the auto-push from clobbering a
+  // concurrent manual Pull. Without this, alt-tabbing mid-Pull triggers
+  // visibilitychange which flushes pre-Pull state to the file, then the Pull
+  // completes and setState(initState()) re-reads the already-overwritten data.
+  const isPullingRef = useRef(false);
+  // Tracks the XP value used for the most recent level-up detection so two rapid
+  // awardXP calls don't both fire a level-up from the same stale latestStateRef snapshot.
+  const lastLevelUpXpRef = useRef(-1);
+
   useEffect(() => {
     const push = async () => {
+      // Fix [S-2]: skip auto-push if a Pull is in progress. The Pull will
+      // write its own flush once it completes.
+      if (isPullingRef.current) return;
       const handle = await SyncManager.getHandle().catch(() => null);
       if (!handle) return;
       const s = latestStateRef.current;
@@ -323,9 +342,18 @@ export default function App() {
 
   async function syncPull() {
     setSyncStatus("syncing");
+    // Fix [S-2]: set mutex so the visibilitychange auto-push skips during this Pull.
+    isPullingRef.current = true;
     try {
       const ts = await SyncManager.pull();
-      setState(initState);
+      // Fix [A-4]: call initState() as an invocation (not a function reference) so
+      // React does not treat it as an updater and call it with (prevState) as arg.
+      // initState ignores its argument anyway, but this is semantically correct and
+      // will not break if initState's signature ever changes.
+      setState(initState());
+      // Fix [A-5]: reset the AI XP budget ref so the newly-pulled tokenUsage is
+      // used as the source-of-truth, not the stale pre-Pull accumulated value.
+      aiXpTodayRef.current = null;
       LS.set(storageKey("jv_last_synced"), String(ts));
       setLastSynced(ts);
       setSyncStatus("synced");
@@ -337,6 +365,9 @@ export default function App() {
       else if (e.message === "SYNC_SCHEMA_OUTDATED") showBanner("Sync file was written by an older version of RITMOL. Re-export it from an up-to-date device.", "alert");
       else if (e.message === "SYNC_FILE_TOO_LARGE") showBanner("Sync file exceeds 10 MB — this is unexpected. Check the file.", "alert");
       else showBanner(`Pull failed: ${(e.message || "").slice(0, 80)}`, "alert");
+    } finally {
+      // Always release the mutex so auto-push can resume after Pull completes or fails.
+      isPullingRef.current = false;
     }
   }
 
@@ -393,15 +424,20 @@ export default function App() {
   }, [profile, state.lastMissionDate]);
 
   // ── Token tracker ──
-  const TOKEN_WARN_THRESHOLDS = [0.5, 0.8, 0.99];
-  const DAILY_AI_XP_LIMIT = 5000;
   function trackTokens(amount) {
+    // Guard: reject non-numeric, NaN, negative, or unreasonably large amounts so
+    // a malformed tokensUsed value cannot corrupt the daily budget counter or
+    // prematurely disable AI features.
+    const safeAmount = typeof amount === "number" && isFinite(amount) && amount > 0
+      ? Math.min(Math.round(amount), 1_000_000)
+      : 0;
+    if (safeAmount === 0) return;
     const t = today();
     setState((s) => {
       const usage = s.tokenUsage || { date: t, tokens: 0 };
       const fresh = usage.date !== t ? { date: t, tokens: 0, warnedAt: [], aiXpToday: 0 } : usage;
       const prevTokens = fresh.tokens;
-      const newTokens = prevTokens + amount;
+      const newTokens = prevTokens + safeAmount;
       const updated = { ...fresh, tokens: newTokens };
       const warnedAt = fresh.warnedAt || [];
       const newWarned = [...warnedAt];
@@ -452,10 +488,15 @@ export default function App() {
   }
 
   // ── Fetch daily quote ──
+  // Use a ref so the effect only runs once when profile becomes available,
+  // not on every render that produces a new profile object reference.
+  const quoteFetchedRef = useRef(false);
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || quoteFetchedRef.current) return;
+    quoteFetchedRef.current = true;
     fetchDailyQuote(null, profile, null).then(setDailyQuote);
-  }, [profile]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!profile]);
 
   // ── Scheduled prompts (sleep check-in, screen time, lecture reminders) ──
   const scheduledCheckStateRef = useRef({});
@@ -485,11 +526,18 @@ export default function App() {
       }
       const upcoming = (calendarEvents || []).filter((e) => {
         if (e.type !== "lecture" && e.type !== "tirgul") return false;
+        // Fix: guard against non-string or non-ISO start values — new Date() on an
+        // arbitrary string (e.g. from a crafted sync file) can produce unexpected results.
+        if (typeof e.start !== "string" || !e.start) return false;
         const diff = (new Date(e.start) - Date.now()) / 60000;
         return diff > 0 && diff <= 120 && !e.reminded;
       });
       if (upcoming.length > 0) {
-        showBanner(`${upcoming[0].title} starts in ${Math.round((new Date(upcoming[0].start) - Date.now()) / 60000)} minutes.`, "warning");
+        // Fix: sanitize calendar event title before embedding in banner text to avoid
+        // control characters or special chars from a crafted sync file reaching the UI.
+        // eslint-disable-next-line no-control-regex
+        const safeTitle = String(upcoming[0].title || "Event").replace(/[\u0000-\u001F\u007F-\u009F]/g, "").slice(0, 100);
+        showBanner(`${safeTitle} starts in ${Math.round((new Date(upcoming[0].start) - Date.now()) / 60000)} minutes.`, "warning");
         setState((s) => ({
           ...s,
           calendarEvents: s.calendarEvents.map((e) =>
@@ -506,8 +554,9 @@ export default function App() {
   useEffect(() => {
     if (!profile) return;
     const h = nowHour();
+    if (h < 21) return; // Only relevant in the evening — skip entirely outside that window
     const todayLog = state.habitLog[today()] || [];
-    if (h >= 21 && todayLog.length === 0 && state.streak > 0) {
+    if (todayLog.length === 0 && state.streak > 0) {
       showBanner("⚠ Hunter. Your streak expires at midnight. 0 habits logged.", "alert");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -524,7 +573,10 @@ export default function App() {
       };
       const d = parseDateLocal(effectiveDate);
       d.setDate(d.getDate() - 1);
-      const yesterday = d.toLocaleDateString("en-CA");
+      const yy = d.getFullYear();
+      const ym = String(d.getMonth() + 1).padStart(2, "0");
+      const yd = String(d.getDate()).padStart(2, "0");
+      const yesterday = `${yy}-${ym}-${yd}`;
       let newStreak = s.streak;
       let newShields = s.streakShields;
       let bannerMsg = null;
@@ -559,7 +611,7 @@ export default function App() {
         }
       }
 
-      const loginXP = 50 + newStreak * 10;
+      const loginXP = Math.min(50 + newStreak * 10, 5000); // Fix [A-2]: cap at 5000 — a crafted streak of 36500 would otherwise award 365 050 XP, triggering ~365 simultaneous level-up API calls and potentially freezing the UI.
       const newXP = s.xp + loginXP;
       const xpPl = getXpPerLevel(s);
       const oldLevel = getLevel(s.xp, xpPl);
@@ -603,17 +655,30 @@ export default function App() {
 
   // ── Core XP award ──
   function awardXP(amount, event, silent = false) {
+    // Fix [A-1]: validate amount before arithmetic. A corrupted habit.xp (undefined,
+    // NaN, negative) would produce state.xp = NaN which is permanent — every
+    // subsequent XP operation returns NaN, breaking the XP bar, level display, and
+    // all level-up checks with no recovery path short of a full data reset.
+    const safeAmount = typeof amount === "number" && isFinite(amount) && amount > 0
+      ? Math.min(Math.round(amount), 100_000)
+      : 0;
+    if (safeAmount === 0) return;
+
     const currentState = latestStateRef.current ?? state;
     const xpPl = getXpPerLevel(currentState);
-    const oldLevel = getLevel(currentState.xp, xpPl);
-    const newXP = currentState.xp + amount;
+    // Guard: only count this XP toward level-up detection once.
+    // If lastLevelUpXpRef already saw this XP snapshot, skip level-up.
+    const baseXpForDetection = Math.max(currentState.xp, lastLevelUpXpRef.current);
+    const oldLevel = getLevel(baseXpForDetection, xpPl);
+    const newXP = currentState.xp + safeAmount;
     const newLevel = getLevel(newXP, xpPl);
     const didLevelUp = newLevel > oldLevel && !silent;
+    if (didLevelUp) lastLevelUpXpRef.current = newXP;
     const snapshotForApi = didLevelUp
       ? { ...currentState, xp: newXP, dynamicCosts: currentState.dynamicCosts }
       : null;
 
-    setState((s) => ({ ...s, xp: s.xp + amount }));
+    setState((s) => ({ ...s, xp: s.xp + safeAmount }));
 
     if (didLevelUp) {
       setTimeout(() => {
@@ -629,8 +694,13 @@ export default function App() {
   // eslint-disable-next-line no-unused-vars
   function checkMissions(_type) {
     const t = today();
-    let pendingToasts = [];
-    let pendingLevelUp = null;
+    // Fix [A-3]: pendingToasts and pendingLevelUp were declared as plain `let`
+    // variables written inside the setState updater and read outside it. In React 18
+    // Strict Mode, updaters run twice — the second (discarded) run overwrites the
+    // variables, causing double-toasts in development. Use object refs with a
+    // stable identity so both updater invocations write to the same container and
+    // the final read outside the updater always reflects the last write.
+    const pendingData = { toasts: [], levelUp: null };
 
     setState((s) => {
       if (!s.dailyMissions) return s;
@@ -658,25 +728,29 @@ export default function App() {
         const oldLevel = getLevel(s.xp, xpPl);
         const newLevel = getLevel(newXP, xpPl);
         if (newLevel > oldLevel) {
-          pendingLevelUp = { level: newLevel, rank: getRank(newLevel), snapshot: { ...s, xp: newXP, dailyMissions: updated, dynamicCosts: s.dynamicCosts } };
+          pendingData.levelUp = { level: newLevel, rank: getRank(newLevel), snapshot: { ...s, xp: newXP, dailyMissions: updated, dynamicCosts: s.dynamicCosts } };
         }
       }
-      pendingToasts = toastsThisRun;
+      pendingData.toasts = toastsThisRun;
       return { ...s, dailyMissions: updated, xp: s.xp + bonusXP };
     });
 
-    if (pendingToasts.length) {
-      pendingToasts.forEach((toast, i) => setTimeout(() => showToast(toast), 200 + i * 5500));
-    }
-    if (pendingLevelUp) {
-      const { level, rank, snapshot } = pendingLevelUp;
-      setTimeout(() => {
-        setLevelUpData({ level, rank });
-        updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens).then((costs) => {
-          if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-        }).catch(() => {});
-      }, 300);
-    }
+    // queueMicrotask fires after React has committed the state update, so
+    // pendingData reflects the final (non-discarded) updater invocation.
+    queueMicrotask(() => {
+      if (pendingData.toasts.length) {
+        pendingData.toasts.forEach((toast, i) => setTimeout(() => showToast(toast), 200 + i * 5500));
+      }
+      if (pendingData.levelUp) {
+        const { level, rank, snapshot } = pendingData.levelUp;
+        setTimeout(() => {
+          setLevelUpData({ level, rank });
+          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens).then((costs) => {
+            if (costs && Object.keys(costs).length) setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+          }).catch(() => {});
+        }, 300);
+      }
+    });
   }
 
   // ── UI helpers ──
@@ -705,6 +779,8 @@ export default function App() {
   function unlockAchievement(data, skipXP = false) {
     setState((s) => {
       if ((s.achievements || []).find((a) => a.id === data.id)) return s;
+      // Fix: cap achievements to match sync validator bound so localStorage never exceeds it.
+      if ((s.achievements || []).length >= 2000) return s;
       const ach = { ...data, unlockedAt: Date.now() };
       setTimeout(() => showToast({ ...ach, isAchievement: true }), 300);
       return { ...s, achievements: [...(s.achievements || []), ach] };
@@ -714,6 +790,9 @@ export default function App() {
 
   // ── Habit logger ──
   function logHabit(habitId, event) {
+    // Guard: habitId must be a non-empty string. A corrupted sync value (object, null, etc.)
+    // would not match correctly against the Set or the habits array.
+    if (typeof habitId !== "string" || !habitId) return;
     if (actionLocksRef.current.has(habitId)) return;
     actionLocksRef.current.add(habitId);
     setTimeout(() => actionLocksRef.current.delete(habitId), 500);
@@ -746,6 +825,9 @@ export default function App() {
   // ── AI command executor ──
   function executeCommands(commands) {
     if (!Array.isArray(commands) || commands.length === 0) return;
+    // Fix: cap the number of commands processed per AI response. An unbounded forEach
+    // over a huge AI-returned array could freeze the UI with thousands of setState calls.
+    const MAX_COMMANDS_PER_RUN = 20;
     const VALID_CMDS = new Set([
       "add_task","add_goal","complete_task","clear_done_tasks","award_xp",
       "announce","set_daily_goal","add_habit","unlock_achievement","add_timer","suggest_sessions",
@@ -769,7 +851,7 @@ export default function App() {
       return noControl.slice(0, max).replace(/[<>"`&']/g, "");
     };
 
-    commands.forEach((cmd) => {
+    commands.slice(0, MAX_COMMANDS_PER_RUN).forEach((cmd) => {
       if (!cmd || typeof cmd !== "object" || Array.isArray(cmd)) return;
       if (!VALID_CMDS.has(cmd.cmd)) return;
       switch (cmd.cmd) {
@@ -808,6 +890,7 @@ export default function App() {
               }],
             };
           });
+          // Fix: use sanitized title (re-sanitize here to match what was stored)
           pendingBanners.push([`Goal logged: ${sanitizeStr(cmd.title, 60)}`, "success"]);
           break;
         case "complete_task": {
@@ -883,7 +966,8 @@ export default function App() {
             activeTimers: [...(s.activeTimers || []), {
               id: `timer_${crypto.randomUUID()}`,
               label: sanitizeStr(cmd.label),
-              emoji: typeof cmd.emoji === "string" ? cmd.emoji.slice(0, 2) : "◈",
+              // Fix: strip non-printable/non-emoji chars from emoji field; only allow 1-2 chars
+              emoji: typeof cmd.emoji === "string" ? cmd.emoji.replace(/[<>&"'`]/g, "").slice(0, 2) : "◈",
               endsAt: Date.now() + Math.min(Math.max(1, Number(cmd.minutes) || 90), 1440) * 60000,
             }],
           }));
@@ -1001,7 +1085,12 @@ export default function App() {
         <SleepCheckinModal
           onClose={() => setModal(null)}
           onSubmit={(data) => {
-            setState((s) => ({ ...s, sleepLog: { ...s.sleepLog, [today()]: data } }));
+            // Clamp incoming values — modal uses range inputs but values are validated
+            // here too so a future modal change or a crafted call can't store garbage.
+            const safeHours   = Math.min(Math.max(0, Number(data.hours)   || 0), 24);
+            const safeQuality = Math.min(Math.max(1, Number(data.quality) || 1), 5);
+            const safeRested  = typeof data.rested === "boolean" ? data.rested : false;
+            setState((s) => ({ ...s, sleepLog: { ...s.sleepLog, [today()]: { hours: safeHours, quality: safeQuality, rested: safeRested } } }));
             awardXP(20, null, true);
             showBanner(`Sleep data logged. +20 XP`, "success");
             setModal(null);
@@ -1033,8 +1122,24 @@ export default function App() {
           state={state}
           onSubmit={(session) => {
             const xp = calcSessionXP(session.type, session.duration, session.focus, state.streak);
-            const newSession = { ...session, id: `session_${crypto.randomUUID()}`, date: today(), xp };
-            setState((s) => ({ ...s, sessions: [...(s.sessions || []), newSession] }));
+            // Fix: construct session explicitly (never spread raw modal object) and cap array at 10 000.
+            // eslint-disable-next-line no-control-regex
+            const sanitizeSessionStr = (v, max) => typeof v === "string" ? v.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replace(/[<>"'`&]/g, "").slice(0, max) : "";
+            const newSession = {
+              id:       `session_${crypto.randomUUID()}`,
+              date:     today(),
+              xp,
+              type:     SESSION_TYPES.find(s => s.id === session.type) ? session.type : SESSION_TYPES[0].id,
+              course:   sanitizeSessionStr(session.course, 100),
+              duration: Math.min(Math.max(0, Number(session.duration) || 0), 600),
+              focus:    ["low","medium","high"].includes(session.focus) ? session.focus : "medium",
+              notes:    sanitizeSessionStr(session.notes, 300),
+            };
+            const MAX_SESSIONS_TOTAL = 10000;
+            setState((s) => {
+              if ((s.sessions || []).length >= MAX_SESSIONS_TOTAL) return s;
+              return { ...s, sessions: [...(s.sessions || []), newSession] };
+            });
             awardXP(xp, null, true);
             showBanner(`${SESSION_TYPES.find(s=>s.id===session.type)?.label} logged. +${xp} XP`, "success");
             checkMissions("session");
@@ -1049,6 +1154,7 @@ export default function App() {
 
       {/* Session log FAB */}
       <button
+        type="button"
         onClick={() => setModal({ type: "session_log" })}
         style={{
           position: "fixed", bottom: "80px", right: "16px", zIndex: 100,

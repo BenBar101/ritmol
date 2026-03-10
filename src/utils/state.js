@@ -1,15 +1,41 @@
 import { LS, storageKey, today } from "./storage";
 import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, DEFAULT_HABITS } from "../constants";
 
+// ─────────────────────────────────────────────────────────────────
+// Safe numeric read helper
+// Fix [ST-1]: LS.get can return NaN, null, Infinity, or a string for numeric keys
+// if the stored value was corrupted by a previous bug or a crafted sync file that
+// slipped past validators. Reading such values raw and doing arithmetic on them
+// (e.g. xp + amount) permanently corrupts state.
+//   safeNum(v, min, max, fallback) — clamps to [min, max]; returns fallback if
+//   the value is not a finite number.
+// ─────────────────────────────────────────────────────────────────
+function safeNum(v, min, max, fallback) {
+  if (typeof v === "number" && isFinite(v) && v >= min && v <= max) return v;
+  // Accept coercible-to-number strings (e.g. "42") written by old code versions.
+  const n = Number(v);
+  if (isFinite(n) && n >= min && n <= max) return n;
+  return fallback;
+}
+
+// Safe numeric flush helper — prevents NaN / Infinity from reaching localStorage.
+// Used by flushStateToStorage for numeric fields that flow through awardXP or
+// streak math.
+function safeFlushNum(v, min, max, fallback) {
+  return safeNum(v, min, max, fallback);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // INITIAL STATE
 // ═══════════════════════════════════════════════════════════════
 export function initState() {
   return {
     profile: LS.get(storageKey("jv_profile"), null),
-    xp: LS.get(storageKey("jv_xp"), 0),
-    streak: LS.get(storageKey("jv_streak"), 0),
-    streakShields: LS.get(storageKey("jv_shields"), 0),
+    // Fix [ST-1]: clamp numeric values so a corrupt localStorage entry
+    // (NaN, Infinity, negative) does not propagate into React state.
+    xp:           safeNum(LS.get(storageKey("jv_xp"),      0), 0, 100_000_000, 0),
+    streak:       safeNum(LS.get(storageKey("jv_streak"),   0), 0, 36500,       0),
+    streakShields:safeNum(LS.get(storageKey("jv_shields"),  0), 0, 10000,       0),
     lastLoginDate: LS.get(storageKey("jv_last_login"), null),
     habits: LS.get(storageKey("jv_habits"), DEFAULT_HABITS),
     habitLog: LS.get(storageKey("jv_habit_log"), {}), // { "YYYY-MM-DD": ["habitId",...] }
@@ -29,7 +55,10 @@ export function initState() {
     pendingHabitSuggestions: LS.get(storageKey("jv_habit_suggestions"), []),
     chronicles: LS.get(storageKey("jv_chronicles"), []),
     gCalConnected: LS.get(storageKey("jv_gcal_connected"), false),
-    tokenUsage: LS.get(storageKey("jv_token_usage"), { date: today(), tokens: 0 }),
+    // Fix [ST-2]: include aiXpToday: 0 and warnedAt: [] in the default so
+    // consuming code (consumeAiXpBudget, trackTokens) always sees a fully-formed
+    // object and never reads undefined.aiXpToday.
+    tokenUsage: LS.get(storageKey("jv_token_usage"), { date: today(), tokens: 0, aiXpToday: 0, warnedAt: [] }),
     habitsInitialized: LS.get(storageKey("jv_habits_init"), false),
     dynamicCosts: LS.get(storageKey("jv_dynamic_costs"), null) || { xpPerLevel: DEFAULT_XP_PER_LEVEL, gachaCost: DEFAULT_GACHA_COST, streakShieldCost: DEFAULT_STREAK_SHIELD_COST },
     lastShieldUseDate: LS.get(storageKey("jv_last_shield_use_date"), null),
@@ -46,9 +75,13 @@ export function flushStateToStorage(s) {
   // eslint-disable-next-line no-unused-vars
   const { geminiKey: _stripped, ...profileToSave } = s.profile;
   LS.set(storageKey("jv_profile"),           profileToSave);
-  LS.set(storageKey("jv_xp"),                s.xp);
-  LS.set(storageKey("jv_streak"),            s.streak);
-  LS.set(storageKey("jv_shields"),           s.streakShields);
+  // Fix [ST-1]: clamp numeric values before writing to localStorage.
+  // If awardXP somehow received a bad amount (e.g. from a corrupted habit.xp),
+  // state.xp could be NaN. Writing NaN to localStorage persists the corruption
+  // across sessions. safeFlushNum catches this and writes 0 instead.
+  LS.set(storageKey("jv_xp"),                safeFlushNum(s.xp,            0, 100_000_000, 0));
+  LS.set(storageKey("jv_streak"),            safeFlushNum(s.streak,        0, 36500,       0));
+  LS.set(storageKey("jv_shields"),           safeFlushNum(s.streakShields, 0, 10000,       0));
   LS.set(storageKey("jv_last_login"),        s.lastLoginDate);
   LS.set(storageKey("jv_habits"),            s.habits);
   LS.set(storageKey("jv_habit_log"),         s.habitLog);

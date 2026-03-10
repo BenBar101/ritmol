@@ -1,7 +1,36 @@
 // ═══════════════════════════════════════════════════════════════
 // GOOGLE CALENDAR (GIS TokenClient + REST — no deprecated gapi.client)
 // ═══════════════════════════════════════════════════════════════
+
+// Fix [GC-1]: sanitize helpers for GCal event fields.
+// Google Calendar events have user-controlled content (titles, IDs). A crafted
+// calendar event with BiDi overrides in the title can visually disguise text in
+// the UI. An invalid start/end date string causes new Date("bad") → Invalid Date
+// which propagates NaN through all date arithmetic and renders as "NaN" in the UI.
+function stripCtrl(s) {
+  if (typeof s !== "string") return "";
+  return s
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")    // C0 / C1 controls
+    .replace(/[\u2028\u2029]/g, "")                    // Unicode line/para separators
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")             // zero-width chars
+    .replace(/[\u202A-\u202E\u2066-\u2069]/g, "");     // BiDi override chars
+}
+
+// Validates that a date/datetime string produces a real Date before storing it.
+// Returns the original string if valid, or null if it would produce Invalid Date.
+function safeDate(s) {
+  if (typeof s !== "string" || !s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : s;
+}
+
 export async function fetchGCalEvents(accessToken, maxResults = 30) {
+  // Fix: guard against null/empty token — a missing token would send
+  // "Authorization: Bearer null" which gives a misleading 401 error.
+  if (!accessToken || typeof accessToken !== "string" || !accessToken.trim()) {
+    throw new Error("GCAL_TOKEN_EXPIRED");
+  }
   const safeMax = Math.min(Math.max(1, Number(maxResults) || 30), 100);
   try {
     const now = new Date().toISOString();
@@ -15,7 +44,12 @@ export async function fetchGCalEvents(accessToken, maxResults = 30) {
     });
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        // Fix: add request timeout so a slow/unresponsive GCal API doesn't block
+        // the UI indefinitely. 15 s is generous for a calendar list fetch.
+        signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+      }
     );
     if (!res.ok) {
       if (res.status === 401) throw new Error("GCAL_TOKEN_EXPIRED");
@@ -26,12 +60,17 @@ export async function fetchGCalEvents(accessToken, maxResults = 30) {
     }
     const data = await res.json();
     return (data.items || []).map((e) => ({
-      id: e.id,
-      title: e.summary || "Event",
-      start: e.start?.dateTime || e.start?.date,
-      end: e.end?.dateTime || e.end?.date,
-      type: detectEventType(e.summary || ""),
-    }));
+      // Fix [GC-1]: sanitize all fields from the API response before they reach state
+      // and localStorage. Although Google's API is trusted, user-controlled calendar
+      // content (event titles, external-calendar entries) can contain BiDi overrides,
+      // control chars, or invalid date strings.
+      id:    typeof e.id === "string" ? e.id.replace(/[^a-zA-Z0-9_@.-]/g, "").slice(0, 150) : `gcal_${Date.now()}`,
+      title: stripCtrl(e.summary || "Event").slice(0, 200),
+      start: safeDate(e.start?.dateTime || e.start?.date),
+      end:   safeDate(e.end?.dateTime   || e.end?.date),
+      type:  detectEventType(e.summary || ""),
+      source: "gcal",
+    })).filter(e => e.start !== null); // drop events with invalid start dates
   } catch (e) {
     if (e?.message?.startsWith("GCAL_")) throw e;
     throw new Error("GCAL_NETWORK_ERROR");
@@ -52,12 +91,24 @@ export function detectEventType(title) {
 // Used for Google Calendar OAuth (GIS TokenClient).
 export function loadGoogleGIS() {
   return new Promise((resolve, reject) => {
-    if (window.google?.accounts?.id) { resolve(); return; }
+    // Fix: check for google.accounts.oauth2 (the token client used for Calendar),
+    // not google.accounts.id (the Sign-In button) — these are different GIS surfaces.
+    if (window.google?.accounts?.oauth2) { resolve(); return; }
     const s = document.createElement("script");
     s.src = "https://accounts.google.com/gsi/client";
     s.async = true;
     s.defer = true;
-    s.onload = resolve;
+    // Fix: add crossOrigin so the browser enforces CORS on the script response,
+    // reducing the risk of a same-site content injection through the CDN.
+    s.crossOrigin = "anonymous";
+    s.onload = () => {
+      // Double-check that the loaded script actually exposed the expected API.
+      if (!window.google?.accounts?.oauth2) {
+        reject(new Error("Google Identity Services loaded but oauth2 API is unavailable."));
+        return;
+      }
+      resolve();
+    };
     s.onerror = () => reject(new Error("Failed to load Google Identity Services script."));
     document.head.appendChild(s);
   });

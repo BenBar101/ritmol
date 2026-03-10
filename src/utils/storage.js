@@ -5,7 +5,13 @@ import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "../constants";
 // ═══════════════════════════════════════════════════════════════
 export const LS = {
   get: (k, def = null) => {
-    try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; }
+    try {
+      const v = localStorage.getItem(k);
+      // Fix: explicitly handle the case where v is the string "undefined"
+      // (written by older buggy code) — treat it the same as missing.
+      if (v === null || v === undefined || v === "undefined") return def;
+      return JSON.parse(v);
+    } catch { return def; }
   },
   set: (k, v) => {
     try {
@@ -19,9 +25,20 @@ export const LS = {
   del: (k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
-// Returns today's date in YYYY-MM-DD using LOCAL time (not UTC).
-// Using toISOString() would return UTC and cause the "day" to reset at 3am for UTC+3 users.
-export const today = () => new Date().toLocaleDateString("en-CA"); // en-CA locale gives YYYY-MM-DD
+// Fix [STO-1]: toLocaleDateString("en-CA") is implementation-defined and has returned
+// non-YYYY-MM-DD formats on older Android WebViews and niche browsers (Samsung Internet
+// < v14, UC Browser). If today() returns the wrong format, the streak comparison breaks
+// and the streak resets to 0 on every login.
+//
+// Replaced with manual construction using getFullYear / getMonth / getDate — these are
+// always integers and always refer to local (device) time, matching the original intent.
+export const today = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 export const nowHour = () => new Date().getHours();
 export const nowMin = () => new Date().getMinutes();
 
@@ -71,4 +88,3 @@ export function setGeminiApiKey(key) {
     }
   } catch { /* sessionStorage may be unavailable */ }
 }
-

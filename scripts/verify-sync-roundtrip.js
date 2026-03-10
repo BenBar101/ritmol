@@ -18,7 +18,9 @@ const LS = {
   set: (k, v) => {
     try {
       storage[k] = JSON.stringify(v);
-    } catch {}
+    } catch {
+      /* ignore serialization errors */
+    }
   },
 };
 
