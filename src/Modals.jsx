@@ -58,11 +58,18 @@ export function SleepCheckinModal({ onClose, onSubmit }) {
           <div style={{ fontSize: "11px", color: "#666", marginBottom: "6px" }}>QUALITY (1-5)</div>
           <div style={{ display: "flex", gap: "6px" }}>
             {[1,2,3,4,5].map((q) => (
-              <button key={q} onClick={() => setQuality(q)} style={{
+              <button
+                type="button"
+                key={q}
+                onClick={() => setQuality(q)}
+                style={{
                 flex: 1, padding: "8px", border: `1px solid ${quality >= q ? "#fff" : "#333"}`,
                 background: quality >= q ? "#fff" : "transparent", color: quality >= q ? "#000" : "#555",
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "12px",
-              }}>{q}</button>
+              }}
+              >
+                {q}
+              </button>
             ))}
           </div>
         </div>
@@ -70,11 +77,18 @@ export function SleepCheckinModal({ onClose, onSubmit }) {
           <div style={{ fontSize: "11px", color: "#666", marginBottom: "6px" }}>FELT RESTED?</div>
           <div style={{ display: "flex", gap: "6px" }}>
             {[true, false].map((v) => (
-              <button key={String(v)} onClick={() => setRested(v)} style={{
+              <button
+                type="button"
+                key={String(v)}
+                onClick={() => setRested(v)}
+                style={{
                 flex: 1, padding: "8px", border: `1px solid ${rested === v ? "#fff" : "#333"}`,
                 background: rested === v ? "#fff" : "transparent", color: rested === v ? "#000" : "#555",
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-              }}>{v ? "YES" : "NO"}</button>
+              }}
+              >
+                {v ? "YES" : "NO"}
+              </button>
             ))}
           </div>
         </div>

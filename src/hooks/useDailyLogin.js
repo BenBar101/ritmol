@@ -24,14 +24,23 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     loginInProgressRef.current = true;
     let cancelled = false;
 
+    const getUTCYesterday = (utcDateStr) => {
+      const [y, m, d] = utcDateStr.split("-").map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() - 1);
+      const yyyy = dt.getUTCFullYear();
+      const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(dt.getUTCDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const parseDateLocal = (utcDateStr) => {
+      const [y, m, d] = utcDateStr.split("-").map(Number);
+      return new Date(Date.UTC(y, m - 1, d));
+    };
+
     setState((s) => {
       const effectiveDate = todayUTC();
-
-      const parseDateLocal = (ds) => {
-        if (!ds) return new Date(NaN);
-        const [y, m, d] = ds.split("-").map(Number);
-        return new Date(y, m - 1, d);
-      };
 
       // Anti-rollback: reject dates that are earlier than the max seen
       const maxDateSeen = getMaxDateSeen();
@@ -46,9 +55,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       }
 
       // Compute yesterday string
-      const d = parseDateLocal(effectiveDate);
-      d.setDate(d.getDate() - 1);
-      const yesterday = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      const yesterday = getUTCYesterday(effectiveDate);
 
       let newStreak  = s.streak;
       let newShields = s.streakShields;
@@ -133,7 +140,15 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         xp:                 newXP,
       };
     });
-    loginInProgressRef.current = false;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const resetTimer = setTimeout(() => {
+      loginInProgressRef.current = false;
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(resetTimer);
+      loginInProgressRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);
 }

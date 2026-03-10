@@ -16,7 +16,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from "react";
-import { today, nowHour, nowMin } from "../utils/storage";
+import { todayUTC, nowHour, nowMin } from "../utils/storage";
 
 export function useScheduler({ state, profile, showBanner, setModal }) {
   // Snapshot of the state slices the interval needs — updated every render
@@ -37,11 +37,14 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
   useEffect(() => {
     if (!profile) return;
 
+    let mounted = true;
+
     const runChecks = () => {
+      if (!mounted) return;
       if (document.visibilityState !== "visible") return;
       const h = nowHour();
       const m = nowMin();
-      const t = today();
+      const t = todayUTC(); // use UTC so panic timing aligns with streak date boundary
       const { sleepLog, screenTimeLog, calendarEvents, habitLog, streak } = scheduledStateRef.current;
 
       // Sleep check-in at 07:30
@@ -99,6 +102,7 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      mounted = false;
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };

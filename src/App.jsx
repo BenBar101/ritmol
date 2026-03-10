@@ -12,7 +12,7 @@ import { useDailyLogin } from "./hooks/useDailyLogin";
 import { AppContext } from "./context/AppContext";
 
 // Utils
-import { LS, storageKey, IS_DEV, getGeminiApiKey, today, todayUTC, APP_ICON_URL } from "./utils/storage";
+import { LS, storageKey, IS_DEV, getGeminiApiKey, todayUTC, APP_ICON_URL } from "./utils/storage";
 import { getLevel, getRank, getXpPerLevel, getGachaCost, getStreakShieldCost, calcSessionXP } from "./utils/xp";
 import { THEME_KEY, SESSION_TYPES } from "./constants";
 import { buildSystemPrompt } from "./api/systemPrompt";
@@ -66,7 +66,9 @@ function KeysConfigGate() {
     setSyncError(""); setSyncStatus("syncing");
     try {
       await SyncManager.pull(); setSyncStatus("success");
-      setTimeout(() => window.location.reload(), 300);
+      // Wait for pending IDB writes to flush before reloading. The cache is
+      // already updated; 1000 ms is a conservative buffer for slower devices.
+      setTimeout(() => window.location.reload(), 1000);
     } catch (e) {
       setSyncStatus("error");
       const msgs = { NO_HANDLE: "No sync file linked yet.", CORRUPT_FILE: "Sync file is corrupt or not valid JSON.", SYNC_SCHEMA_OUTDATED: "Sync file was written by an older version of RITMOL.", SYNC_FILE_TOO_LARGE: "Sync file exceeds 10 MB. Check the file." };
@@ -156,13 +158,12 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (profile?.geminiKey) {
-      setState((s) => {
-        // eslint-disable-next-line no-unused-vars
-        const { geminiKey: _g, ...rest } = s.profile || {};
-        return { ...s, profile: rest };
-      });
-    }
+    if (!profile?.geminiKey) return;
+    setState((s) => {
+      // eslint-disable-next-line no-unused-vars
+      const { geminiKey: _g, ...rest } = s.profile || {};
+      return { ...s, profile: rest };
+    });
   }, [profile?.geminiKey, setState]);
 
   useEffect(() => {
@@ -186,13 +187,44 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);
 
+  useEffect(() => {
+    if (!profile) return;
+    // Check mission date proactively every minute so midnight reset fires
+    // without requiring a user action.
+    const id = setInterval(() => {
+      setState((s) => {
+        const t = todayUTC();
+        if (!s.dailyMissions || s.lastMissionDate === t) return s;
+        return {
+          ...s,
+          dailyMissions: [
+            { id: "m1", desc: "Complete 3 habits",  target: 3,  type: "habits",  xp: 100, done: false },
+            { id: "m2", desc: "Complete 6 habits",  target: 6,  type: "habits",  xp: 200, done: false },
+            { id: "m3", desc: "Complete 10 habits", target: 10, type: "habits",  xp: 500, done: false },
+            { id: "m4", desc: "Log a study session",target: 1,  type: "session", xp: 75,  done: false },
+            { id: "m5", desc: "Complete a task",    target: 1,  type: "task",    xp: 50,  done: false },
+            { id: "m6", desc: "Open RITMOL chat",   target: 1,  type: "chat",    xp: 25,  done: false },
+          ],
+          lastMissionDate: t,
+        };
+      });
+    }, 60_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!profile]);
+
   const quoteFetchedRef = useRef(false);
   useEffect(() => {
     if (!profile || quoteFetchedRef.current) return;
     quoteFetchedRef.current = true;
     fetchDailyQuote(null, profile, null)
       .then(setDailyQuote)
-      .catch(() => {});
+      .catch(() => {
+        setDailyQuote({
+          quote: "The secret of getting ahead is getting started.",
+          author: "Mark Twain",
+        });
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);
 
@@ -236,7 +268,20 @@ export default function App() {
       }} />
     );
   }
-  if (!profile) return null;
+  if (!profile && !showOnboarding) {
+    return (
+      <ErrorBoundary>
+        <div style={{
+          minHeight: "100vh", display: "flex", alignItems: "center",
+          justifyContent: "center", background: "#0a0a0a",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
+          color: "#333", letterSpacing: "2px",
+        }}>
+          INITIALISING...
+        </div>
+      </ErrorBoundary>
+    );
+  }
 
   // ── Context value ────────────────────────────────────────
   const ctx = {
@@ -269,38 +314,77 @@ export default function App() {
         </div>
         <BottomNav tab={tab} setTab={setTab} />
 
-        {modal?.type === "daily_login"  && <DailyLoginModal data={modal} onClose={() => setModal(null)} />}
+        {modal?.type === "daily_login"  && (
+          <ErrorBoundary>
+            <DailyLoginModal data={modal} onClose={() => setModal(null)} />
+          </ErrorBoundary>
+        )}
         {modal?.type === "sleep_checkin" && (
-          <SleepCheckinModal onClose={() => setModal(null)} onSubmit={(data) => {
-            const safeHours   = Math.min(Math.max(0, Number(data.hours)   || 0), 24);
-            const safeQuality = Math.min(Math.max(1, Number(data.quality) || 1), 5);
-            const safeRested  = typeof data.rested === "boolean" ? data.rested : false;
-            setState((s) => ({ ...s, sleepLog: { ...s.sleepLog, [today()]: { hours: safeHours, quality: safeQuality, rested: safeRested } } }));
-            awardXP(20, null, true); showBanner("Sleep data logged. +20 XP", "success"); setModal(null);
-          }} />
+          <ErrorBoundary>
+            <SleepCheckinModal onClose={() => setModal(null)} onSubmit={(data) => {
+              const safeHours   = Math.min(Math.max(0, Number(data.hours)   || 0), 24);
+              const safeQuality = Math.min(Math.max(1, Number(data.quality) || 1), 5);
+              const safeRested  = typeof data.rested === "boolean" ? data.rested : false;
+              setState((s) => ({ ...s, sleepLog: { ...s.sleepLog, [todayUTC()]: { hours: safeHours, quality: safeQuality, rested: safeRested } } }));
+              awardXP(20, null, true); showBanner("Sleep data logged. +20 XP", "success"); setModal(null);
+            }} />
+          </ErrorBoundary>
         )}
         {modal?.type === "screen_time" && (
-          <ScreenTimeModal period={modal.period} onClose={() => setModal(null)} onSubmit={(mins) => {
-            const safeMins = Math.min(Math.max(0, Number(mins) || 0), 1440);
-            setState((s) => ({ ...s, screenTimeLog: { ...s.screenTimeLog, [today()]: { ...(s.screenTimeLog?.[today()] || {}), [modal.period]: safeMins } } }));
-            const xp = safeMins < 60 ? 40 : safeMins < 120 ? 25 : safeMins < 180 ? 15 : 10;
-            awardXP(xp, null, true); showBanner(`Screen time logged. ${safeMins < 60 ? "Impressive discipline." : "Noted."} +${xp} XP`, safeMins < 60 ? "success" : "info"); setModal(null);
-          }} />
+          <ErrorBoundary>
+            <ScreenTimeModal period={modal.period} onClose={() => setModal(null)} onSubmit={(mins) => {
+              const safeMins = Math.min(Math.max(0, Number(mins) || 0), 1440);
+              setState((s) => {
+                const key = todayUTC();
+                return {
+                  ...s,
+                  screenTimeLog: {
+                    ...s.screenTimeLog,
+                    [key]: { ...(s.screenTimeLog?.[key] || {}), [modal.period]: safeMins },
+                  },
+                };
+              });
+              const xp = safeMins < 60 ? 40 : safeMins < 120 ? 25 : safeMins < 180 ? 15 : 10;
+              awardXP(xp, null, true); showBanner(`Screen time logged. ${safeMins < 60 ? "Impressive discipline." : "Noted."} +${xp} XP`, safeMins < 60 ? "success" : "info"); setModal(null);
+            }} />
+          </ErrorBoundary>
         )}
         {modal?.type === "session_log" && (
-          <SessionLogModal onClose={() => setModal(null)} state={state} onSubmit={(session) => {
+          <ErrorBoundary>
+            <SessionLogModal onClose={() => setModal(null)} state={state} onSubmit={(session) => {
             const xp = calcSessionXP(session.type, session.duration, session.focus, modal?.streak ?? state.streak);
-            // eslint-disable-next-line no-control-regex
-            const san = (v, max) => typeof v === "string" ? v.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replace(/[<>"'`&]/g, "").slice(0, max) : "";
-            const newSession = { id: `session_${crypto.randomUUID()}`, date: today(), xp, type: SESSION_TYPES.find((s) => s.id === session.type) ? session.type : SESSION_TYPES[0].id, course: san(session.course, 100), duration: Math.min(Math.max(0, Number(session.duration) || 0), 600), focus: ["low","medium","high"].includes(session.focus) ? session.focus : "medium", notes: san(session.notes, 300) };
-            setState((s) => { if ((s.sessions || []).length >= 10000) return s; return { ...s, sessions: [...(s.sessions || []), newSession] }; });
-            awardXP(xp, null, true);
-            showBanner(`${SESSION_TYPES.find((s) => s.id === session.type)?.label} logged. +${xp} XP`, "success");
-            checkMissions("session"); setModal(null);
-          }} />
+              // eslint-disable-next-line no-control-regex
+              const san = (v, max) => typeof v === "string" ? v.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replace(/[<>"'`&]/g, "").slice(0, max) : "";
+              const newSession = {
+                id: `session_${crypto.randomUUID()}`,
+                date: todayUTC(),
+                xp,
+                type: SESSION_TYPES.find((s) => s.id === session.type) ? session.type : SESSION_TYPES[0].id,
+                course: san(session.course, 100),
+                duration: Math.min(Math.max(0, Number(session.duration) || 0), 600),
+                focus: ["low", "medium", "high"].includes(session.focus) ? session.focus : "medium",
+                notes: san(session.notes, 300),
+              };
+              setState((s) => {
+                if ((s.sessions || []).length >= 10000) return s;
+                return { ...s, sessions: [...(s.sessions || []), newSession] };
+              });
+              awardXP(xp, null, true);
+              showBanner(`${SESSION_TYPES.find((s) => s.id === session.type)?.label} logged. +${xp} XP`, "success");
+              checkMissions("session"); setModal(null);
+            }} />
+          </ErrorBoundary>
         )}
-        {levelUpData && <LevelUpModal data={levelUpData} onClose={() => setLevelUpData(null)} />}
-        {toast        && <AchievementToast key={toast._id} toast={toast} onClose={() => setToast(null)} />}
+        {levelUpData && (
+          <ErrorBoundary>
+            <LevelUpModal data={levelUpData} onClose={() => setLevelUpData(null)} />
+          </ErrorBoundary>
+        )}
+        {toast && (
+          <ErrorBoundary>
+            <AchievementToast key={toast._id} toast={toast} onClose={() => setToast(null)} />
+          </ErrorBoundary>
+        )}
         <button type="button" onClick={() => setModal({ type: "session_log", streak: state.streak })}
           style={{ position: "fixed", bottom: "80px", right: "16px", zIndex: 100, width: "48px", height: "48px", borderRadius: "0", background: "#fff", color: "#000", fontFamily: "'Share Tech Mono', monospace", fontSize: "18px", border: "2px solid #fff", display: "flex", alignItems: "center", justifyContent: "center" }}
           title="Log Study Session">▶</button>

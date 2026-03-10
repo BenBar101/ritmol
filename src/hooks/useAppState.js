@@ -30,8 +30,11 @@ import { migrateLocalStorageToIdb } from "../utils/migrate";
 function persistState(s) {
   if (!s?.profile) return;
 
-  // eslint-disable-next-line no-unused-vars
-  const { geminiKey: _g, ...profileToSave } = s.profile;
+  const profileToSave = s.profile ? (() => {
+    // eslint-disable-next-line no-unused-vars
+    const { geminiKey: _g, ...rest } = s.profile;
+    return rest;
+  })() : null;
   idbSet(storageKey("jv_profile"),            profileToSave);
   idbSet(storageKey("jv_xp"),                 s.xp);
   idbSet(storageKey("jv_streak"),             s.streak);

@@ -8,6 +8,7 @@ import { callGemini } from "./api/gemini";
 // eslint-disable-next-line no-control-regex
 const STRIP_FOR_API_RE = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u200B-\u200D\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 const INJECTION_CHARS_RE = /[<>{}`"'\\]/g;
+let _msgSeq = 0;
 
 export default function ChatTab() {
   const { state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, trackTokens } = useAppContext();
@@ -72,7 +73,13 @@ export default function ChatTab() {
       .replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029\u200B-\u200D\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
       .replace(/[\u2039\u203A\u27E8\u27E9\u276C-\u276F\uFE3D\uFE3E\u2329\u232A]/g, "") // angle homoglyphs
       .slice(0, MAX_INPUT_LENGTH);
-    const userMsg = { role: "user", content: sanitizedUserContent, ts: Date.now(), date: today() };
+    const userMsg = {
+      role: "user",
+      content: sanitizedUserContent,
+      ts: Date.now(),
+      seq: ++_msgSeq,
+      date: today(),
+    };
     const newHistory = [...messages, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
     setInput("");
@@ -117,17 +124,18 @@ export default function ChatTab() {
 
       const rawContent = parsed.message || parsed.text || String(parsed);
       // Fix: sanitize AI-returned message content before persisting to localStorage and
-      // the sync file. Although systemPrompt.js re-sanitizes on replay, storing raw
-      // content means control characters or oversized strings end up on disk.
+      // the sync file using the same canonical strip set used when replaying history
+      // into the API, so line/paragraph separators and BiDi controls cannot linger in
+      // stored chat entries.
       const safeContent = rawContent
-        // eslint-disable-next-line no-control-regex -- intentional: strip control chars
-        .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+        .replace(STRIP_FOR_API_RE, "")
         .slice(0, 2000);
 
       const assistantMsg = {
         role: "assistant",
         content: safeContent,
         ts: Date.now(),
+        seq: ++_msgSeq,
         date: today(),
       };
       setState((s) => ({ ...s, chatHistory: [...s.chatHistory, assistantMsg].slice(-1000) }));
@@ -150,6 +158,7 @@ export default function ChatTab() {
         role: "assistant",
         content: `Connection error: ${safeMsg}. Check your API key in Profile → Settings.`,
         ts: Date.now(),
+        seq: ++_msgSeq,
         date: today(),
       };
       if (mountedRef.current) {
@@ -227,14 +236,13 @@ export default function ChatTab() {
             <div style={{ fontSize: "11px", color: "#555" }}>System ready. Awaiting Hunter input.</div>
           </div>
         )}
-        {messages.map((msg, i) => (
-          // Fix [C-1]: use a compound key (ts + role + index) instead of ts alone.
-          // Two messages created within the same millisecond (e.g. user message + immediate
-          // error) share the same ts, producing duplicate keys and incorrect React diffing.
-          // Including role and index makes the key unique without using index alone (which
-          // causes stale rendering when the array shrinks after a Pull).
-          <ChatMessage key={`${msg.ts ?? i}_${msg.role}_${i}`} msg={msg} />
-        ))}
+        {messages.map((msg, i) => {
+          const hasStableSeq = msg.ts != null && msg.seq != null;
+          const key = hasStableSeq
+            ? `${msg.ts}_${msg.seq}_${msg.role}`
+            : `${msg.ts ?? "legacy"}_${msg.role}_${i}`;
+          return <ChatMessage key={key} msg={msg} />;
+        })}
         {loading && (
           <div style={{ display: "flex", gap: "6px", padding: "8px 0" }}>
             {[0, 1, 2].map((i) => (

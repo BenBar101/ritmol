@@ -1,6 +1,6 @@
 import { useAppContext } from "./context/AppContext";
 import { useState } from "react";
-import { today } from "./utils/storage";
+import { todayUTC } from "./utils/storage";
 import { primaryBtn } from "./Onboarding";
 
 export default function TasksTab() {
@@ -54,7 +54,7 @@ export default function TasksTab() {
     // authoritative (latest) task state, not a potentially stale closure snapshot.
     // Use a flag written before the updater returns so the callers below run only
     // when the task genuinely transitioned from undone → done.
-    const doneDate = today(); // capture outside updater — clock call is impure
+    const doneDate = todayUTC(); // capture outside updater — clock call is impure
     let didComplete = false;
     setState((s) => {
       const task = (s.tasks || []).find(t => t.id === id);
@@ -106,7 +106,7 @@ export default function TasksTab() {
     actionLocksRef.current.add(id);
     setTimeout(() => actionLocksRef.current.delete(id), 500);
 
-    const doneDate = today(); // Fix: capture outside updater — clock call is impure
+    const doneDate = todayUTC(); // Fix: capture outside updater — clock call is impure
     let isFirstSubmission = false;
     setState((s) => ({
       ...s,

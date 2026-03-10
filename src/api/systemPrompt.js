@@ -110,7 +110,7 @@ export function buildSystemPrompt(state, profile) {
       const role = m.role === "user" ? "[HUNTER]" : "[RITMOL]";
       return `${role} ${safe}`;
     })
-    .join("\n---\n");
+    .join(" | ");
 
   // Defence-in-depth: prevent crafted content from injecting literal boundary tag
   // names like RECENT_CONTEXT or HUNTER_DATA back into the prompt in a way that
@@ -118,7 +118,8 @@ export function buildSystemPrompt(state, profile) {
   // normal text but ensure the XML-like markers remain unique to this builder.
   const safeRecent = recentChatSummary
     .replace(/RECENT_CONTEXT/gi, "RECENT_CTX")
-    .replace(/HUNTER_DATA/gi, "HUNTER_CTX");
+    .replace(/HUNTER_DATA/gi, "HUNTER_CTX")
+    .replace(/[\n\r]/g, " ");
 
   return `You are RITMOL — the AI companion of a gamified life-OS for STEM university students. Solo Leveling RPG aesthetic. Be brief, punchy, motivating. Never break character.
 

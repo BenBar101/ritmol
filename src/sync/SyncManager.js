@@ -147,7 +147,11 @@ export const SYNC_VALIDATORS = {
     (s.course === undefined || (typeof s.course === "string" && s.course.length <= 100)) &&
     (s.notes === undefined || (typeof s.notes === "string" && s.notes.length <= 300)) &&
     (s.duration === undefined || (typeof s.duration === "number" && isFinite(s.duration) && s.duration >= 0 && s.duration <= 600)) &&
+    // type is optional for legacy sessions; when present it must match the
+    // SESSION_TYPES allowlist used in the UI / XP calculator.
     (s.type === undefined || ["lecture","self_study","project","exam_prep"].includes(s.type)) &&
+    // focus is optional; when present it must match the FOCUS_LEVELS ids.
+    (s.focus === undefined || ["low","medium","high"].includes(s.focus)) &&
     (s.xp === undefined || (typeof s.xp === "number" && isFinite(s.xp) && s.xp >= 0 && s.xp <= 10000))
   ),
   jv_achievements:        (v) => isArray(v) && v.length <= 2000 && v.every((a) =>
@@ -158,6 +162,12 @@ export const SYNC_VALIDATORS = {
     (a.flavorText  === undefined || (typeof a.flavorText  === "string" && a.flavorText.length  <= 300)) &&
     (a.icon        === undefined || (typeof a.icon        === "string" && a.icon.length        <= 2)) &&
     (a.xp === undefined || (typeof a.xp === "number" && isFinite(a.xp) && a.xp >= 0 && a.xp <= 500)) &&
+    (a.unlockedAt === undefined || (
+      typeof a.unlockedAt === "number" &&
+      isFinite(a.unlockedAt) &&
+      a.unlockedAt > 0 &&
+      a.unlockedAt <= Date.now() + 86_400_000
+    )) &&
     (a.rarity === undefined || ["common","rare","epic","legendary"].includes(a.rarity))
   ),
   jv_gacha:               (v) => isArray(v) && v.length <= 2000 && v.every((c) =>
@@ -199,10 +209,12 @@ export const SYNC_VALIDATORS = {
   jv_timers:              (v) => isArray(v) && v.length <= 50 && v.every((t) =>
     isObj(t) &&
     typeof t.id === "string" && t.id.length <= 64 &&
-    typeof t.label === "string" && t.label.length <= 300 &&
+    typeof t.label === "string" && t.label.length <= 100 &&
     // 1-hour grace window allows for Syncthing propagation delay. Timers expired
-    // more than 1 hour ago are dropped silently; future timers capped at 7 days.
-    typeof t.endsAt === "number" && isFinite(t.endsAt) && t.endsAt > Date.now() - 3_600_000 && t.endsAt <= Date.now() + 604_800_000 &&
+    // more than 1 hour ago are dropped silently; future timers capped at 24 hours
+    // to prevent long-lived injected timers cluttering the UI.
+    typeof t.endsAt === "number" && isFinite(t.endsAt) &&
+      t.endsAt > Date.now() - 3_600_000 && t.endsAt <= Date.now() + 86_400_000 &&
     (t.emoji === undefined || (typeof t.emoji === "string" && t.emoji.length <= 2))
   ),
   jv_sleep_log:           (v) => isLogObj(v),
@@ -291,7 +303,9 @@ function sanitizeChatMessages(arr) {
 
 export function isSafeSyncValue(v, depth = 0) {
   // Depth cap prevents stack overflow on adversarially deep JSON. Legitimate
-  // RITMOL data nests at most 4–5 levels deep.
+  // RITMOL data nests at most 4–5 levels deep. Both object and array nesting
+  // contribute to depth so that alternating array/object layers cannot bypass
+  // the cap.
   if (depth >= 12) return false;
   if (isObj(v)) {
     for (const k of Object.getOwnPropertyNames(v)) {
@@ -300,8 +314,7 @@ export function isSafeSyncValue(v, depth = 0) {
     }
   } else if (isArray(v)) {
     for (const item of v) {
-      // Arrays do not add a depth level — only object nesting does.
-      if (!isSafeSyncValue(item, depth)) return false;
+      if (!isSafeSyncValue(item, depth + 1)) return false;
     }
   }
   return true;
@@ -448,6 +461,10 @@ function parseAndValidate(text) {
   if (!isSafeSyncValue(payload)) {
     throw new Error("CORRUPT_FILE");
   }
+  const topLevelKeys = Object.keys(payload);
+  if (topLevelKeys.length > 200) {
+    throw new Error("CORRUPT_FILE");
+  }
   const schemaVersion = payload._schemaVersion;
   // Fix: also reject schemaVersion < 1 (zero, negative, or NaN) — only positive
   // integer values up to SYNC_SCHEMA_VERSION are valid.
@@ -460,18 +477,21 @@ function parseAndValidate(text) {
 
 // ── Read geminiKey / googleClientId into sessionStorage ───────────
 function extractSecretsFromPayload(payload) {
-    if (typeof payload.geminiKey === "string") {
-      const trimmed = payload.geminiKey.trim();
-      // Accept a range of plausible key lengths so future format changes don't
-      // silently break the config gate. We never log the key value itself.
-      if (/^AIza[A-Za-z0-9_-]{30,50}$/.test(trimmed)) {
-        setGeminiApiKey(trimmed);
-      } else {
-        // Key was present but failed the format check — surface a console warning
-        // so developers can debug why the config gate is still shown.
-        console.warn("[SyncManager] geminiKey present in sync file but did not match expected format. App will show config gate.");
-      }
+  // Accept geminiKey only as an own, top-level property of the payload object.
+  // This prevents prototype-inherited keys from being read and keeps the config
+  // slot separate from any jv_profile fields (which are validated separately).
+  if (Object.prototype.hasOwnProperty.call(payload, "geminiKey") && typeof payload.geminiKey === "string") {
+    const trimmed = payload.geminiKey.trim();
+    // Accept a range of plausible key lengths so future format changes don't
+    // silently break the config gate. We never log the key value itself.
+    if (/^AIza[A-Za-z0-9_-]{30,50}$/.test(trimmed)) {
+      setGeminiApiKey(trimmed);
+    } else {
+      // Key was present but failed the format check — surface a console warning
+      // so developers can debug why the config gate is still shown.
+      console.warn("[SyncManager] geminiKey present in sync file but did not match expected format. App will show config gate.");
     }
+  }
   // googleClientId is intentionally not stored here — it would be
   // placed in a dedicated session key if implemented.
 }

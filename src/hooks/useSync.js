@@ -68,7 +68,20 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
     };
 
     const onVisibility = () => { if (document.visibilityState === "hidden") schedulePush(); };
-    const onPageHide   = () => schedulePush();
+    const onPageHide   = () => {
+      // On browser/tab close, flush immediately without debounce so the final
+      // state is best-effort pushed even if the 500ms timer would not fire.
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      SyncManager.getHandle()
+        .then((handle) => {
+          if (!handle || isPullingRef.current || !latestStateRef.current?.profile) return null;
+          return SyncManager.push();
+        })
+        .catch(() => {});
+    };
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
@@ -122,7 +135,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       const ts = await SyncManager.pull();
       // rehydrate reads from localStorage (which Pull just wrote) and
       // resets React state atomically — no initState race condition.
-      rehydrate();
+      await rehydrate();
       LS.set(storageKey("jv_last_synced"), String(ts));
       setLastSynced(ts);
       setSyncStatus("synced");

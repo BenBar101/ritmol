@@ -22,12 +22,24 @@ const MIGRATION_FLAG_KEY = IS_DEV ? `${DEV_PREFIX}jv_idb_migrated` : "jv_idb_mig
 
 export async function migrateLocalStorageToIdb() {
   // Already migrated
-  if (localStorage.getItem(MIGRATION_FLAG_KEY) === "1") return;
+  const migrated = localStorage.getItem(MIGRATION_FLAG_KEY);
+  const cleanupPending = localStorage.getItem(`${MIGRATION_FLAG_KEY}_cleanup_pending`) === "1";
+  if (migrated === "1" && !cleanupPending) return;
 
   // IDB already has a profile — nothing to migrate (new install or already migrated)
   const idbProfile = idbGet(storageKey("jv_profile"), null);
   if (idbProfile !== null) {
-    localStorage.setItem(MIGRATION_FLAG_KEY, "1");
+    // If cleanup was pending and IDB has a profile, we can safely clear
+    // any leftover localStorage copies.
+    if (cleanupPending) {
+      for (const key of IDB_KEYS) {
+        const prefixed = storageKey(key);
+        LS.del(prefixed);
+      }
+      localStorage.removeItem(`${MIGRATION_FLAG_KEY}_cleanup_pending`);
+    } else if (migrated !== "1") {
+      localStorage.setItem(MIGRATION_FLAG_KEY, "1");
+    }
     return;
   }
 
@@ -56,14 +68,9 @@ export async function migrateLocalStorageToIdb() {
   // in flight before we remove the source data.
   await Promise.resolve();
 
-  // Clear migrated keys from localStorage
-  for (const key of IDB_KEYS) {
-    const prefixed = storageKey(key);
-    LS.del(prefixed);
-  }
-
-  // Mark migration complete
+  // Mark migration complete — keep LS data as backup for one more session.
   localStorage.setItem(MIGRATION_FLAG_KEY, "1");
+  localStorage.setItem(`${MIGRATION_FLAG_KEY}_cleanup_pending`, "1");
   console.info("[RITMOL] Migration complete.");
 }
 

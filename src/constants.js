@@ -15,12 +15,12 @@ export const DEFAULT_GACHA_COST = 100;
 export const DEFAULT_STREAK_SHIELD_COST = 300;
 
 // Client-enforced rarity probabilities for gacha pulls.
-export const GACHA_RARITY_WEIGHTS = {
+export const GACHA_RARITY_WEIGHTS = Object.freeze({
   common: 60,
   rare: 25,
   epic: 12,
   legendary: 3,
-};
+});
 
 // Session types & focus levels used by XP calc and UI.
 export const SESSION_TYPES = [

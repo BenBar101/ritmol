@@ -25,11 +25,15 @@ function SyncthingSetupGuide() {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ marginBottom: "12px", border: "1px solid #333", fontFamily: "'Share Tech Mono', monospace" }}>
-      <button onClick={() => setOpen(!open)} style={{
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{
         width: "100%", padding: "10px 12px", background: "transparent", border: "none",
         color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
         letterSpacing: "1px", display: "flex", justifyContent: "space-between", cursor: "pointer",
-      }}>
+        }}
+      >
         <span>▸ HOW TO SET UP SYNCTHING SYNC</span>
         <span>{open ? "▲" : "▼"}</span>
       </button>
@@ -118,10 +122,11 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
     setState((s) => {
       const t = todayUTC();
       if (s.lastShieldBuyDate === t) return s;
-      if (s.xp < streakShieldCost) { return s; }
+      const currentCost = s.dynamicCosts?.streakShieldCost ?? streakShieldCost;
+      if (s.xp < currentCost) { return s; }
       const next = {
         ...s,
-        xp: Math.max(0, s.xp - streakShieldCost),
+        xp: Math.max(0, s.xp - currentCost),
         streakShields: (s.streakShields || 0) + 1,
         lastShieldBuyDate: t,
       };
@@ -470,7 +475,16 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
   const [lastPull, setLastPull] = useState(null);
   const [showCollection, setShowCollection] = useState(false);
   const [collectionPage, setCollectionPage] = useState(0);
-  const collection = state.gachaCollection || [];
+  const rawCollection = state.gachaCollection || [];
+  const collection = (rawCollection || []).map((card) => ({
+    ...card,
+    content: typeof card.content === "string"
+      ? card.content.replace(SAFE_GACHA_RENDER_REGEX, "").slice(0, 1000)
+      : "",
+    asciiArt: card.asciiArt
+      ? card.asciiArt.replace(SAFE_GACHA_RENDER_REGEX, "").slice(0, 500)
+      : null,
+  }));
   const canAfford = state.xp >= gachaCost;
   // Abort controller so unmounting mid-pull cancels the Gemini request and prevents
   // trackTokens / setState firing against an unmounted component.

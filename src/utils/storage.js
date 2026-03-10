@@ -84,6 +84,9 @@ export function storageKey(k) {
 }
 
 export function getMaxDateSeen() {
+  // INVARIANT: storageKey is always applied here so dev/prod anti-cheat
+  // watermarks remain isolated. Do not read/write "jv_max_date_seen" without
+  // going through storageKey().
   return idbGet(storageKey("jv_max_date_seen"), null);
 }
 

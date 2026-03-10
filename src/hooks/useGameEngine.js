@@ -46,7 +46,10 @@ const VALID_CMDS = new Set([
 // eslint-disable-next-line no-control-regex
 const CTRL_RE   = /[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g;
 const BIDI_RE   = /[\u202A-\u202E\u2066-\u2069]/g;
-const INJECT_RE = /[<>"`&']/g;
+// Include square brackets in the injection character set so prompt-injection
+// patterns that rely on [SYSTEM]/[INSTRUCTION] style markers are stripped
+// consistently with sanitizeForPrompt in systemPrompt.js.
+const INJECT_RE = /[<>"`&'[\]]/g;
 
 function sanitizeStr(s, max = MAX_STR_LEN) {
   if (typeof s !== "string") return "";
@@ -153,7 +156,11 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
                 setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
               }
             })
-            .catch(() => {});
+            .catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn("[useGameEngine] updateDynamicCosts (level_up) failed:", err?.message || err);
+              }
+            });
         }, 300);
       }
       return { ...s, xp: newXP };
@@ -163,7 +170,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
   // ── Mission checker ───────────────────────────────────────
   // [A-3] pendingData object prevents double-toasts in React Strict Mode
   const checkMissions = useCallback((hintType = null) => {
-    const t = today();
+    const t = todayUTC();  // use UTC to match mission reset date in App.jsx
     const pendingData = { toasts: [], levelUp: null };
 
     setState((s) => {
@@ -205,6 +212,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
         const oldLevel = getLevel(s.xp, xpPl);
         const newLevel = getLevel(newXP, xpPl);
         if (newLevel > oldLevel) {
+          lastLevelUpXpRef.current = newXP;
           pendingData.levelUp = { level: newLevel, rank: getRank(newLevel), snapshot: { ...s, xp: newXP, dailyMissions: updated } };
         }
       }
@@ -224,7 +232,11 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
                 setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
               }
             })
-            .catch(() => {});
+            .catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn("[useGameEngine] updateDynamicCosts (mission level_up) failed:", err?.message || err);
+              }
+            });
         }, 300);
       }
     });
@@ -250,8 +262,11 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
     setTimeout(() => actionLocksRef.current.delete(habitId), 500);
 
     const t = today();
-    // Use a ref so concurrent/Strict Mode re-runs of the updater don't produce
-    // a stale capturedXP value by the time queueMicrotask reads it.
+    // pendingRef is a plain object (not useRef) intentionally — it is local to each
+    // logHabit invocation. In React Strict Mode the updater runs twice:
+    //   - 1st run: log does NOT include habitId → sets didLog=true, xp=h.xp
+    //   - 2nd run: log NOW includes habitId → hits early return, does NOT mutate pendingRef
+    // So didLog=true after both runs, and queueMicrotask awards XP exactly once.
     const pendingRef = { didLog: false, xp: 0 };
 
     setState((s) => {
@@ -277,9 +292,9 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
     if (!Array.isArray(commands) || commands.length === 0) return;
 
     let tasksAdded       = 0;
-    // totalXPThisRun caps XP within a single executeCommands invocation. If two
-    // invocations overlap (rapid messages), the combined per-response limit can
-    // effectively double; the daily budget in consumeAiXpBudget is the true cap.
+    // NOTE: totalXPThisRun caps XP within ONE executeCommands call.
+    // Concurrent calls each have their own cap; the daily budget in
+    // consumeAiXpBudget is the global safety net.
     let totalXPThisRun   = 0;
     const pendingBanners = [];
 
@@ -413,15 +428,29 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
         }
 
         case "add_timer":
-          setState((s) => ({
-            ...s,
-            activeTimers: [...(s.activeTimers || []), {
-              id:     `timer_${crypto.randomUUID()}`,
-              label:  sanitizeStr(cmd.label),
-              emoji:  typeof cmd.emoji === "string" ? cmd.emoji.replace(/[<>&"'`]/g, "").slice(0, 2) : "◈",
-              endsAt: Date.now() + Math.min(Math.max(1, Number(cmd.minutes) || 90), 1440) * 60000,
-            }],
-          }));
+          setState((s) => {
+            const rawMins = typeof cmd.minutes === "number" && isFinite(cmd.minutes)
+              ? cmd.minutes
+              : (typeof cmd.minutes === "string" ? parseFloat(cmd.minutes) : NaN);
+            const safeMins = isFinite(rawMins)
+              ? Math.min(Math.max(1, Math.floor(rawMins)), 1440)
+              : 90;
+            return {
+              ...s,
+              activeTimers: [...(s.activeTimers || []), {
+                id:     `timer_${crypto.randomUUID()}`,
+                label:  sanitizeStr(cmd.label),
+                emoji:  typeof cmd.emoji === "string"
+                  ? cmd.emoji
+                      // eslint-disable-next-line no-control-regex
+                      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+                      .replace(/[<>&"'`]/g, "")
+                      .slice(0, 2)
+                  : "◈",
+                endsAt: Date.now() + safeMins * 60000,
+              }],
+            };
+          });
           break;
 
         case "suggest_sessions":
