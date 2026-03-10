@@ -37,6 +37,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   // closure from passing the ref down through props.
   const isPullingRef = useRef(false);
   const debounceTimerRef = useRef(null);
+  const reloadTimerRef = useRef(null);
   const pageHideInProgressRef = useRef(false);
 
   // ── Check if a sync file is already linked on mount ──
@@ -96,6 +97,10 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
     };
@@ -103,6 +108,10 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
 
   // ── Push ──────────────────────────────────────────────────
   const syncPush = useCallback(async () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     setSyncStatus("syncing");
     try {
       if (!latestStateRef.current?.profile) {
@@ -121,6 +130,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         NO_HANDLE:        "No sync file selected. Pick one in Profile → Settings.",
         PERMISSION_DENIED:"Write permission denied. Try again and allow access.",
         SYNC_BUSY:        "Sync already in progress. Please wait.",
+        IDB_NOT_READY:    "Still loading, try again.",
         SYNC_FILE_NOT_FOUND: "Sync file not found — it may have been moved or deleted. Pick a new file in Profile → Settings.",
       };
       if (e.message === "SYNC_FILE_NOT_FOUND") {
@@ -129,7 +139,11 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         setSyncFileConnected(false);
         setSyncStatus("idle");
       }
-      showBanner(msgs[e.message] ?? `Push failed: ${(e.message || "").slice(0, 80)}`, "alert");
+      const safeMsg = (e.message || "")
+        .replace(/AIza[A-Za-z0-9_-]{30,50}/g, "[key]")
+        .replace(/eyJ[\w.-]+/g, "[token]")
+        .slice(0, 80);
+      showBanner(msgs[e.message] ?? `Push failed: ${safeMsg}`, "alert");
     }
   }, [latestStateRef, showBanner]);
 
@@ -149,18 +163,20 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       // After a successful pull and rehydrate, a full reload ensures any components
       // with local UI state derived from the old global state are reset to match
       // the freshly loaded data.
-      setTimeout(() => {
+      reloadTimerRef.current = setTimeout(() => {
         try {
           window.location.reload();
         } catch {
           try {
             window.location.href = window.location.origin + window.location.pathname;
           } catch {
-            // As a last resort, do nothing — state has already been rehydrated.
+            // Reload blocked; release pull mutex so auto-push can resume. State already rehydrated.
+            isPullingRef.current = false;
           }
         }
       }, 250);
     } catch (e) {
+      isPullingRef.current = false;
       setSyncStatus("error");
       const msgs = {
         NO_HANDLE:             "No sync file selected. Pick one in Profile → Settings.",
@@ -168,11 +184,15 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         SYNC_SCHEMA_OUTDATED:  "Sync file was written by an older version of RITMOL. Re-export it from an up-to-date device.",
         SYNC_FILE_TOO_LARGE:   "Sync file exceeds 10 MB — this is unexpected. Check the file.",
         SYNC_BUSY:             "Sync already in progress. Please wait.",
+        IDB_NOT_READY:         "Still loading, try again.",
       };
-      showBanner(msgs[e.message] ?? `Pull failed: ${(e.message || "").slice(0, 80)}`, "alert");
-    } finally {
-      isPullingRef.current = false; // always release mutex
+      const safeMsg = (e.message || "")
+        .replace(/AIza[A-Za-z0-9_-]{30,50}/g, "[key]")
+        .replace(/eyJ[\w.-]+/g, "[token]")
+        .slice(0, 80);
+      showBanner(msgs[e.message] ?? `Pull failed: ${safeMsg}`, "alert");
     }
+    // On success, isPullingRef stays true until reload clears the page.
   }, [rehydrate, showBanner]);
 
   // ── Pick file ─────────────────────────────────────────────

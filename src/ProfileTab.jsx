@@ -9,7 +9,7 @@ import { fetchGCalEvents, loadGoogleGIS } from "./api/gcal";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
 import { primaryBtn } from "./Onboarding";
-import { idbClearAll, idbSet } from "./utils/idb";
+import { idbClearAll, idbSet } from "./utils/db";
 import { updateDynamicCosts } from "./api/dynamicCosts";
 import { sanitizeForPrompt } from "./api/systemPrompt";
 
@@ -119,6 +119,7 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
   function buyShield() {
     if (!canBuyShield || !apiKey) return;
 
+    let appliedCost = 0;
     setState((s) => {
       // NOTE: lastShieldBuyDate is tracked in UTC rather than local time. This means
       // hunters near the UTC date boundary (UTC+12–UTC+14) may appear to get two
@@ -129,6 +130,7 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       if (s.lastShieldBuyDate === t) return s;
       const currentCost = s.dynamicCosts?.streakShieldCost ?? streakShieldCost;
       if (s.xp < currentCost) { return s; }
+      appliedCost = currentCost;
       const next = {
         ...s,
         xp: Math.max(0, s.xp - currentCost),
@@ -143,16 +145,20 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       const snapshotForApi = shieldSnapshotRef.current;
       shieldSnapshotRef.current = null;
       if (!snapshotForApi) return;
+      showBanner(`Streak shield purchased. Cost: ${appliedCost} XP. Next cost may change.`, "success");
       updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_use", trackTokens)
         .then((costs) => {
           if (costs && Object.keys(costs).length) {
             setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          if (import.meta.env.DEV) {
+            console.warn("[ProfileTab] updateDynamicCosts failed:", err?.message || err);
+          }
+        });
     });
 
-    showBanner(`Streak shield purchased. Cost: ${streakShieldCost} XP. Next cost may change.`, "success");
   }
 
   return (
@@ -508,7 +514,7 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
   function rollRarity() {
     const buf = new Uint32Array(1);
     crypto.getRandomValues(buf);
-    const roll = (buf[0] / 0xFFFFFFFF) * 100; // Use crypto.getRandomValues for gacha rolls — Math.random() is predictable in V8.
+    const roll = (buf[0] / 0x100000000) * 100; // 2^32 so roll is in [0, 100), never exactly 100
     if (roll < GACHA_RARITY_WEIGHTS.legendary) return "legendary";
     if (roll < GACHA_RARITY_WEIGHTS.legendary + GACHA_RARITY_WEIGHTS.epic) return "epic";
     if (roll < GACHA_RARITY_WEIGHTS.legendary + GACHA_RARITY_WEIGHTS.epic + GACHA_RARITY_WEIGHTS.rare) return "rare";
@@ -641,10 +647,11 @@ Respond ONLY with JSON:
         // Authoritative duplicate check using committed state.
         if ((s.gachaCollection || []).find(c => c.id === safeCard.id)) { isDuplicate = true; return s; }
         // Guard: ensure the XP cost is still affordable in latest state.
-        if (s.xp < gachaCost) { isDuplicate = true; return s; }
+        const currentCost = s.dynamicCosts?.gachaCost ?? gachaCost;
+        if (s.xp < currentCost) { isDuplicate = true; return s; }
         const next = {
           ...s,
-          xp: Math.max(0, s.xp - gachaCost),
+          xp: Math.max(0, s.xp - currentCost),
           gachaCollection: [...(s.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
         };
         snapshotForCosts = next;
@@ -662,7 +669,7 @@ Respond ONLY with JSON:
 
       const costsSnapshot = snapshotForCosts ?? {
         ...currentState,
-        xp: Math.max(0, currentState.xp - gachaCost),
+        xp: Math.max(0, currentState.xp - (currentState.dynamicCosts?.gachaCost ?? gachaCost)),
         gachaCollection: [...(currentState.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
       };
 
@@ -670,7 +677,11 @@ Respond ONLY with JSON:
         if (costs && Object.keys(costs).length && mountedRef.current) {
           setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
         }
-      }).catch(() => {});
+      }).catch((err) => {
+        if (import.meta.env.DEV) {
+          console.warn("[ProfileTab] updateDynamicCosts failed:", err?.message || err);
+        }
+      });
 
       if (mountedRef.current) {
         setLastPull(safeCard);
@@ -678,9 +689,10 @@ Respond ONLY with JSON:
       }
     } catch {
       if (mountedRef.current) showBanner("Pull failed. System error.", "alert");
+    } finally {
+      pullingRef.current = false;
+      if (mountedRef.current) setPulling(false);
     }
-    if (mountedRef.current) setPulling(false);
-    pullingRef.current = false;
   }
 
   return (
@@ -882,6 +894,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
     // 3. Restore the anti-cheat watermark if it existed.
     if (maxDateSeen) {
       idbSet(storageKey("jv_max_date_seen"), maxDateSeen);
+      await new Promise((r) => setTimeout(r, 100));
     }
 
     // 4. Clear the residual localStorage keys that belong to this app
@@ -910,23 +923,27 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
   }
 
   async function handleImportFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
     try {
-      await SyncManager.importFile(file);
-      // No async flush needed — write-through persistence means localStorage is
-      // already current; reload synchronously after import.
-      window.location.reload();
-    } catch (err) {
-      if (err.message === "SYNC_SCHEMA_OUTDATED") {
-        showBanner("Import failed: file was written by an older version of RITMOL. Re-export it from an up-to-date device.", "alert");
-      } else if (err.message === "APPLY_QUOTA_RISK") {
-        showBanner("Import failed: local storage is almost full. Clear data first.", "alert");
-      } else {
-        showBanner("Import failed. File may be corrupt.", "alert");
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        await SyncManager.importFile(file);
+        window.location.reload();
+      } catch (err) {
+        const msgs = {
+          CORRUPT_FILE: "Import failed: file is corrupt or not valid JSON.",
+          SYNC_SCHEMA_OUTDATED: "Import failed: file was written by an older version of RITMOL. Re-export it from an up-to-date device.",
+          SYNC_FILE_TOO_LARGE: "Import failed: file exceeds 10 MB.",
+          APPLY_QUOTA_RISK: "Import failed: local storage is almost full. Clear data first.",
+        };
+        showBanner(msgs[err?.message] ?? "Import failed. Check the file.", "alert");
+      } finally {
+        e.target.value = "";
       }
+    } catch {
+      showBanner("Import failed unexpectedly.", "alert");
+      try { if (importRef.current) importRef.current.value = ""; } catch { /* ignore */ }
     }
-    e.target.value = "";
   }
 
   const lastSyncedLabel = lastSynced

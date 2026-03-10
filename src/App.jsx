@@ -19,6 +19,15 @@ import { buildSystemPrompt } from "./api/systemPrompt";
 import { fetchDailyQuote } from "./api/quotes";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 
+const MISSION_DEFS = [
+  { id: "m1", desc: "Complete 3 habits",  target: 3,  type: "habits",  xp: 100, done: false },
+  { id: "m2", desc: "Complete 6 habits",  target: 6,  type: "habits",  xp: 200, done: false },
+  { id: "m3", desc: "Complete 10 habits", target: 10, type: "habits",  xp: 500, done: false },
+  { id: "m4", desc: "Log a study session",target: 1,  type: "session", xp: 75,  done: false },
+  { id: "m5", desc: "Complete a task",    target: 1,  type: "task",    xp: 50,  done: false },
+  { id: "m6", desc: "Open RITMOL chat",   target: 1,  type: "chat",    xp: 25,  done: false },
+];
+
 // Components
 import Onboarding from "./Onboarding";
 import { TopBar, BottomNav, Banner } from "./Layout";
@@ -191,47 +200,13 @@ export default function App() {
 
   useEffect(() => {
     if (!profile) return;
-    setState((s) => {
+    const resetMissions = () => setState((s) => {
       const t = todayUTC();
       if (s.lastMissionDate === t) return s;
-      return {
-        ...s,
-        dailyMissions: [
-          { id: "m1", desc: "Complete 3 habits",  target: 3,  type: "habits",  xp: 100, done: false },
-          { id: "m2", desc: "Complete 6 habits",  target: 6,  type: "habits",  xp: 200, done: false },
-          { id: "m3", desc: "Complete 10 habits", target: 10, type: "habits",  xp: 500, done: false },
-          { id: "m4", desc: "Log a study session",target: 1,  type: "session", xp: 75,  done: false },
-          { id: "m5", desc: "Complete a task",    target: 1,  type: "task",    xp: 50,  done: false },
-          { id: "m6", desc: "Open RITMOL chat",   target: 1,  type: "chat",    xp: 25,  done: false },
-        ],
-        lastMissionDate: t,
-      };
+      return { ...s, dailyMissions: [...MISSION_DEFS], lastMissionDate: t };
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!profile]);
-
-  useEffect(() => {
-    if (!profile) return;
-    // Check mission date proactively every minute so midnight reset fires
-    // without requiring a user action.
-    const id = setInterval(() => {
-      setState((s) => {
-        const t = todayUTC();
-        if (!s.dailyMissions || s.lastMissionDate === t) return s;
-        return {
-          ...s,
-          dailyMissions: [
-            { id: "m1", desc: "Complete 3 habits",  target: 3,  type: "habits",  xp: 100, done: false },
-            { id: "m2", desc: "Complete 6 habits",  target: 6,  type: "habits",  xp: 200, done: false },
-            { id: "m3", desc: "Complete 10 habits", target: 10, type: "habits",  xp: 500, done: false },
-            { id: "m4", desc: "Log a study session",target: 1,  type: "session", xp: 75,  done: false },
-            { id: "m5", desc: "Complete a task",    target: 1,  type: "task",    xp: 50,  done: false },
-            { id: "m6", desc: "Open RITMOL chat",   target: 1,  type: "chat",    xp: 25,  done: false },
-          ],
-          lastMissionDate: t,
-        };
-      });
-    }, 60_000);
+    resetMissions();
+    const id = setInterval(resetMissions, 60_000);
     return () => clearInterval(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);

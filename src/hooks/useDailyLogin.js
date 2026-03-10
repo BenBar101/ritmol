@@ -49,6 +49,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     updateMaxDateSeen(effectiveDate);
 
     setState((s) => {
+      if (s.lastLoginDate === effectiveDate) return s;
       // Reject future-dated lastLoginDate from a crafted sync file
       if (s.lastLoginDate && s.lastLoginDate > effectiveDate) {
         return { ...s, lastLoginDate: effectiveDate, streak: 0 };
@@ -60,11 +61,12 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       let newStreak  = s.streak;
       let newShields = s.streakShields;
       let bannerMsg  = null;
+      let clearShieldBuyDate = false;
 
       if (s.lastLoginDate === yesterday) {
         newStreak = s.streak + 1;
       } else if (s.lastLoginDate === effectiveDate) {
-        // Already logged in today — no change
+        // Already logged in today — no change (redundant with top guard; kept for clarity)
       } else {
         const daysSinceLast = (() => {
           if (!s.lastLoginDate) return Infinity;
@@ -79,8 +81,10 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         if (canUseShield) {
           newShields = s.streakShields - 1;
           bannerMsg  = "Streak shield consumed. One missed day covered. Streak preserved.";
+          clearShieldBuyDate = false;
         } else {
           newStreak = 0;
+          clearShieldBuyDate = true;
           if (!missedExactlyOneDay && daysSinceLast !== 1) {
             bannerMsg = s.streakShields > 0 ? "Gap too large for a shield. Streak reset." : "Streak reset. Start again.";
           } else if (shieldUsedYesterday) {
@@ -109,7 +113,11 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
               if (costs && Object.keys(costs).length) {
                 setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
               }
-            }).catch(() => {});
+            }).catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
+              }
+            });
         }, 300);
       }
 
@@ -122,7 +130,11 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
               if (costs && Object.keys(costs).length) {
                 setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
               }
-            }).catch(() => {});
+            }).catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
+              }
+            });
         }, 0);
       }
 
@@ -137,6 +149,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         streakShields:      newShields,
         lastLoginDate:      effectiveDate,
         lastShieldUseDate:  newLastShieldUseDate,
+        lastShieldBuyDate:   clearShieldBuyDate ? null : s.lastShieldBuyDate,
         xp:                 newXP,
       };
     });
@@ -145,9 +158,9 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     }, 2000);
 
     return () => {
+      loginInProgressRef.current = false;
       cancelled = true;
       clearTimeout(resetTimer);
-      loginInProgressRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);

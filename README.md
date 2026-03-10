@@ -1,6 +1,6 @@
 # RITMOL
 
-A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **localStorage**. Logic is split across focused hooks (`hooks/`) consumed via `AppContext`; tabs call `useAppContext()` rather than receiving prop bundles. Application logic and UI are split across modular `src/` files (root: **`src/App.jsx`**). Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
+A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **TinyBase** (in-memory store persisted to IndexedDB via `utils/db.js`). Validation uses **Zod**. Application logic and UI are split across modular `src/` files (root: **`src/App.jsx`**). Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
 
 **Using the app (static site):** You don't need to clone this repo — just open the deployed static site (e.g. GitHub Pages). The app expects a single JSON data file in the same format as **`example-data/ritmol-data.json`** (with `_schemaVersion`, `geminiKey`, and your app data). In the app, go to **Profile → Settings → SYNCTHING SYNC** to link or import that file.
 
@@ -17,12 +17,13 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
 
 ```
 src/
-  App.jsx               — orchestration only (~280 lines); mounts hooks, renders tabs
+  App.jsx               — orchestration; mounts hooks, renders tabs, keys config gate
+  main.jsx              — entry point; mounts App, GlobalStyles, ErrorBoundary
   theme.js              — single source of truth for colours, fonts, button/input styles
   context/
-    AppContext.js        — React context; useAppContext() hook for tabs to consume
+    AppContext.js        — React context; useAppContext() for tabs
   hooks/
-    useAppState.js      — all React state + write-through localStorage persistence
+    useAppState.js      — React state + write-through persistence to TinyBase store (db.js)
     useSync.js          — Syncthing push/pull/pick/forget + auto-push on tab hide
     useGameEngine.js    — XP, missions, achievements, AI command executor, habit logger
     useDailyLogin.js    — daily login streak math and login XP
@@ -46,38 +47,45 @@ src/
     systemPrompt.js     — builds the RITMOL system prompt; sanitizeForPrompt()
     dynamicCosts.js     — AI-driven XP economy adjustments
   sync/
-    SyncManager.js      — File System Access API sync: push/pull/import/download; payload validation
+    SyncManager.js      — SYNC_KEYS, SYNC_SCHEMA_VERSION, SYNC_VALIDATORS, buildSyncPayload,
+                          applySyncPayload; File System Access API push/pull/import/download
   utils/
-    storage.js          — LS helpers, storageKey() dev/prod isolation, Gemini key in sessionStorage
-    state.js            — initState(), flushStateToStorage()
+    storage.js          — re-exports from db.js (LS, storageKey, Gemini key, date helpers)
+    db.js               — TinyBase store, bootDb(), IDB persister (ritmol_tb / ritmol_tb_dev),
+                          idbGet/idbSet/… shims; getMaxDateSeen; LS for non-IDB keys (theme, etc.)
+    state.js            — initState(), state shape
     xp.js               — XP/level/rank math, session XP calc
+    schemas.js          — Zod schemas (profile, habits, tasks, etc.)
+    migrate.js          — migration from legacy IDB/localStorage into TinyBase store
 ```
 
 - **`index.html`** — entry point; includes SPA redirect handling for GitHub Pages.
-- **`vite.config.js`** — Vite config; `base` is set from `VITE_BASE_PATH` (e.g. repo name for GitHub Pages).
-- **`.github/workflows/deploy.yml`** — GitHub Actions workflow: build and deploy `dist` to Pages (no secrets or Variables required).
+- **`vite.config.js`** — Vite config; `base` from `VITE_BASE_PATH` (e.g. repo name for GitHub Pages).
+- **`.github/workflows/deploy.yml`** — GitHub Actions: build and deploy `dist` to Pages (no secrets required).
 - **`api/verify-google-id.js`** — optional serverless JWT verification (e.g. Vercel); used when configured in your data file.
 - **`manifest.json`**, **`sw.js`** — PWA manifest and service worker.
-- **`public/404.html`** — copied to `dist`; redirects 404s to the SPA so client-side routes and OAuth callbacks work on GitHub Pages.
+- **`public/404.html`** — copied to `dist`; redirects 404s to the SPA for client-side routes and OAuth callbacks.
 
 ## Architecture
+
+**Storage (TinyBase)** — All app data lives in a single TinyBase Values store. The app entry point (`main.jsx`) calls `bootDb()` before mounting React; `bootDb()` loads from IndexedDB into the in-memory store and starts auto-save, so every `store.setValue` is persisted. Code reads/writes via the store directly or via the `idbGet` / `idbSet` shims in `db.js` for compatibility. Database names are `ritmol_tb` (production) and `ritmol_tb_dev` (dev). Non-IDB items (theme, disclosure flag, Gemini key, sync file handle) stay in localStorage or sessionStorage.
 
 `App.jsx` is pure orchestration — it mounts hooks and renders tabs. All logic lives in hooks:
 
 | Hook | Owns |
 |---|---|
-| `useAppState` | React state + write-through localStorage (replaces 25 individual `useEffect` flushes) |
+| `useAppState` | React state + write-through to TinyBase store (db.js); single source of truth, no per-slice effects |
 | `useSync` | Syncthing push/pull, auto-push on tab hide, pull mutex to prevent push/pull race |
 | `useGameEngine` | XP awards, mission checking, achievement unlock, AI command executor, habit logger |
 | `useDailyLogin` | Streak math, login XP, shield consumption |
 | `useScheduler` | Timed modals/banners: sleep check-in, screen time, lecture reminders, streak panic |
 | `useUI` | Ephemeral UI state: banner, toast, modal, level-up overlay |
 
-Tabs consume everything via `useAppContext()` — no more 15-prop function signatures.
+Tabs consume everything via `useAppContext()` — no prop drilling.
 
 ### Key fixes in this refactor
 
-**Write-through persistence** — `useAppState` wraps `setState` so localStorage is written synchronously inside the React updater, not in a downstream `useEffect`. This eliminates the render-cycle gap where localStorage lagged React state and caused stale auto-pushes to overwrite fresh Pull data.
+**Write-through persistence** — `useAppState` wraps `setState` so the TinyBase store is written synchronously inside the React updater, not in a downstream `useEffect`. TinyBase’s IndexedDB persister (`bootDb()` in `main.jsx`) auto-saves every store change. This eliminates the render-cycle gap where storage lagged React state and caused stale auto-pushes to overwrite fresh Pull data.
 
 **Sync mutex ownership** — `isPullingRef` now lives inside `useSync` alongside the auto-push effect. Previously it lived in App and was captured by a stale closure, sometimes missing the flag entirely. Both sides now always share the same object.
 
@@ -100,7 +108,7 @@ Your devices  <->  Syncthing  <->  ritmol-data.json  (your data + Gemini key)
                                    GitHub Pages (static build -- no secrets)
 ```
 
-There is **no backend server** and no central database. Sync is **file-based**: a single JSON file that Syncthing keeps in sync across your machines. Your config (Gemini API key, Google client ID if you use sign-in, etc.) and all app data live in that file — nothing is stored in GitHub or in build-time variables.
+There is **no backend server** and no central database. Sync is **file-based**: a single JSON file that Syncthing keeps in sync across your machines. Your config (Gemini API key, Google client ID if you use sign-in, etc.) and all app data live in that file — nothing is stored in GitHub or in build-time variables. App state is persisted via **TinyBase** to IndexedDB (database names `ritmol_tb` / `ritmol_tb_dev` in dev) and pushed/pulled to that file.
 
 The threat model is a **remote attacker** who finds the static site URL. Your data and keys stay in your own JSON file and in your browser; the static host never sees them. Anyone with **physical access to your running browser session** can read `sessionStorage` via DevTools — that is an accepted risk for a personal app you run on your own machine. Mitigate by restricting the Gemini key in AI Studio (Gemini API only) and setting a daily quota cap.
 
@@ -133,14 +141,14 @@ The maintainer does **not** aim to defend against a determined local attacker wi
 
 The sync layer enforces several layers of defence:
 
-- **Key allowlist:** Only keys in `SYNC_KEYS` are written from an incoming sync payload — unknown keys are silently dropped.
-- **Schema versioning:** `SYNC_SCHEMA_VERSION` is checked on every Pull/Import; outdated files are rejected before any data is applied.
+- **Key allowlist:** Only keys in `SYNC_KEYS` (in `sync/SyncManager.js`) are written from an incoming sync payload — unknown keys are silently dropped.
+- **Schema versioning:** `SYNC_SCHEMA_VERSION` (in `sync/SyncManager.js`) is checked on every Pull/Import; outdated files are rejected before any data is applied.
 - **Per-key validators (`SYNC_VALIDATORS`):** Every sync key has a typed validator checking structure, value ranges, string lengths, and allowed sub-keys. Log objects (habit/sleep/screen) enforce date-string key format and a ~2-year key cap. Array fields (missions, timers, habit suggestions) enforce per-item shape.
 - **Prototype pollution guard:** `isSafeSyncValue()` rejects payloads containing `__proto__`, `constructor`, or `prototype` keys.
 - **Payload size cap:** `assertPayloadSize()` rejects payloads over 10 MB before writing, so a large Push cannot produce a file that every subsequent Pull immediately rejects.
 - **Prompt injection mitigation:** `sanitizeForPrompt()` strips XML-breakout characters and control characters from all user-derived strings injected into the system prompt. Chat history is re-sanitised at replay time so previously-stored messages cannot break out of the `<HUNTER_DATA>` boundary.
 - **AI output sanitisation:** Commands returned by Gemini are validated against a strict allowlist; all string fields pass through `sanitizeStr()`. AI-awarded XP is capped per-command, per-response, and per-day.
-- **geminiKey isolation:** The key is read from `ritmol-data.json` into `sessionStorage` on Pull/Import and is never written back out on Push. It is never stored in localStorage.
+- **geminiKey isolation:** The key is read from `ritmol-data.json` into `sessionStorage` on Pull/Import and is never written back out on Push. It is never stored in IndexedDB or localStorage.
 
 ### Important Rules
 
@@ -196,7 +204,7 @@ After a Pull, the key lives in `sessionStorage` for the lifetime of the tab. It 
 
 ## Sync: Syncthing + File System Access API
 
-Data is stored in **localStorage**. To use the same data on multiple devices, RITMOL uses the browser's [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API) to read and write a JSON file directly on disk — no OAuth, no cloud accounts, no extra services.
+Data is stored in a **TinyBase** in-memory store, persisted to **IndexedDB** (databases `ritmol_tb` in production and `ritmol_tb_dev` in dev, via `utils/db.js`). To use the same data on multiple devices, RITMOL uses the browser's [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API) to read and write a JSON file directly on disk — no OAuth, no cloud accounts, no extra services.
 
 ### How it works
 
@@ -249,7 +257,7 @@ If you want to run the app locally or change the code:
    Link your sync file in the app (Profile → Settings → SYNCTHING SYNC) and Pull. All config (Gemini key, Google client ID, etc.) comes from that file; no `.env` or GitHub Variables required.
 
 4. **Dev mode**  
-   When you run `npm run dev`, the app uses a **separate localStorage copy** (prefix `ritmol_dev_`) and a **separate sync file handle**. Your production data stays untouched. A yellow **DEV MODE** bar at the top reminds you.
+   When you run `npm run dev`, the app uses a **separate TinyBase database** (`ritmol_tb_dev`) and dev-prefixed keys (`ritmol_dev_`). Your production data stays untouched. A yellow **DEV MODE** bar at the top reminds you.
 
 To test the production build locally: `npm run build` then `npm run preview`.
 

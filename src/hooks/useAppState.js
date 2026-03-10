@@ -23,7 +23,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { storageKey } from "../utils/storage";
-import { idbSet, idbGetAll } from "../utils/idb";
+import { idbSet } from "../utils/db";
 import { initState } from "../utils/state";
 import { migrateLocalStorageToIdb } from "../utils/migrate";
 
@@ -72,17 +72,15 @@ export function useAppState() {
   const [idbReady, setIdbReady] = useState(false);
   const latestStateRef = useRef(null);
 
-  // ── Async boot: migrate (if needed) → populate IDB cache → initState ──
+  // ── Async boot: migrate (if needed) → initState ──
   useEffect(() => {
     let cancelled = false;
     async function boot() {
       try {
-        // 1. Populate in-memory cache from IDB (must happen before initState)
-        await idbGetAll();
-        // 2. Migrate from localStorage if this is an existing user's first
-        //    run after the IDB migration ships. No-op for new users.
+        // Migrate from localStorage if this is an existing user's first
+        // run after the IDB migration ships. No-op for new users.
         await migrateLocalStorageToIdb();
-        // 3. Now idbGet() is synchronous and populated — initState() is safe
+        // Store is already populated by bootDb() in main.jsx — initState() is safe
         if (!cancelled) {
           const fresh = initState();
           latestStateRef.current = fresh;
@@ -154,7 +152,6 @@ export function useAppState() {
   // Called after a Pull: SyncManager.applyPayload() has written to IDB.
   // Re-populate cache from IDB then re-run initState().
   const rehydrate = useCallback(async () => {
-    await idbGetAll(); // repopulate cache with what Pull just wrote
     const fresh = initState();
     latestStateRef.current = fresh;
     _setState(fresh);

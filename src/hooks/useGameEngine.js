@@ -19,8 +19,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useCallback, useRef } from "react";
-import { storageKey, today, todayUTC, getMaxDateSeen } from "../utils/storage";
-import { idbGet } from "../utils/idb";
+import { storageKey, todayUTC, getMaxDateSeen } from "../utils/storage";
+import { idbGet } from "../utils/db";
 import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
 import { getGeminiApiKey } from "../utils/storage";
 import { updateDynamicCosts } from "../api/dynamicCosts";
@@ -218,7 +218,8 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
 
       if (safeBonus > 0) {
         const xpPl    = getXpPerLevel(s);
-        const oldLevel = getLevel(s.xp, xpPl);
+        const effectiveOldXp = lastLevelUpXpRef.current > 0 ? Math.max(s.xp, lastLevelUpXpRef.current) : s.xp;
+        const oldLevel = getLevel(effectiveOldXp, xpPl);
         const newLevel = getLevel(newXP, xpPl);
         if (newLevel > oldLevel) {
           lastLevelUpXpRef.current = newXP;
@@ -233,23 +234,28 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
       pendingData.toasts.forEach((t, i) => setTimeout(() => showToast(t), 200 + i * 5500));
       if (pendingData.levelUp) {
         const { level, rank, snapshot } = pendingData.levelUp;
+        const newXP = snapshot.xp;
         setTimeout(() => {
-          setLevelUpData((prev) => {
-            if (prev && prev.level >= level) return prev;
-            return { level, rank };
-          });
-          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
-            .then((costs) => {
-              if (costs && Object.keys(costs).length) {
-                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-              }
-            })
-            .catch((err) => {
-              if (import.meta.env.DEV) {
-                console.warn("[useGameEngine] updateDynamicCosts (mission level_up) failed:", err?.message || err);
-              }
+          if (lastLevelUpXpRef.current > newXP) return;
+          lastLevelUpXpRef.current = newXP;
+          setTimeout(() => {
+            setLevelUpData((prev) => {
+              if (prev && prev.level >= level) return prev;
+              return { level, rank };
             });
-        }, 300);
+            updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
+              .then((costs) => {
+                if (costs && Object.keys(costs).length) {
+                  setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+                }
+              })
+              .catch((err) => {
+                if (import.meta.env.DEV) {
+                  console.warn("[useGameEngine] updateDynamicCosts (mission level_up) failed:", err?.message || err);
+                }
+              });
+          }, 300);
+        }, 0);
       }
     });
   }, [setState, showToast, setLevelUpData, trackTokens]);
@@ -263,7 +269,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
       setTimeout(() => showToast({ ...ach, isAchievement: true }), 300);
       return { ...s, achievements: [...(s.achievements || []), ach] };
     });
-    if (!skipXP && data.xp > 0) awardXP(data.xp, null, true);
+    if (!skipXP && data.xp > 0) awardXP(data.xp, null, false);
   }, [setState, showToast, awardXP]);
 
   // ── Habit logger ──────────────────────────────────────────
@@ -358,7 +364,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
           break;
 
         case "complete_task": {
-          const doneDate = today();
+          const doneDate = todayUTC();
           setState((s) => {
             const tasks    = [...(s.tasks || [])];
             const isValidId = typeof cmd.id === "string" && cmd.id.length <= 40 && /^[a-zA-Z0-9_]+$/.test(cmd.id);
@@ -454,14 +460,15 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
               activeTimers: [...(s.activeTimers || []), {
                 id:     `timer_${crypto.randomUUID()}`,
                 label:  sanitizeStr(cmd.label),
-                emoji:  typeof cmd.emoji === "string"
-                  ? cmd.emoji
-                      // eslint-disable-next-line no-control-regex
-                      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
-                      .replace(/[<>&"'`]/g, "")
-                      ? [...cmd.emoji].slice(0, 2).join("")
-                      : "◈"
-                  : "◈",
+                emoji: (() => {
+                  if (typeof cmd.emoji !== "string") return "◈";
+                  const sanitized = cmd.emoji
+                    // eslint-disable-next-line no-control-regex -- intentional: strip control and other unsafe chars
+                    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "")
+                    .replace(/[<>&"'`]/g, "");
+                  if (!sanitized) return "◈";
+                  return [...sanitized].slice(0, 2).join("") || "◈";
+                })(),
                 endsAt: Date.now() + safeMins * 60000,
               }],
             };

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App, { GlobalStyles, ErrorBoundary } from "./App";
+import { bootDb } from "./utils/db";
 
 // Single entry point for mounting. Keeping this separate from App.jsx means
 // importing App in tests (or alternative entry points) does not trigger
@@ -13,10 +14,19 @@ function mount() {
   );
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", mount);
-} else {
+async function start() {
+  try {
+    await bootDb();
+  } catch (e) {
+    console.error("[RITMOL] bootDb failed — rendering with empty state:", e);
+  }
   mount();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", start);
+} else {
+  start();
 }
 
 if (import.meta.hot) {

@@ -22,7 +22,15 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
   // Snapshot of the state slices the interval needs — updated every render
   // so the interval callback always sees fresh data without being in deps.
   const panicWarnedRef = useRef(null);
-  const scheduledStateRef = useRef({});
+  const sleepModalShownRef = useRef(null);
+  const screenModalShownRef = useRef({});
+  const scheduledStateRef = useRef({
+    sleepLog:       state.sleepLog,
+    screenTimeLog:  state.screenTimeLog,
+    calendarEvents: state.calendarEvents,
+    habitLog:       state.habitLog,
+    streak:         state.streak,
+  });
   useEffect(() => {
     scheduledStateRef.current = {
       sleepLog:       state.sleepLog,
@@ -49,14 +57,20 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
 
       // Sleep check-in at 07:30
       if (h === 7 && m >= 30 && m < 35 && !sleepLog?.[t]) {
+        if (sleepModalShownRef.current === t) return;
+        sleepModalShownRef.current = t;
         setModal({ type: "sleep_checkin" });
       }
 
       // Screen time at 13:00 and 20:00
       if (h === 13 && m >= 0 && m < 5 && !screenTimeLog?.[t]?.afternoon) {
+        if (screenModalShownRef.current.afternoon === t) return;
+        screenModalShownRef.current.afternoon = t;
         setModal({ type: "screen_time", period: "afternoon" });
       }
       if (h === 20 && m >= 0 && m < 5 && !screenTimeLog?.[t]?.evening) {
+        if (screenModalShownRef.current.evening === t) return;
+        screenModalShownRef.current.evening = t;
         setModal({ type: "screen_time", period: "evening" });
       }
 

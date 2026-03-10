@@ -23,6 +23,7 @@ export default function HabitsTab() {
     if (state.habitsInitialized || !apiKey || !profile || initializing) return;
     const usage = state.tokenUsage;
     if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) return;
+    let mounted = true;
     setInitializing(true);
 
     // Cancel any previous in-flight request and start a fresh one.
@@ -63,12 +64,13 @@ Respond ONLY with JSON array:
     callGemini(apiKey, [{ role: "user", content: prompt }],
       "You generate personalized habit protocols. Respond only in JSON.", true, controller.signal)
       .then(({ text, tokensUsed }) => {
-        if (controller.signal.aborted) return; // unmounted — discard
+        if (controller.signal.aborted || !mounted) return;
         trackTokens?.(tokensUsed);
         const match = text.match(/\[[\s\S]*\]/);
         if (!match) throw new Error("Expected array from Gemini");
         const newHabits = JSON.parse(match[0]);
         if (!Array.isArray(newHabits)) throw new Error("Expected array from Gemini");
+        if (!mounted) return;
         setState((s) => ({
           ...s,
           habits: [
@@ -90,6 +92,7 @@ Respond ONLY with JSON array:
           ],
           habitsInitialized: true,
         }));
+        if (!mounted) return;
         showBanner("RITMOL has initialized your protocol stack.", "success");
       })
       .catch((err) => {
@@ -108,20 +111,24 @@ Respond ONLY with JSON array:
           msg.includes("Blocked:")
         );
         if (isPermanent) {
+          if (!mounted) return;
           setState((s) => ({ ...s, habitsInitialized: true }));
           showBanner("Could not load personalized habits. Using defaults.", "info");
         } else if (!isAbort) {
-          // Transient failure — leave habitsInitialized false so a future mount can retry.
+          if (!mounted) return;
           showBanner("Could not load personalized habits. Will retry next time.", "info");
         }
         // AbortError = component unmounted mid-request; silently discard.
       })
-      .finally(() => setInitializing(false));
+      .finally(() => {
+        if (mounted) setInitializing(false);
+      });
+    return () => {
+      mounted = false;
+      habitInitAbortRef.current?.abort();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.habitsInitialized, apiKey, !!profile]);
-
-  // Cancel any in-flight habit-init request on unmount.
-  useEffect(() => () => { habitInitAbortRef.current?.abort(); }, []);
 
   function deleteHabit(id) {
     setState((s) => ({ ...s, habits: s.habits.filter((h) => h.id !== id) }));

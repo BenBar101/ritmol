@@ -177,7 +177,7 @@ export class ErrorBoundary extends React.Component {
             }}>
               {redact(this.state.error?.message ?? String(this.state.error))}
               {"\n\n"}
-              {redact(this.state.error?.stack ?? "")}
+              {redact(this.state.error?.stack ?? "").replace(/AIza[A-Za-z0-9_-]{30,}/g, "[key]").replace(/eyJ[\w.-]+/g, "[token]")}
             </pre>
           </details>
           )}

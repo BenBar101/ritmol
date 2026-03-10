@@ -15,8 +15,8 @@
 // if the IDB store is later cleared.
 // ═══════════════════════════════════════════════════════════════
 
-import { LS, storageKey, IS_DEV, DEV_PREFIX, today, todayUTC } from "./storage";
-import { store } from "./db";
+import { LS, storageKey, IS_DEV, DEV_PREFIX, todayUTC } from "./storage";
+import { idbGet, idbSet, idbGetAll } from "./db";
 
 const MIGRATION_FLAG_KEY = IS_DEV ? `${DEV_PREFIX}jv_idb_migrated` : "jv_idb_migrated";
 
@@ -27,15 +27,14 @@ export async function migrateLocalStorageToIdb() {
   if (migrated === "1" && !cleanupPending) return;
 
   // IDB already has a profile — nothing to migrate (new install or already migrated)
-  const idbProfile = store.getValue(storageKey("jv_profile")) ?? null;
+  const idbProfile = idbGet(storageKey("jv_profile"), null);
   if (idbProfile !== null) {
     // If cleanup was pending and IDB has a profile, we can safely clear
     // any leftover localStorage copies.
     if (cleanupPending) {
-      const keys = Object.keys(store.getValues());
+      const keys = Object.keys(await idbGetAll());
       for (const key of keys) {
-        const prefixed = storageKey(key);
-        LS.del(prefixed);
+        LS.del(key);
       }
       localStorage.removeItem(`${MIGRATION_FLAG_KEY}_cleanup_pending`);
     } else if (migrated !== "1") {
@@ -66,21 +65,15 @@ export async function migrateLocalStorageToIdb() {
       // under a local-date key that differs from todayUTC(), re-key that single
       // entry so missions and streak logic (which use UTC) continue to see it.
       if (key === "jv_habit_log" && value && typeof value === "object") {
-        const localToday = today();
+        const localToday = new Date().toLocaleDateString("en-CA");
         const utcToday = todayUTC();
         if (localToday !== utcToday && value[localToday] && !value[utcToday]) {
           value = { ...value, [utcToday]: value[localToday] };
         }
       }
-      store.setValue(prefixed, value);
+      idbSet(prefixed, value);
     }
   }
-
-  // Wait one microtask so the fire-and-forget idbSet promises have been
-  // enqueued — we don't await them individually (that would block boot),
-  // but we at least yield before clearing localStorage so the writes are
-  // in flight before we remove the source data.
-  await Promise.resolve();
 
   // Mark migration complete — keep LS data as backup for one more session.
   localStorage.setItem(MIGRATION_FLAG_KEY, "1");

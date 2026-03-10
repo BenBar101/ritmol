@@ -21,7 +21,9 @@ export const DEV_PREFIX = 'ritmol_dev_'
 export const APP_ICON_URL = `${(import.meta.env.BASE_URL || '/').replace(/\/$/, '')}/icon-192.png`
 
 // The IDB database name is isolated between dev and prod.
-const DB_NAME = IS_DEV ? 'ritmol_dev' : 'ritmol'
+// Use a separate namespace from idb.js ('ritmol' / 'ritmol_dev') to avoid schema conflict.
+const DB_NAME = IS_DEV ? 'ritmol_tb_dev' : 'ritmol_tb'
+const OLD_IDB_NAME = IS_DEV ? 'ritmol_dev' : 'ritmol' // legacy idb.js store for migration reads
 
 // ── Gemini key (sessionStorage only — never in IDB or state) ──
 const GEMINI_SESSION_KEY = IS_DEV ? 'ritmol_dev_gemini_key' : 'ritmol_gemini_key'
@@ -92,11 +94,19 @@ export const store = createStore()
 
 // ── Anti-cheat watermark ───────────────────────────────────────
 // jv_max_date_seen is device-local and must never be synced or reset.
-// It lives in IDB via TinyBase but is excluded from all sync payloads.
-export const getMaxDateSeen = () => store.getValue('jv_max_date_seen') ?? null
+// Dual-read/write with idb.js so the watermark survives reloads even when
+// TinyBase store is not yet booted.
+export const getMaxDateSeen = () => {
+  const v = store.getValue('jv_max_date_seen')
+  if (v != null) return v
+  return idbGet('jv_max_date_seen', null)
+}
 export const updateMaxDateSeen = (dateStr) => {
   const current = getMaxDateSeen()
-  if (!current || dateStr > current) store.setValue('jv_max_date_seen', dateStr)
+  if (!current || dateStr > current) {
+    store.setValue('jv_max_date_seen', dateStr)
+    idbSet('jv_max_date_seen', dateStr)
+  }
 }
 
 // ── Persister ─────────────────────────────────────────────────
@@ -139,8 +149,9 @@ async function _migrateFromLocalStorage() {
     const oldData = await _readOldIdb()
     if (oldData && Object.keys(oldData).length > 0) {
       console.info('[RITMOL] Migrating data from old IDB store to TinyBase…')
-      // Write each value into the TinyBase store
+      const DANGEROUS_MIGRATION_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
       Object.entries(oldData).forEach(([k, v]) => {
+        if (DANGEROUS_MIGRATION_KEYS.has(k) || k.length > 200) return
         if (v !== null && v !== undefined) store.setValue(k, v)
       })
       console.info('[RITMOL] Migration complete.')
@@ -154,7 +165,11 @@ async function _migrateFromLocalStorage() {
 async function _readOldIdb() {
   return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB_NAME, 1)
+      const req = indexedDB.open(OLD_IDB_NAME)
+      req.onupgradeneeded = (e) => {
+        e.target.transaction?.abort()
+        resolve({})
+      }
       req.onerror = () => resolve({})
       req.onsuccess = () => {
         const db = req.result
@@ -176,4 +191,28 @@ async function _readOldIdb() {
 // ── React hooks (thin wrappers over TinyBase ui-react) ────────
 export const useValues = (selector) => _useValues(store, selector)
 export const useValue  = (key) => _useValue(store, key)
+
+// ── IDB shims (delegate to TinyBase store; replace legacy idb.js) ──
+export function idbGet(key, def = null) {
+  const v = store.getValue(key)
+  return (v !== undefined && v !== null) ? v : def
+}
+export function idbSet(key, value) {
+  store.setValue(key, value)
+}
+export function idbDel(key) {
+  store.delValue(key)
+}
+export async function idbClear(keys) {
+  keys.forEach((k) => store.delValue(k))
+}
+export async function idbClearAll() {
+  store.delValues()
+}
+export async function idbGetAll() {
+  return store.getValues()
+}
+export function isIdbAvailable() {
+  return true
+}
 

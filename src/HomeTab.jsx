@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
-import { today, todayUTC, nowHour, sanitizeForDisplay } from "./utils/storage";
+import { todayUTC, nowHour, sanitizeForDisplay } from "./utils/storage";
 import { sanitizeForPrompt } from "./api/systemPrompt";
 import { DAILY_TOKEN_LIMIT } from "./constants";
 
@@ -209,7 +209,7 @@ function TokenUsageBar({ usage }) {
   // when AI features are disabled — not 5% (50k/1M). Showing "% of 1M" while blocking at
   // 50k meant the bar never appeared to reach critical even when the budget was exhausted.
   const DISPLAY_LIMIT = DAILY_TOKEN_LIMIT;
-  const isToday = usage?.date === today();
+  const isToday = usage?.date === todayUTC();
   const tokens = isToday ? (usage?.tokens || 0) : 0;
   const pct = Math.min(100, (tokens / DISPLAY_LIMIT) * 100);
   const pctDisplay = pct < 0.1 ? "<0.1" : pct.toFixed(1);
@@ -264,17 +264,19 @@ function CountdownTimer({ timer, onExpire }) {
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
    const mountedRef = useRef(true);
+   const expiredRef = useRef(false);
    useEffect(() => () => { mountedRef.current = false; }, []);
 
   useEffect(() => {
     if (timer.endsAt <= Date.now()) {
-      if (mountedRef.current) onExpireRef.current();
+      if (!expiredRef.current) { expiredRef.current = true; if (mountedRef.current) onExpireRef.current(); }
       return;
     }
+    expiredRef.current = false;
     const iv = setInterval(() => {
       const r = Math.max(0, timer.endsAt - Date.now());
       if (mountedRef.current) setRemaining(r);
-      if (r === 0) { clearInterval(iv); if (mountedRef.current) onExpireRef.current(); }
+      if (r === 0 && !expiredRef.current) { expiredRef.current = true; clearInterval(iv); if (mountedRef.current) onExpireRef.current(); }
     }, 1000);
     return () => clearInterval(iv);
   }, [timer.endsAt]); // onExpire accessed via ref — no stale closure risk

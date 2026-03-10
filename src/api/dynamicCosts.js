@@ -1,6 +1,6 @@
 import { callGemini } from "./gemini";
 import { storageKey, todayUTC } from "../utils/storage";
-import { idbGet } from "../utils/idb";
+import { idbGet } from "../utils/db";
 import { DAILY_TOKEN_LIMIT, DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "../constants";
 import { getLevel } from "../utils/xp";
 
@@ -30,7 +30,7 @@ export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   const weekend = day === 0 || day === 6;
   const month = now.getMonth(), date = now.getDate();
   const holidayHint = (month === 11 && date === 25) ? "Christmas" : (month === 0 && date === 1) ? "New Year" : (month === 6 && date === 4) ? "US Independence Day" : null;
-  const safeHolidayHint = holidayHint ? holidayHint.replace(/[^a-zA-Z\s]/g, "").slice(0, 30) : null;
+  const safeHolidayHint = holidayHint ? holidayHint.replace(/[^a-zA-Z]/g, "").slice(0, 30) : null;
   const VALID_EVENTS = new Set(["level_up", "gacha_pull", "streak_shield_use"]);
   // Whitelist the event string before embedding it in the prompt.
   const safeEvent = VALID_EVENTS.has(event) ? event : "unknown";
@@ -51,15 +51,15 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
     const out = {};
     if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 200 && data.xpPerLevel <= 10000) {
       const proposed = Math.round(data.xpPerLevel);
-      out.xpPerLevel = Math.min(proposed, xpPerLevel * 2);
+      out.xpPerLevel = Math.max(Math.min(proposed, xpPerLevel * 2), Math.ceil(xpPerLevel / 2));
     }
     if (typeof data.gachaCost === "number" && data.gachaCost >= 50 && data.gachaCost <= 5000) {
       const proposed = Math.round(data.gachaCost);
-      out.gachaCost = Math.min(proposed, gachaCost * 2);
+      out.gachaCost = Math.max(Math.min(proposed, gachaCost * 2), Math.ceil(gachaCost / 2));
     }
     if (typeof data.streakShieldCost === "number" && data.streakShieldCost >= 100 && data.streakShieldCost <= 5000) {
       const proposed = Math.round(data.streakShieldCost);
-      out.streakShieldCost = Math.min(proposed, streakShieldCost * 2);
+      out.streakShieldCost = Math.max(Math.min(proposed, streakShieldCost * 2), Math.ceil(streakShieldCost / 2));
     }
     return out;
   } catch (err) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppContext } from "./context/AppContext";
-import { today, todayUTC, LS, storageKey } from "./utils/storage";
+import { todayUTC, LS, storageKey } from "./utils/storage";
 import { DAILY_TOKEN_LIMIT, DATA_DISCLOSURE_SEEN_KEY } from "./constants";
 import { callGemini } from "./api/gemini";
 
@@ -78,7 +78,7 @@ export default function ChatTab() {
       content: sanitizedUserContent,
       ts: Date.now(),
       seq: ++_msgSeq,
-      date: today(),
+      date: todayUTC(),
     };
     const newHistory = [...messages, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
@@ -136,7 +136,7 @@ export default function ChatTab() {
         content: safeContent,
         ts: Date.now(),
         seq: ++_msgSeq,
-        date: today(),
+        date: todayUTC(),
       };
       setState((s) => ({ ...s, chatHistory: [...s.chatHistory, assistantMsg].slice(-1000) }));
 
@@ -159,7 +159,7 @@ export default function ChatTab() {
         content: `Connection error: ${safeMsg}. Check your API key in Profile → Settings.`,
         ts: Date.now(),
         seq: ++_msgSeq,
-        date: today(),
+        date: todayUTC(),
       };
       if (mountedRef.current) {
         setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg].slice(-1000) }));

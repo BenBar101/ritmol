@@ -9,10 +9,13 @@
 //   - Payload size cap: >10 MB rejected before any write.
 //   - geminiKey and googleClientId are read from the file into sessionStorage
 //     but NEVER written back out on Push.
+//   - jv_last_shield_buy_date: on apply, local value is kept if more recent than
+//     incoming (prevents crafted sync from resetting once-per-day shield limit).
 // ═══════════════════════════════════════════════════════════════
 
 import { LS, storageKey, setGeminiApiKey, IS_DEV, DEV_PREFIX, todayUTC } from "../utils/storage";
-import { idbGet, idbSet } from "../utils/idb";
+import { idbGet, idbSet, store } from "../utils/db";
+import { calcSessionXP } from "../utils/xp";
 
 // ── Schema version ──────────────────────────────────────────────
 export const SYNC_SCHEMA_VERSION = 1;
@@ -54,6 +57,11 @@ const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_LOG_VALUE_SIZE = 4096; // per-entry byte cap to prevent log value bloat
 const MAX_LOG_OBJECT_BYTES = MAX_LOG_VALUE_SIZE * MAX_LOG_ENTRIES;
 
+const _logEnc = new TextEncoder();
+function byteLen(str) {
+  return _logEnc.encode(str).length;
+}
+
 // Grapheme-aware length check for emoji / icon strings. Many emoji are composed of
 // multiple UTF-16 code units (and even multiple codepoints joined via ZWJ), so
 // String.length ≤ 2 is NOT a reliable proxy for "one or two emoji". We allow up to
@@ -89,8 +97,8 @@ function isLogObj(v) {
 
     let size = 0;
     if (typeof val === "string") {
-      if (val.length > MAX_LOG_VALUE_SIZE) return false;
-      size = val.length;
+      if (byteLen(val) > MAX_LOG_VALUE_SIZE) return false;
+      size = byteLen(val);
     } else if (Array.isArray(val)) {
       if (val.length > 200) return false;
       // Each array item must be a non-empty string of reasonable length so that
@@ -98,12 +106,12 @@ function isLogObj(v) {
       // bypass includes() checks in the app logic.
       if (!val.every((item) => typeof item === "string" && item.length > 0 && item.length <= 64)) return false;
       const serialized = JSON.stringify(val);
-      if (serialized.length > MAX_LOG_VALUE_SIZE) return false;
-      size = serialized.length;
+      if (byteLen(serialized) > MAX_LOG_VALUE_SIZE) return false;
+      size = byteLen(serialized);
     } else if (isObj(val)) {
       const serialized = JSON.stringify(val);
-      if (serialized.length > MAX_LOG_VALUE_SIZE) return false;
-      size = serialized.length;
+      if (byteLen(serialized) > MAX_LOG_VALUE_SIZE) return false;
+      size = byteLen(serialized);
     } else {
       return false;
     }
@@ -145,7 +153,7 @@ export const SYNC_VALIDATORS = {
     typeof h.label === "string" && h.label.length <= 200 &&
     typeof h.xp === "number" && isFinite(h.xp) && h.xp >= 1 && h.xp <= 200 &&
     ["body","mind","work"].includes(h.category) &&
-    (h.icon === undefined || (typeof h.icon === "string" && h.icon.length <= 2))
+    (h.icon === undefined || iconLengthOk(h.icon))
   ),
   jv_habit_log:           (v) => isLogObj(v),
   jv_tasks:               (v) => isArray(v) && v.length <= 5000 && v.every((t) =>
@@ -173,7 +181,8 @@ export const SYNC_VALIDATORS = {
       /^\d{4}-\d{2}-\d{2}$/.test(s.date) &&
       // Reject sessions dated in the future or unreasonably far in the past.
       s.date <= todayUTC() &&
-      s.date >= "2020-01-01"
+      // Lower bound: 2010 allows imported historical data while preventing epoch-zero placeholders.
+      s.date >= "2010-01-01"
     )) &&
     (s.course === undefined || (typeof s.course === "string" && s.course.length <= 100)) &&
     (s.notes === undefined || (typeof s.notes === "string" && s.notes.length <= 300)) &&
@@ -183,7 +192,11 @@ export const SYNC_VALIDATORS = {
     (s.type === undefined || ["lecture","self_study","project","exam_prep"].includes(s.type)) &&
     // focus is optional; when present it must match the FOCUS_LEVELS ids.
     (s.focus === undefined || ["low","medium","high"].includes(s.focus)) &&
-    (s.xp === undefined || (typeof s.xp === "number" && isFinite(s.xp) && s.xp >= 0 && s.xp <= 10000))
+    (s.xp === undefined || (typeof s.xp === "number" && isFinite(s.xp) && s.xp >= 0 && s.xp <= 10000 &&
+      (() => {
+        const maxPlausibleXP = calcSessionXP(s.type || "exam_prep", Math.min(s.duration ?? 0, 600), "high", 7);
+        return s.xp <= maxPlausibleXP * 2;
+      })()))
   ),
   jv_achievements:        (v) => isArray(v) && v.length <= 2000 && v.every((a) =>
     isObj(a) &&
@@ -217,7 +230,7 @@ export const SYNC_VALIDATORS = {
     // range U+DB40 U+DC00–DFFF and reject titles containing them to avoid storing large
     // invisible payloads.
     !/\uDB40[\uDC00-\uDFFF]/.test(e.title) &&
-    (e.start === null || (typeof e.start === "string" && !isNaN(new Date(e.start).getTime()))) &&
+    (e.start === null || (typeof e.start === "string" && !isNaN(new Date(e.start).getTime()) && new Date(e.start).getTime() <= Date.now() + 365 * 5 * 86400000)) &&
     (e.type === undefined || ["lecture","tirgul","exam","assignment","other"].includes(e.type))
   ),
   jv_chat:                (v) => {
@@ -229,7 +242,7 @@ export const SYNC_VALIDATORS = {
       if (!isObj(item)) return false;
       if (!['user', 'assistant'].includes(item.role)) return false;
       if (typeof item.content !== 'string') return false;
-      if (item.content.length > 4000) return false; // ~1k token cap per message
+      if (byteLen(item.content) > 16000) return false; // 16 KB per message
       if (item.ts !== undefined && !(typeof item.ts === 'number' && isFinite(item.ts) && item.ts > 0)) return false;
       if (item.date !== undefined && !(typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date))) return false;
       return true;
@@ -322,15 +335,15 @@ const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 function sanitizeChatMessages(arr) {
   if (!isArray(arr)) return [];
+  const MAX_CHAT_MSG_BYTES = 16000;
   return arr
     .filter((item) => isObj(item) && typeof item.content === "string")
     .map((item) => {
       let content = item.content;
       // eslint-disable-next-line no-control-regex
       content = content.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
-      // Strip BiDi override/isolate characters rather than rejecting the message.
       content = content.replace(/[\u202A-\u202E\u2066-\u2069]/g, "");
-      if (content.length > 4000) content = content.slice(0, 4000);
+      while (byteLen(content) > MAX_CHAT_MSG_BYTES) content = content.slice(0, content.length - 1);
       return { ...item, content };
     });
 }
@@ -373,7 +386,7 @@ export function assertPayloadSize(text) {
 let _cachedHandle = null;
 let _opInProgress = false;
 let _broadcastChannel = null;
-let _lastPushTime = 0;
+let _lastPushTime = Date.now();
 let _lastObjectUrl = null;
 
 function getSyncChannel() {
@@ -478,8 +491,14 @@ function applyPayload(payload) {
     const validator = SYNC_VALIDATORS[key];
     if (validator && !validator(val)) continue;
     if (!isSafeSyncValue(val)) continue;
+    // Anti-cheat: do not overwrite last shield buy date with an older sync value.
+    if (key === "jv_last_shield_buy_date") {
+      const localVal = idbGet(storageKey(key), null);
+      if (localVal && val && localVal > val) continue;
+    }
     if (key === "jv_chat") {
       val = sanitizeChatMessages(val);
+      if (!isSafeSyncValue(val)) continue;
     } else if (key === "jv_gacha" && Array.isArray(val)) {
       // Sanitize gacha content at storage time so later render paths never have
       // to worry about control chars, BiDi overrides, or raw HTML-ish strings.
@@ -559,7 +578,7 @@ function extractSecretsFromPayload(payload) {
     const trimmed = payload.geminiKey.trim();
     // Accept a range of plausible key lengths so future format changes don't
     // silently break the config gate. We never log the key value itself.
-    if (/^AIza[A-Za-z0-9_-]{30,50}$/.test(trimmed)) {
+    if (/^AIza[A-Za-z0-9_-]{35}$/.test(trimmed)) {
       setGeminiApiKey(trimmed);
     } else {
       // Key was present but failed the format check — surface a console warning
@@ -603,6 +622,7 @@ export const SyncManager = {
     const handle = await SyncManager.getHandle();
     if (!handle) throw new Error("NO_HANDLE");
     if (_opInProgress) throw new Error("SYNC_BUSY");
+    if (!store) throw new Error("IDB_NOT_READY");
     const ch = getSyncChannel();
     ch?.postMessage({ type: "sync_start" });
     _opInProgress = true; // acquire BEFORE any await
@@ -646,12 +666,12 @@ export const SyncManager = {
         console.warn("[SyncManager] Sync file approaching size limit:", (byteSize / (1024 * 1024)).toFixed(1), "MB");
       }
 
+      _lastPushTime = Date.now();
       const writable = await handle.createWritable();
       await writable.write(text);
       await writable.close();
 
       const ts = Date.now();
-      _lastPushTime = ts;
       LS.set(IS_DEV ? `${DEV_PREFIX}jv_last_synced` : "jv_last_synced", String(ts));
       return ts;
     } finally {

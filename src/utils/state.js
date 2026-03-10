@@ -1,5 +1,5 @@
-import { storageKey, today } from "./storage";
-import { idbGet, idbSet } from "./idb";
+import { storageKey, todayUTC } from "./storage";
+import { idbGet, idbSet } from "./db";
 import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, DEFAULT_HABITS } from "../constants";
 
 // ─────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export function initState() {
     // Fix [ST-2]: include aiXpToday: 0 and warnedAt: [] in the default so
     // consuming code (consumeAiXpBudget, trackTokens) always sees a fully-formed
     // object and never reads undefined.aiXpToday.
-    tokenUsage: idbGet(storageKey("jv_token_usage"), { date: today(), tokens: 0, aiXpToday: 0, warnedAt: [] }),
+    tokenUsage: idbGet(storageKey("jv_token_usage"), { date: todayUTC(), tokens: 0, aiXpToday: 0, warnedAt: [] }),
     habitsInitialized: idbGet(storageKey("jv_habits_init"), false),
     dynamicCosts: idbGet(storageKey("jv_dynamic_costs"), null) || { xpPerLevel: DEFAULT_XP_PER_LEVEL, gachaCost: DEFAULT_GACHA_COST, streakShieldCost: DEFAULT_STREAK_SHIELD_COST },
     lastShieldUseDate: idbGet(storageKey("jv_last_shield_use_date"), null),

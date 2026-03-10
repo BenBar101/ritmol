@@ -33,7 +33,7 @@ export function DailyLoginModal({ data, onClose }) {
             7-DAY STREAK BONUS ACTIVE · +50% HABIT XP
           </div>
         )}
-        <button onClick={onClose} style={primaryBtn}>PROCEED</button>
+        <button type="button" onClick={onClose} style={primaryBtn}>PROCEED</button>
       </div>
     </Modal>
   );
@@ -92,7 +92,7 @@ export function SleepCheckinModal({ onClose, onSubmit }) {
             ))}
           </div>
         </div>
-        <button onClick={() => onSubmit({ hours, quality, rested })} style={primaryBtn}>LOG SLEEP</button>
+        <button type="button" onClick={() => onSubmit({ hours, quality, rested })} style={primaryBtn}>LOG SLEEP</button>
       </div>
     </Modal>
   );
@@ -115,7 +115,7 @@ export function ScreenTimeModal({ period, onClose, onSubmit }) {
         <div style={{ textAlign: "center", fontSize: "10px", color: "#444", marginBottom: "20px" }}>
           {mins < 60 ? "Exemplary. Reward incoming." : mins < 120 ? "Acceptable." : mins < 240 ? "Above target. Noted." : "Hunter. This is a problem."}
         </div>
-        <button onClick={() => onSubmit(mins)} style={primaryBtn}>REPORT HONESTLY</button>
+        <button type="button" onClick={() => onSubmit(mins)} style={primaryBtn}>REPORT HONESTLY</button>
       </div>
     </Modal>
   );
@@ -141,7 +141,7 @@ export function SessionLogModal({ onClose, onSubmit, state }) {
         {/* Session type */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4px", marginBottom: "16px" }}>
           {SESSION_TYPES.map((st) => (
-            <button key={st.id} onClick={() => setType(st.id)} style={{
+            <button type="button" key={st.id} onClick={() => setType(st.id)} style={{
               padding: "8px 4px", border: `1px solid ${type === st.id ? "#fff" : "#333"}`,
               background: type === st.id ? "#fff" : "transparent",
               color: type === st.id ? "#000" : "#666",
@@ -176,7 +176,7 @@ export function SessionLogModal({ onClose, onSubmit, state }) {
           <div style={{ fontSize: "10px", color: "#555", marginBottom: "6px" }}>FOCUS LEVEL</div>
           <div style={{ display: "flex", gap: "4px" }}>
             {FOCUS_LEVELS.map((f) => (
-              <button key={f.id} onClick={() => setFocus(f.id)} style={{
+              <button type="button" key={f.id} onClick={() => setFocus(f.id)} style={{
                 flex: 1, padding: "8px",
                 border: `1px solid ${focus === f.id ? "#fff" : "#333"}`,
                 background: focus === f.id ? "#fff" : "transparent",
@@ -196,7 +196,7 @@ export function SessionLogModal({ onClose, onSubmit, state }) {
           +{xpPreview} XP
         </div>
 
-        <button onClick={() => onSubmit({ type, course, duration, focus, notes })} style={primaryBtn}>
+        <button type="button" onClick={() => onSubmit({ type, course, duration, focus, notes })} style={primaryBtn}>
           LOG SESSION
         </button>
       </div>
@@ -221,7 +221,7 @@ export function LevelUpModal({ data, onClose }) {
       <div style={{ fontSize: "32px", letterSpacing: "8px", marginBottom: "32px", color: "#555" }}>
         {data.rank.badge}
       </div>
-      <button onClick={onClose} style={{ ...primaryBtn, width: "200px" }}>CONTINUE</button>
+      <button type="button" onClick={onClose} style={{ ...primaryBtn, width: "200px" }}>CONTINUE</button>
     </div>
   );
 }
@@ -262,7 +262,7 @@ export function AchievementToast({ toast, onClose }) {
           <div style={{ fontSize: "11px", color: "#666", marginTop: "1px" }}>{toast.desc}</div>
           {toast.xp && <div style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>+{toast.xp} XP</div>}
         </div>
-        <button onClick={onClose} style={{ color: "#444", fontSize: "16px", background: "none", border: "none" }}>×</button>
+        <button type="button" onClick={onClose} style={{ color: "#444", fontSize: "16px", background: "none", border: "none" }}>×</button>
       </div>
       <div style={{ marginTop: "8px", height: "2px", background: "#1a1a1a" }}>
         <div style={{ width: `${width}%`, height: "100%", background: r.glow, transition: "width 0.1s linear" }} />
