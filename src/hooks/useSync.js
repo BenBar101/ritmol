@@ -36,6 +36,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   // effect guarantees both sides always see the same object — no stale
   // closure from passing the ref down through props.
   const isPullingRef = useRef(false);
+  const debounceTimerRef = useRef(null);
 
   // ── Check if a sync file is already linked on mount ──
   useEffect(() => {
@@ -44,11 +45,11 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
 
   // ── Auto-push on tab hide / page hide ──
   useEffect(() => {
-    let debounceTimer = null;
-
     const schedulePush = () => {
-      if (debounceTimer) return;
-      debounceTimer = setTimeout(async () => {
+      if (debounceTimerRef.current) return;
+      // 500ms debounce: ensures React's write-through setState has committed
+      // to localStorage before SyncManager.push() reads it.
+      debounceTimerRef.current = setTimeout(async () => {
         try {
           if (isPullingRef.current) return; // skip during Pull [S-2]
           const handle = await SyncManager.getHandle().catch(() => null);
@@ -61,9 +62,9 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         } catch (e) {
           console.warn("[useSync] Auto-push failed:", e.message);
         } finally {
-          debounceTimer = null;
+          debounceTimerRef.current = null;
         }
-      }, 250);
+      }, 500);
     };
 
     const onVisibility = () => { if (document.visibilityState === "hidden") schedulePush(); };
@@ -72,7 +73,10 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
     };
@@ -98,7 +102,14 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         NO_HANDLE:        "No sync file selected. Pick one in Profile → Settings.",
         PERMISSION_DENIED:"Write permission denied. Try again and allow access.",
         SYNC_BUSY:        "Sync already in progress. Please wait.",
+        SYNC_FILE_NOT_FOUND: "Sync file not found — it may have been moved or deleted. Pick a new file in Profile → Settings.",
       };
+      if (e.message === "SYNC_FILE_NOT_FOUND") {
+        // Clear stale handle so future pushes/pulls don't keep failing.
+        SyncManager.forget().catch(() => {});
+        setSyncFileConnected(false);
+        setSyncStatus("idle");
+      }
       showBanner(msgs[e.message] ?? `Push failed: ${(e.message || "").slice(0, 80)}`, "alert");
     }
   }, [latestStateRef, showBanner]);
@@ -123,7 +134,6 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         CORRUPT_FILE:          "Sync file is corrupt or not valid JSON. Re-export from another device.",
         SYNC_SCHEMA_OUTDATED:  "Sync file was written by an older version of RITMOL. Re-export it from an up-to-date device.",
         SYNC_FILE_TOO_LARGE:   "Sync file exceeds 10 MB — this is unexpected. Check the file.",
-        APPLY_QUOTA_RISK:      "Pull failed: local storage is almost full (~5MB). Clear old chat history or sessions first.",
         SYNC_BUSY:             "Sync already in progress. Please wait.",
       };
       showBanner(msgs[e.message] ?? `Pull failed: ${(e.message || "").slice(0, 80)}`, "alert");
@@ -137,7 +147,17 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
     try {
       await SyncManager.pickFile();
       setSyncFileConnected(true);
-      showBanner("Sync file linked. Push or Pull to sync.", "success");
+      let persisted = true;
+      try {
+        persisted = await SyncManager.isHandlePersisted();
+      } catch {
+        persisted = false;
+      }
+      if (!persisted) {
+        showBanner("Sync file linked for this session only — browser storage restrictions prevent persisting the link.", "alert");
+      } else {
+        showBanner("Sync file linked. Push or Pull to sync.", "success");
+      }
     } catch (e) {
       if (e.name !== "AbortError") showBanner("Could not pick file.", "alert");
     }

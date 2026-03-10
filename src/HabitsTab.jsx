@@ -181,6 +181,7 @@ Respond ONLY with JSON array:
                   }}>
                     <GeometricCorners style={done ? "none" : habit.style} small />
                     <button
+                      type="button"
                       onClick={(e) => !done && logHabit(habit.id, e)}
                       style={{
                         display: "flex", alignItems: "center", gap: "12px",
@@ -202,6 +203,7 @@ Respond ONLY with JSON array:
                       </div>
                     </button>
                     <button
+                      type="button"
                       onClick={() => deleteHabit(habit.id)}
                       style={{ color: done ? "#666" : "#444", fontSize: "14px", padding: "4px", background: "none", border: "none" }}
                     >

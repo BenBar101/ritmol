@@ -191,7 +191,7 @@ export default function HomeTab() {
           { label: "⊞ TASKS", action: () => setTab("tasks") },
           { label: "◉ HABITS", action: () => setTab("habits") },
         ].map((c) => (
-          <button key={c.label} onClick={c.action} style={{
+          <button type="button" key={c.label} onClick={c.action} style={{
             padding: "6px 14px", border: "1px solid #333",
             background: "transparent", color: "#888",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
@@ -265,15 +265,18 @@ function CountdownTimer({ timer, onExpire }) {
   const onExpireRef = useRef(onExpire);
   useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
 
+   const mountedRef = useRef(true);
+   useEffect(() => () => { mountedRef.current = false; }, []);
+
   useEffect(() => {
     if (timer.endsAt <= Date.now()) {
-      onExpireRef.current();
+      if (mountedRef.current) onExpireRef.current();
       return;
     }
     const iv = setInterval(() => {
       const r = Math.max(0, timer.endsAt - Date.now());
-      setRemaining(r);
-      if (r === 0) { clearInterval(iv); onExpireRef.current(); }
+      if (mountedRef.current) setRemaining(r);
+      if (r === 0) { clearInterval(iv); if (mountedRef.current) onExpireRef.current(); }
     }, 1000);
     return () => clearInterval(iv);
   }, [timer.endsAt]); // onExpire accessed via ref — no stale closure risk

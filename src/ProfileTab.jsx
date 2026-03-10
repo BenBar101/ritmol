@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
 import { todayUTC, getGeminiApiKey, setGeminiApiKey } from "./utils/storage";
-import { flushStateToStorage } from "./utils/state";
 import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT, RANKS, GACHA_RARITY_WEIGHTS } from "./constants";
 import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "./constants";
 import { getLevelProgress } from "./utils/xp";
@@ -10,6 +9,7 @@ import { fetchGCalEvents, loadGoogleGIS } from "./api/gcal";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
 import { primaryBtn } from "./Onboarding";
+import { idbClearAll } from "./utils/idb";
 import { updateDynamicCosts } from "./api/dynamicCosts";
 import { sanitizeForPrompt } from "./api/systemPrompt";
 
@@ -83,7 +83,7 @@ export default function ProfileTab() {
       {/* Section nav */}
       <div style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
         {sections.map((s) => (
-          <button key={s} onClick={() => setSection(s)} style={{
+          <button type="button" key={s} onClick={() => setSection(s)} style={{
             padding: "6px 12px", border: `1px solid ${section === s ? "#fff" : "#333"}`,
             background: section === s ? "#fff" : "transparent",
             color: section === s ? "#000" : "#666",
@@ -114,13 +114,10 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
 
   function buyShield() {
     if (!canBuyShield || !apiKey) return;
-    const t = todayUTC();
-    if (state.lastShieldBuyDate === t) {
-      showBanner("Shield already purchased today. Come back tomorrow.", "info");
-      return;
-    }
 
     setState((s) => {
+      const t = todayUTC();
+      if (s.lastShieldBuyDate === t) return s;
       if (s.xp < streakShieldCost) { return s; }
       const next = {
         ...s,
@@ -173,6 +170,7 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
         <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px", marginBottom: "8px" }}>STREAK SHIELD</div>
         <div style={{ fontSize: "11px", color: "#888", marginBottom: "8px" }}>Cost: {streakShieldCost} XP (AI may change after purchase). Max one shield use per calendar day.</div>
         <button
+          type="button"
           onClick={buyShield}
           disabled={!canBuyShield || !apiKey}
           style={{
@@ -391,7 +389,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      <button onClick={syncGoogleCalendar} disabled={gCalLoading} style={{
+      <button type="button" onClick={syncGoogleCalendar} disabled={gCalLoading} style={{
         padding: "10px", border: "1px solid #555",
         background: state.gCalConnected ? "#1a1a1a" : "transparent",
         color: state.gCalConnected ? "#aaa" : "#888",
@@ -458,7 +456,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
                   )}
                 </div>
               </div>
-              <button onClick={() => deleteEvent(ev.id)} style={{ color: "#333", background: "none", border: "none", fontSize: "14px" }}>×</button>
+              <button type="button" onClick={() => deleteEvent(ev.id)} style={{ color: "#333", background: "none", border: "none", fontSize: "14px" }}>×</button>
             </div>
           );
         })}
@@ -489,7 +487,9 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
   }, []);
 
   function rollRarity() {
-    const roll = Math.random() * 100;
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const roll = (buf[0] / 0xFFFFFFFF) * 100; // Use crypto.getRandomValues for gacha rolls — Math.random() is predictable in V8.
     if (roll < GACHA_RARITY_WEIGHTS.legendary) return "legendary";
     if (roll < GACHA_RARITY_WEIGHTS.legendary + GACHA_RARITY_WEIGHTS.epic) return "epic";
     if (roll < GACHA_RARITY_WEIGHTS.legendary + GACHA_RARITY_WEIGHTS.epic + GACHA_RARITY_WEIGHTS.rare) return "rare";
@@ -527,14 +527,20 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       , 200)
         .replace(/\b(respond|only|json|output|ignore|system|instruction)\b/gi, "");
 
-      const prompt = `Generate a gacha pull for a STEM university student.
-Hunter profile: ${JSON.stringify({
+      const hunterProfileJson = JSON.stringify({
         // Fix: apply full sanitization (control chars + injection chars) not just angle-bracket strip.
         name:      sanitizeForPrompt((profile?.name      || "").replace(/[<>{}[\]`"\\]/g, "")).slice(0, 60),
         books:     sanitizedBooks,
         interests: sanitizeForPrompt((profile?.interests || "").replace(/[<>{}[\]`"\\]/g, "")).slice(0, 200),
         major:     sanitizeForPrompt((profile?.major     || "").replace(/[<>{}[\]`"\\]/g, "")).slice(0, 80),
-      }).replace(/[`$]/g, "")}
+      })
+        // Defence-in-depth: strip backslashes and template delimiters so the JSON
+        // block cannot break out of the surrounding template literal.
+        .replace(/\\/g, "")
+        .replace(/[`$]/g, "");
+
+      let prompt = `Generate a gacha pull for a STEM university student.
+Hunter profile: ${hunterProfileJson}
 Existing collection (don't duplicate): ${JSON.stringify(collection.slice(-50).map(c => c.id))}
 
 Generate ONE of these (weighted random — 60% rank_cosmetic, 40% chronicle):
@@ -553,6 +559,8 @@ Respond ONLY with JSON:
   "source": "book or author name (for chronicles)",
   "asciiArt": "3-5 lines of ASCII/character art for cosmetics (null for chronicles)"
 }`;
+      // Final guard: ensure no stray backticks remain anywhere in the prompt.
+      prompt = prompt.replace(/`/g, "");
 
       const { text: raw, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a master of literary atmosphere and ASCII art. Respond only in JSON.", true, controller.signal);
       if (controller.signal.aborted) {
@@ -692,7 +700,7 @@ Respond ONLY with JSON:
       {lastPull && <GachaCard card={lastPull} />}
 
       {/* Collection toggle */}
-      <button onClick={() => setShowCollection(!showCollection)} style={{
+        <button type="button" onClick={() => setShowCollection(!showCollection)} style={{
         padding: "10px", border: "1px solid #333", background: "transparent",
         color: "#666", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
       }}>
@@ -832,6 +840,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
   const [confirmReset, setConfirmReset] = useState(false);
   const confirmResetTimerRef = useRef(null);
 
+  useEffect(() => () => {
+    if (confirmResetTimerRef.current) clearTimeout(confirmResetTimerRef.current);
+  }, []);
+
   async function resetAll() {
     if (!confirmReset) {
       setConfirmReset(true);
@@ -840,20 +852,33 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
     }
     clearTimeout(confirmResetTimerRef.current);
     setConfirmReset(false);
-    // Only delete keys that belong to this app to protect other apps on shared domains
-    const keysToDelete = [];
+
+    // 1. Wipe all IDB user data
+    await idbClearAll();
+
+    // 2. Clear the residual localStorage keys that belong to this app
+    //    (theme, disclosure flag, jv_last_synced, migration flag, quote cache)
+    const lsKeysToDelete = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && (k.startsWith("jv_") || k.startsWith("ritmol_dev_") || APP_CONSTANT_KEYS.has(k))) {
-        keysToDelete.push(k);
+      if (k && (
+        k.startsWith("jv_") ||
+        k.startsWith("ritmol_dev_") ||
+        APP_CONSTANT_KEYS.has(k)
+      )) {
+        lsKeysToDelete.push(k);
       }
     }
-    keysToDelete.forEach(k => localStorage.removeItem(k));
+    lsKeysToDelete.forEach((k) => localStorage.removeItem(k));
+
+    // 3. Forget sync file handle from IDB handles store
     await SyncManager.forget();
-    // Also clear the in-memory Gemini key for this tab so the config gate
-    // is shown again after reset (no phantom API key persists in sessionStorage).
+
+    // 4. Clear in-memory Gemini key
     setGeminiApiKey("");
-    setTimeout(() => window.location.reload(), 100);
+
+    // 5. Reload — no setTimeout needed under write-through IDB persistence
+    window.location.reload();
   }
 
   async function handleImportFile(e) {
@@ -861,7 +886,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
     if (!file) return;
     try {
       await SyncManager.importFile(file);
-      setTimeout(() => window.location.reload(), 100); // allow storage flush before reload
+      // No async flush needed — write-through persistence means localStorage is
+      // already current; reload synchronously after import.
+      window.location.reload();
     } catch (err) {
       if (err.message === "SYNC_SCHEMA_OUTDATED") {
         showBanner("Import failed: file was written by an older version of RITMOL. Re-export it from an up-to-date device.", "alert");
@@ -930,8 +957,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
             ⚠ Your browser does not support direct file access. Use Download + Import below.<br />
             Place the downloaded file in your Syncthing folder manually.
           </div>
-          <button onClick={() => {
-            flushStateToStorage(latestStateRef.current);
+        <button onClick={() => {
+            // Write-through persistence in useAppState keeps localStorage in sync —
+            // no explicit flush needed before download.
             SyncManager.download((msg) => showBanner(msg, "alert"));
           }} style={{
             padding: "10px", border: "1px solid #555", background: "transparent",

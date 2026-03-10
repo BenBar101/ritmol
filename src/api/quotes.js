@@ -44,6 +44,8 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
     staleKeys.forEach((k) => localStorage.removeItem(k));
   } catch { /* localStorage may be unavailable — silently skip eviction */ }
 
+  // Quote cache stays in localStorage intentionally — it is ephemeral,
+  // evicted daily, and not part of the IDB user data store.
   const cached = LS.get(key);
   if (cached) return cached;
 

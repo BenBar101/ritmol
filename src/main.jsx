@@ -18,3 +18,9 @@ if (document.readyState === "loading") {
 } else {
   mount();
 }
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    import("./sync/SyncManager").then(({ closeSyncChannel }) => closeSyncChannel());
+  });
+}

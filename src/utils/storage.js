@@ -1,4 +1,5 @@
 import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "../constants";
+import { idbGet, idbSet } from "./idb";
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL STORAGE HELPERS
@@ -62,6 +63,20 @@ const APP_CONSTANT_KEYS = new Set([
   "jv_last_synced", // fix #8: isolate last-synced timestamp between dev and prod
 ]);
 
+// Keys stored in IndexedDB (all app data). Everything NOT in this set
+// that is app-owned stays in localStorage (theme, disclosure flag,
+// jv_last_synced, daily quote cache).
+export const IDB_KEYS = new Set([
+  "jv_profile", "jv_xp", "jv_streak", "jv_shields", "jv_last_login",
+  "jv_habits", "jv_habit_log", "jv_tasks", "jv_goals", "jv_sessions",
+  "jv_achievements", "jv_gacha", "jv_cal_events", "jv_chat",
+  "jv_daily_goal", "jv_timers", "jv_sleep_log", "jv_screen_log",
+  "jv_missions", "jv_mission_date", "jv_habit_suggestions",
+  "jv_chronicles", "jv_gcal_connected", "jv_token_usage",
+  "jv_habits_init", "jv_dynamic_costs", "jv_last_shield_use_date",
+  "jv_last_shield_buy_date", "jv_max_date_seen",
+]);
+
 export function storageKey(k) {
   if (!IS_DEV) return k;
   if (k.startsWith("jv_") || APP_CONSTANT_KEYS.has(k)) return DEV_PREFIX + k;
@@ -69,13 +84,13 @@ export function storageKey(k) {
 }
 
 export function getMaxDateSeen() {
-  return LS.get(storageKey("jv_max_date_seen"), null);
+  return idbGet(storageKey("jv_max_date_seen"), null);
 }
 
 export function updateMaxDateSeen(dateStr) {
   const current = getMaxDateSeen();
   if (!current || dateStr > current) {
-    LS.set(storageKey("jv_max_date_seen"), dateStr);
+    idbSet(storageKey("jv_max_date_seen"), dateStr);
   }
 }
 

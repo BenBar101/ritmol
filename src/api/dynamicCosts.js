@@ -1,5 +1,6 @@
 import { callGemini } from "./gemini";
-import { LS, storageKey, todayUTC } from "../utils/storage";
+import { storageKey, todayUTC } from "../utils/storage";
+import { idbGet } from "../utils/idb";
 import { DAILY_TOKEN_LIMIT, DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "../constants";
 import { getLevel } from "../utils/xp";
 
@@ -8,7 +9,7 @@ import { getLevel } from "../utils/xp";
 export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   if (!apiKey) return {};
   // Honour the daily token budget.
-  const storedUsage = LS.get(storageKey("jv_token_usage"));
+  const storedUsage = idbGet(storageKey("jv_token_usage"), null);
   if (storedUsage && storedUsage.date === todayUTC() && storedUsage.tokens >= DAILY_TOKEN_LIMIT) return {};
   const d = state.dynamicCosts || {};
   const xpPerLevel = Math.floor(
@@ -34,9 +35,10 @@ export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   // Whitelist the event string before embedding it in the prompt.
   const safeEvent = VALID_EVENTS.has(event) ? event : "unknown";
   const safeTotalXp = Math.floor(Math.max(0, Number(state.xp) || 0));
-  const prompt = `You are the RITMOL system adjusting economy parameters. Event: ${safeEvent}.
+  const contextJson = JSON.stringify({ event: safeEvent, weekend: !weekend, holiday: safeHolidayHint });
+  const prompt = `You are the RITMOL system adjusting economy parameters.
+Context: ${contextJson}
 Current costs: xpPerLevel=${xpPerLevel}, gachaCost=${gachaCost}, streakShieldCost=${streakShieldCost}. Hunter level=${level}, total XP=${safeTotalXp}.
-Context: today is weekday=${!weekend}${safeHolidayHint ? ", holiday=" + safeHolidayHint : ""}. You may raise costs after level-up/gacha/shield use, or offer discounts (e.g. weekends, holidays).
 Keep values within these strict bounds: xpPerLevel 200–10000, gachaCost 50–5000, streakShieldCost 100–5000.
 Typical reasonable values: xpPerLevel 300–1500, gachaCost 80–400, streakShieldCost 150–600.
 Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShieldCost (only include keys you want to change). Example: {"gachaCost": 180} or {"xpPerLevel": 550, "streakShieldCost": 320}. No explanation.`;
@@ -60,7 +62,10 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
       out.streakShieldCost = Math.min(proposed, streakShieldCost * 2);
     }
     return out;
-  } catch {
+  } catch (err) {
+    if (err?.name !== "AbortError") {
+      console.warn("[dynamicCosts] Failed to update dynamic costs:", err?.message ?? err);
+    }
     return {};
   }
 }

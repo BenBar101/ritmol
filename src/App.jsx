@@ -12,7 +12,7 @@ import { useDailyLogin } from "./hooks/useDailyLogin";
 import { AppContext } from "./context/AppContext";
 
 // Utils
-import { LS, storageKey, IS_DEV, getGeminiApiKey, today, APP_ICON_URL } from "./utils/storage";
+import { LS, storageKey, IS_DEV, getGeminiApiKey, today, todayUTC, APP_ICON_URL } from "./utils/storage";
 import { getLevel, getRank, getXpPerLevel, getGachaCost, getStreakShieldCost, calcSessionXP } from "./utils/xp";
 import { THEME_KEY, SESSION_TYPES } from "./constants";
 import { buildSystemPrompt } from "./api/systemPrompt";
@@ -112,11 +112,11 @@ function KeysConfigGate() {
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
 export default function App() {
-  const { state, setState, latestStateRef, rehydrate } = useAppState();
+  const { state, setState, latestStateRef, rehydrate, idbReady } = useAppState();
   const [tab, setTab]               = useState("home");
-  const [showOnboarding, setShowOnboarding] = useState(!LS.get(storageKey("jv_profile")));
   const [theme, setThemeState]      = useState(() => LS.get(storageKey(THEME_KEY), "dark"));
   const [dailyQuote, setDailyQuote] = useState(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const setTheme = useCallback((t) => { LS.set(storageKey(THEME_KEY), t); setThemeState(t); }, []);
 
   const { modal, setModal, toast, setToast, banner, setBanner, levelUpData, setLevelUpData, showToast, showBanner } = useUI();
@@ -167,9 +167,10 @@ export default function App() {
 
   useEffect(() => {
     if (!profile) return;
-    const t = today();
-    if ((latestStateRef.current ?? state).lastMissionDate !== t) {
-      setState((s) => ({
+    setState((s) => {
+      const t = todayUTC();
+      if (s.lastMissionDate === t) return s;
+      return {
         ...s,
         dailyMissions: [
           { id: "m1", desc: "Complete 3 habits",  target: 3,  type: "habits",  xp: 100, done: false },
@@ -180,16 +181,18 @@ export default function App() {
           { id: "m6", desc: "Open RITMOL chat",   target: 1,  type: "chat",    xp: 25,  done: false },
         ],
         lastMissionDate: t,
-      }));
-    }
+      };
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!profile, state.lastMissionDate]);
+  }, [!!profile]);
 
   const quoteFetchedRef = useRef(false);
   useEffect(() => {
     if (!profile || quoteFetchedRef.current) return;
     quoteFetchedRef.current = true;
-    fetchDailyQuote(null, profile, null).then(setDailyQuote);
+    fetchDailyQuote(null, profile, null)
+      .then(setDailyQuote)
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);
 
@@ -199,7 +202,29 @@ export default function App() {
     return () => window.removeEventListener("ls-quota-exceeded", handler);
   }, [showBanner]);
 
+  // Initialize onboarding flag once IDB-backed state is ready.
+  useEffect(() => {
+    if (!idbReady || !state) return;
+    setShowOnboarding(!state.profile);
+  }, [idbReady, state]);
+
   // ── Render guards ────────────────────────────────────────
+  if (!idbReady || state === null) {
+    return (
+      <ErrorBoundary>
+        <div style={{
+          minHeight: "100vh", display: "flex", alignItems: "center",
+          justifyContent: "center", background: "#0a0a0a",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
+          color: "#333", letterSpacing: "2px",
+        }}>
+          INITIALISING...
+        </div>
+      </ErrorBoundary>
+    );
+  }
+
+
   if (!apiKey) return <ErrorBoundary><KeysConfigGate /></ErrorBoundary>;
   if (showOnboarding) {
     return (

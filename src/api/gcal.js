@@ -14,7 +14,11 @@ function stripCtrl(s) {
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")    // C0 / C1 controls
     .replace(/[\u2028\u2029]/g, "")                    // Unicode line/para separators
     .replace(/[\u200B-\u200D\uFEFF]/g, "")             // zero-width chars
-    .replace(/[\u202A-\u202E\u2066-\u2069]/g, "");     // BiDi override chars
+    .replace(/[\u202A-\u202E\u2066-\u2069]/g, "")      // BiDi override chars
+    // Tags block (U+E0000–U+E01FF) and variation selectors live in the
+    // supplementary planes; approximate them via their UTF-16 surrogate ranges.
+    .replace(/\uDB40[\uDC00-\uDFFF]/g, "")             // Tags block surrogates
+    .replace(/[\uFE00-\uFE0F]/g, "");                  // Variation Selectors
 }
 
 // Validates that a date/datetime string produces a real Date before storing it.

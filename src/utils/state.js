@@ -1,4 +1,5 @@
-import { LS, storageKey, today } from "./storage";
+import { storageKey, today } from "./storage";
+import { idbGet, idbSet } from "./idb";
 import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST, DEFAULT_HABITS } from "../constants";
 
 // ─────────────────────────────────────────────────────────────────
@@ -30,39 +31,39 @@ function safeFlushNum(v, min, max, fallback) {
 // ═══════════════════════════════════════════════════════════════
 export function initState() {
   return {
-    profile: LS.get(storageKey("jv_profile"), null),
+    profile: idbGet(storageKey("jv_profile"), null),
     // Fix [ST-1]: clamp numeric values so a corrupt localStorage entry
     // (NaN, Infinity, negative) does not propagate into React state.
-    xp:           safeNum(LS.get(storageKey("jv_xp"),      0), 0, 100_000_000, 0),
-    streak:       safeNum(LS.get(storageKey("jv_streak"),   0), 0, 36500,       0),
-    streakShields:safeNum(LS.get(storageKey("jv_shields"),  0), 0, 10000,       0),
-    lastLoginDate: LS.get(storageKey("jv_last_login"), null),
-    habits: LS.get(storageKey("jv_habits"), DEFAULT_HABITS),
-    habitLog: LS.get(storageKey("jv_habit_log"), {}), // { "YYYY-MM-DD": ["habitId",...] }
-    tasks: LS.get(storageKey("jv_tasks"), []),
-    goals: LS.get(storageKey("jv_goals"), []),
-    sessions: LS.get(storageKey("jv_sessions"), []),
-    achievements: LS.get(storageKey("jv_achievements"), []),
-    gachaCollection: LS.get(storageKey("jv_gacha"), []),
-    calendarEvents: LS.get(storageKey("jv_cal_events"), []),
-    chatHistory: LS.get(storageKey("jv_chat"), []),
-    dailyGoal: LS.get(storageKey("jv_daily_goal"), ""),
-    activeTimers: LS.get(storageKey("jv_timers"), []),
-    sleepLog: LS.get(storageKey("jv_sleep_log"), {}),
-    screenTimeLog: LS.get(storageKey("jv_screen_log"), {}),
-    dailyMissions: LS.get(storageKey("jv_missions"), null),
-    lastMissionDate: LS.get(storageKey("jv_mission_date"), null),
-    pendingHabitSuggestions: LS.get(storageKey("jv_habit_suggestions"), []),
-    chronicles: LS.get(storageKey("jv_chronicles"), []),
-    gCalConnected: LS.get(storageKey("jv_gcal_connected"), false),
+    xp:           safeNum(idbGet(storageKey("jv_xp"),      0), 0, 100_000_000, 0),
+    streak:       safeNum(idbGet(storageKey("jv_streak"),   0), 0, 3650,        0),
+    streakShields:safeNum(idbGet(storageKey("jv_shields"),  0), 0, 10000,       0),
+    lastLoginDate: idbGet(storageKey("jv_last_login"), null),
+    habits: idbGet(storageKey("jv_habits"), DEFAULT_HABITS),
+    habitLog: idbGet(storageKey("jv_habit_log"), {}), // { "YYYY-MM-DD": ["habitId",...] }
+    tasks: idbGet(storageKey("jv_tasks"), []),
+    goals: idbGet(storageKey("jv_goals"), []),
+    sessions: idbGet(storageKey("jv_sessions"), []),
+    achievements: idbGet(storageKey("jv_achievements"), []),
+    gachaCollection: idbGet(storageKey("jv_gacha"), []),
+    calendarEvents: idbGet(storageKey("jv_cal_events"), []),
+    chatHistory: idbGet(storageKey("jv_chat"), []),
+    dailyGoal: idbGet(storageKey("jv_daily_goal"), ""),
+    activeTimers: idbGet(storageKey("jv_timers"), []),
+    sleepLog: idbGet(storageKey("jv_sleep_log"), {}),
+    screenTimeLog: idbGet(storageKey("jv_screen_log"), {}),
+    dailyMissions: idbGet(storageKey("jv_missions"), null),
+    lastMissionDate: idbGet(storageKey("jv_mission_date"), null),
+    pendingHabitSuggestions: idbGet(storageKey("jv_habit_suggestions"), []),
+    chronicles: idbGet(storageKey("jv_chronicles"), []),
+    gCalConnected: idbGet(storageKey("jv_gcal_connected"), false),
     // Fix [ST-2]: include aiXpToday: 0 and warnedAt: [] in the default so
     // consuming code (consumeAiXpBudget, trackTokens) always sees a fully-formed
     // object and never reads undefined.aiXpToday.
-    tokenUsage: LS.get(storageKey("jv_token_usage"), { date: today(), tokens: 0, aiXpToday: 0, warnedAt: [] }),
-    habitsInitialized: LS.get(storageKey("jv_habits_init"), false),
-    dynamicCosts: LS.get(storageKey("jv_dynamic_costs"), null) || { xpPerLevel: DEFAULT_XP_PER_LEVEL, gachaCost: DEFAULT_GACHA_COST, streakShieldCost: DEFAULT_STREAK_SHIELD_COST },
-    lastShieldUseDate: LS.get(storageKey("jv_last_shield_use_date"), null),
-    lastShieldBuyDate: LS.get(storageKey("jv_last_shield_buy_date"), null),
+    tokenUsage: idbGet(storageKey("jv_token_usage"), { date: today(), tokens: 0, aiXpToday: 0, warnedAt: [] }),
+    habitsInitialized: idbGet(storageKey("jv_habits_init"), false),
+    dynamicCosts: idbGet(storageKey("jv_dynamic_costs"), null) || { xpPerLevel: DEFAULT_XP_PER_LEVEL, gachaCost: DEFAULT_GACHA_COST, streakShieldCost: DEFAULT_STREAK_SHIELD_COST },
+    lastShieldUseDate: idbGet(storageKey("jv_last_shield_use_date"), null),
+    lastShieldBuyDate: idbGet(storageKey("jv_last_shield_buy_date"), null),
     syncFileConnected: false, // updated async after mount by SyncManager.getHandle()
   };
 }
@@ -75,43 +76,43 @@ export function flushStateToStorage(s) {
   if (!s?.profile) return;
   // eslint-disable-next-line no-unused-vars
   const { geminiKey: _stripped, ...profileToSave } = s.profile;
-  LS.set(storageKey("jv_profile"),           profileToSave);
+  idbSet(storageKey("jv_profile"),           profileToSave);
   // Fix [ST-1]: clamp numeric values before writing to localStorage.
   // If awardXP somehow received a bad amount (e.g. from a corrupted habit.xp),
   // state.xp could be NaN. Writing NaN to localStorage persists the corruption
   // across sessions. safeFlushNum catches this and writes 0 instead.
-  LS.set(storageKey("jv_xp"),                safeFlushNum(s.xp,            0, 100_000_000, 0));
-  LS.set(storageKey("jv_streak"),            safeFlushNum(s.streak,        0, 36500,       0));
-  LS.set(storageKey("jv_shields"),           safeFlushNum(s.streakShields, 0, 10000,       0));
-  LS.set(storageKey("jv_last_login"),        s.lastLoginDate);
-  LS.set(storageKey("jv_habits"),            s.habits);
-  LS.set(storageKey("jv_habit_log"),         s.habitLog);
-  LS.set(storageKey("jv_tasks"),             s.tasks);
-  LS.set(storageKey("jv_goals"),             s.goals);
-  LS.set(storageKey("jv_sessions"),          s.sessions);
-  LS.set(storageKey("jv_achievements"),      s.achievements);
-  LS.set(storageKey("jv_gacha"),             s.gachaCollection);
-  LS.set(storageKey("jv_cal_events"),        s.calendarEvents);
-  LS.set(storageKey("jv_chat"),              s.chatHistory);
-  LS.set(storageKey("jv_daily_goal"),        s.dailyGoal);
-  LS.set(storageKey("jv_sleep_log"),         s.sleepLog);
-  LS.set(storageKey("jv_screen_log"),        s.screenTimeLog);
-  LS.set(storageKey("jv_missions"),          s.dailyMissions);
-  LS.set(storageKey("jv_mission_date"),      s.lastMissionDate);
-  LS.set(storageKey("jv_chronicles"),        s.chronicles);
-  LS.set(storageKey("jv_token_usage"),       s.tokenUsage);
-  LS.set(
+  idbSet(storageKey("jv_xp"),                safeFlushNum(s.xp,            0, 100_000_000, 0));
+  idbSet(storageKey("jv_streak"),            safeFlushNum(s.streak,        0, 3650,        0));
+  idbSet(storageKey("jv_shields"),           safeFlushNum(s.streakShields, 0, 10000,       0));
+  idbSet(storageKey("jv_last_login"),        s.lastLoginDate);
+  idbSet(storageKey("jv_habits"),            s.habits);
+  idbSet(storageKey("jv_habit_log"),         s.habitLog);
+  idbSet(storageKey("jv_tasks"),             s.tasks);
+  idbSet(storageKey("jv_goals"),             s.goals);
+  idbSet(storageKey("jv_sessions"),          s.sessions);
+  idbSet(storageKey("jv_achievements"),      s.achievements);
+  idbSet(storageKey("jv_gacha"),             s.gachaCollection);
+  idbSet(storageKey("jv_cal_events"),        s.calendarEvents);
+  idbSet(storageKey("jv_chat"),              s.chatHistory);
+  idbSet(storageKey("jv_daily_goal"),        s.dailyGoal);
+  idbSet(storageKey("jv_sleep_log"),         s.sleepLog);
+  idbSet(storageKey("jv_screen_log"),        s.screenTimeLog);
+  idbSet(storageKey("jv_missions"),          s.dailyMissions);
+  idbSet(storageKey("jv_mission_date"),      s.lastMissionDate);
+  idbSet(storageKey("jv_chronicles"),        s.chronicles);
+  idbSet(storageKey("jv_token_usage"),       s.tokenUsage);
+  idbSet(
     storageKey("jv_timers"),
     Array.isArray(s.activeTimers) ? s.activeTimers : [],
   );
-  LS.set(
+  idbSet(
     storageKey("jv_habit_suggestions"),
     Array.isArray(s.pendingHabitSuggestions) ? s.pendingHabitSuggestions : [],
   );
-  LS.set(storageKey("jv_gcal_connected"),    s.gCalConnected);
-  LS.set(storageKey("jv_habits_init"),       s.habitsInitialized);
-  if (s.dynamicCosts) LS.set(storageKey("jv_dynamic_costs"), s.dynamicCosts);
+  idbSet(storageKey("jv_gcal_connected"),    s.gCalConnected);
+  idbSet(storageKey("jv_habits_init"),       s.habitsInitialized);
+  if (s.dynamicCosts) idbSet(storageKey("jv_dynamic_costs"), s.dynamicCosts);
   // Always write lastShieldUseDate including null — null means "no shield used yet".
-  LS.set(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);
-  LS.set(storageKey("jv_last_shield_buy_date"), s.lastShieldBuyDate ?? null);
+  idbSet(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);
+  idbSet(storageKey("jv_last_shield_buy_date"), s.lastShieldBuyDate ?? null);
 }

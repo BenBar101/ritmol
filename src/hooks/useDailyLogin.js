@@ -22,6 +22,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     if (!profile) return;
     if (loginInProgressRef.current) return;
     loginInProgressRef.current = true;
+    let cancelled = false;
 
     setState((s) => {
       const effectiveDate = todayUTC();
@@ -81,7 +82,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         }
       }
 
-      // [A-2] Cap loginXP — a crafted streak of 36500 would award 365 050 XP
+      // [A-2] Cap loginXP — a crafted streak of 3650 would award 36 550 XP
       const loginXP  = Math.min(50 + newStreak * 10, 5000);
       const newXP    = s.xp + loginXP;
       const xpPl     = getXpPerLevel(s);
@@ -94,6 +95,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         lastLevelUpXpRef.current = newXP;
         const snapshot = { ...s, xp: newXP, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate };
         setTimeout(() => {
+          if (cancelled) return;
           setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
           updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
             .then((costs) => {
@@ -107,6 +109,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       if (bannerMsg) setTimeout(() => showBanner(bannerMsg, "info"), 0);
       if (usedShield) {
         setTimeout(() => {
+          if (cancelled) return;
           updateDynamicCosts(getGeminiApiKey(), { ...s, streakShields: newShields, lastShieldUseDate: effectiveDate }, "streak_shield_use", trackTokens)
             .then((costs) => {
               if (costs && Object.keys(costs).length) {
@@ -116,7 +119,10 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         }, 0);
       }
 
-      setTimeout(() => setModal({ type: "daily_login", xp: loginXP, streak: newStreak }), 0);
+      setTimeout(() => {
+        if (cancelled) return;
+        setModal({ type: "daily_login", xp: loginXP, streak: newStreak });
+      }, 0);
 
       return {
         ...s,
@@ -127,8 +133,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         xp:                 newXP,
       };
     });
-
-    queueMicrotask(() => { loginInProgressRef.current = false; });
+    loginInProgressRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);
 }

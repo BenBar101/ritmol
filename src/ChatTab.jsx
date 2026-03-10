@@ -32,6 +32,9 @@ export default function ChatTab() {
   );
 
   useEffect(() => {
+    // userMsgCount only increments on user messages — assistant replies do not
+    // change it, so this effect runs exactly once per user turn. Safe to call
+    // checkMissions("chat") here without double-counting.
     if (userMsgCount > 0) checkMissions("chat");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userMsgCount]); // only fires on new user messages
@@ -249,7 +252,7 @@ export default function ChatTab() {
       {messages.length < 3 && (
         <div style={{ padding: "0 16px 8px", display: "flex", gap: "6px", overflowX: "auto" }}>
           {chips.map((c) => (
-            <button key={c} onClick={() => sendMessage(c)} style={{
+            <button type="button" key={c} onClick={() => sendMessage(c)} style={{
               padding: "6px 12px", border: "1px solid #333",
               background: "transparent", color: "#777",
               fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
@@ -278,7 +281,7 @@ export default function ChatTab() {
           }}
         />
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <button onClick={toggleVoice} style={{
+          <button type="button" onClick={toggleVoice} style={{
             width: "40px", height: "40px", border: `1px solid ${isListening ? "#fff" : "#333"}`,
             background: isListening ? "#fff" : "transparent",
             color: isListening ? "#000" : "#666",
@@ -286,7 +289,7 @@ export default function ChatTab() {
           }}>
             {isListening ? "■" : "◎"}
           </button>
-          <button onClick={() => sendMessage(input)} disabled={loading} style={{
+          <button type="button" onClick={() => sendMessage(input)} disabled={loading} style={{
             width: "40px", height: "40px", border: "1px solid #555",
             background: loading ? "#111" : "#fff",
             color: loading ? "#333" : "#000",
@@ -302,15 +305,15 @@ export default function ChatTab() {
 
 function ChatMessage({ msg }) {
   const isRitmol = msg.role === "assistant";
-  // Defence-in-depth: strip control characters, BiDi overrides / zero-width chars, and
-  // angle brackets from displayed content to prevent visual spoofing or odd terminal
-  // behaviours even though React escapes HTML in text nodes.
+  // Defence-in-depth: strip control characters and BiDi overrides / zero-width chars
+  // from displayed content to prevent visual spoofing or odd terminal behaviours even
+  // though React escapes HTML in text nodes. Do not strip printable ASCII like &, <, >
+  // here — React's escaping is sufficient and users expect to see these characters.
   const safeContent = typeof msg.content === "string"
     ? msg.content
         // eslint-disable-next-line no-control-regex
         .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
         .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "")
-        .replace(/[<>&"]/g, "")
     : String(msg.content ?? "");
   return (
     <div style={{

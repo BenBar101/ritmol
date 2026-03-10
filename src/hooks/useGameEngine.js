@@ -19,7 +19,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useCallback, useRef } from "react";
-import { LS, storageKey, today, todayUTC } from "../utils/storage";
+import { storageKey, today, todayUTC } from "../utils/storage";
+import { idbGet } from "../utils/idb";
 import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
 import { getGeminiApiKey } from "../utils/storage";
 import { updateDynamicCosts } from "../api/dynamicCosts";
@@ -102,7 +103,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
   const consumeAiXpBudget = useCallback((requested) => {
     const t = todayUTC();
     if (aiXpTodayRef.current === null || aiXpTodayRef.current.date !== t) {
-      const persisted = LS.get(storageKey("jv_token_usage"));
+      const persisted = idbGet(storageKey("jv_token_usage"), null);
       const baseXp    = (persisted && persisted.date === t ? persisted.aiXpToday : 0) || 0;
       aiXpTodayRef.current = { date: t, value: baseXp };
     }
@@ -249,22 +250,23 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
     setTimeout(() => actionLocksRef.current.delete(habitId), 500);
 
     const t = today();
-    let didLog  = false;
-    let capturedXP = 0;
+    // Use a ref so concurrent/Strict Mode re-runs of the updater don't produce
+    // a stale capturedXP value by the time queueMicrotask reads it.
+    const pendingRef = { didLog: false, xp: 0 };
 
     setState((s) => {
       const log = s.habitLog[t] || [];
       if (log.includes(habitId)) return s;
       const h = s.habits.find((h) => h.id === habitId);
       if (!h) return s;
-      capturedXP = typeof h.xp === "number" && h.xp > 0 ? h.xp : 25;
-      didLog = true;
+      pendingRef.xp = typeof h.xp === "number" && h.xp > 0 ? h.xp : 25;
+      pendingRef.didLog = true;
       return { ...s, habitLog: { ...s.habitLog, [t]: [...log, habitId] } };
     });
 
     queueMicrotask(() => {
-      if (didLog) {
-        awardXP(capturedXP, null);
+      if (pendingRef.didLog) {
+        awardXP(pendingRef.xp, null);
         checkMissions("habits");
       }
     });
@@ -275,6 +277,9 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
     if (!Array.isArray(commands) || commands.length === 0) return;
 
     let tasksAdded       = 0;
+    // totalXPThisRun caps XP within a single executeCommands invocation. If two
+    // invocations overlap (rapid messages), the combined per-response limit can
+    // effectively double; the daily budget in consumeAiXpBudget is the true cap.
     let totalXPThisRun   = 0;
     const pendingBanners = [];
 
@@ -334,6 +339,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
             if (idx >= 0) tasks[idx] = { ...tasks[idx], done: true, doneDate };
             return { ...s, tasks };
           });
+          checkMissions("task");
           break;
         }
 
@@ -429,7 +435,7 @@ export function useGameEngine({ setState, showBanner, showToast, setLevelUpData 
     pendingBanners.slice(0, 3).forEach(([text, type], i) => {
       setTimeout(() => showBanner(text, type), i * 4200);
     });
-  }, [setState, awardXP, unlockAchievement, consumeAiXpBudget, showBanner]);
+  }, [setState, awardXP, unlockAchievement, consumeAiXpBudget, showBanner, checkMissions]);
 
   return {
     awardXP,

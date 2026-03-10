@@ -11,7 +11,8 @@
 //     but NEVER written back out on Push.
 // ═══════════════════════════════════════════════════════════════
 
-import { LS, storageKey, setGeminiApiKey, IS_DEV, DEV_PREFIX, today, todayUTC } from "../utils/storage";
+import { LS, storageKey, setGeminiApiKey, IS_DEV, DEV_PREFIX, todayUTC } from "../utils/storage";
+import { idbGet, idbSet } from "../utils/idb";
 
 // ── Schema version ──────────────────────────────────────────────
 export const SYNC_SCHEMA_VERSION = 1;
@@ -35,7 +36,9 @@ export const SYNC_KEYS = [
   "jv_missions", "jv_mission_date", "jv_habit_suggestions",
   "jv_chronicles", "jv_gcal_connected", "jv_token_usage",
   "jv_habits_init", "jv_dynamic_costs", "jv_last_shield_use_date",
-  "jv_max_date_seen", "jv_last_shield_buy_date",
+  // jv_max_date_seen is intentionally excluded — it is a device-local
+  // anti-cheat watermark that must not be overwritten by sync.
+  "jv_last_shield_buy_date",
 ];
 
 // ── Simple per-key validators ─────────────────────────────────────
@@ -105,7 +108,7 @@ export const SYNC_VALIDATORS = {
   // Fix: add upper bounds — a crafted sync file with jv_xp: 1e18 would
   // otherwise instantly grant max level or an implausible streak/shield count.
   jv_xp:                  (v) => isNumber(v) && v >= 0 && v <= 100_000_000,
-  jv_streak:              (v) => isNumber(v) && v >= 0 && v <= 36500,
+  jv_streak:              (v) => isNumber(v) && v >= 0 && v <= 3650,
   jv_shields:             (v) => isNumber(v) && v >= 0 && v <= 10000,
   // NOTE: todayUTC() is called lazily inside the lambda (at validation time).
   // Do NOT hoist it to a module-level const — it would capture the date at startup.
@@ -144,7 +147,8 @@ export const SYNC_VALIDATORS = {
     (s.course === undefined || (typeof s.course === "string" && s.course.length <= 100)) &&
     (s.notes === undefined || (typeof s.notes === "string" && s.notes.length <= 300)) &&
     (s.duration === undefined || (typeof s.duration === "number" && isFinite(s.duration) && s.duration >= 0 && s.duration <= 600)) &&
-    (s.type === undefined || ["lecture","self_study","project","exam_prep"].includes(s.type))
+    (s.type === undefined || ["lecture","self_study","project","exam_prep"].includes(s.type)) &&
+    (s.xp === undefined || (typeof s.xp === "number" && isFinite(s.xp) && s.xp >= 0 && s.xp <= 10000))
   ),
   jv_achievements:        (v) => isArray(v) && v.length <= 2000 && v.every((a) =>
     isObj(a) &&
@@ -166,24 +170,25 @@ export const SYNC_VALIDATORS = {
   ),
   jv_cal_events:          (v) => isArray(v) && v.length <= 2000 && v.every((e) =>
     isObj(e) &&
-    typeof e.id === "string" && e.id.length <= 150 &&
+    typeof e.id === "string" && e.id.length <= 150 && /^[\w@._\-:]+$/.test(e.id) &&
     typeof e.title === "string" && e.title.length <= 200 &&
+    // Approximate Tags block characters (U+E0000–U+E01FF) via their UTF-16 surrogate
+    // range U+DB40 U+DC00–DFFF and reject titles containing them to avoid storing large
+    // invisible payloads.
+    !/\uDB40[\uDC00-\uDFFF]/.test(e.title) &&
     (e.start === null || (typeof e.start === "string" && !isNaN(new Date(e.start).getTime()))) &&
     (e.type === undefined || ["lecture","tirgul","exam","assignment","other"].includes(e.type))
   ),
   jv_chat:                (v) => {
     if (!isArray(v)) return false;
     if (v.length > 5000) return false;
+    // Per-message sanitization is applied in applyPayload; here we only enforce
+    // basic shape and length constraints.
     return v.every(item => {
       if (!isObj(item)) return false;
       if (!['user', 'assistant'].includes(item.role)) return false;
       if (typeof item.content !== 'string') return false;
       if (item.content.length > 4000) return false; // ~1k token cap per message
-      // Reject stored chat messages that contain control characters, BiDi overrides,
-      // or zero-width characters. These should never be persisted; callers must
-      // re-enter clean content instead of silently sanitizing dangerous payloads.
-      // eslint-disable-next-line no-control-regex
-      if (/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\u202A-\u202E\u2066-\u2069\uFEFF]/.test(item.content)) return false;
       if (item.ts !== undefined && !(typeof item.ts === 'number' && isFinite(item.ts) && item.ts > 0)) return false;
       if (item.date !== undefined && !(typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date))) return false;
       return true;
@@ -195,7 +200,9 @@ export const SYNC_VALIDATORS = {
     isObj(t) &&
     typeof t.id === "string" && t.id.length <= 64 &&
     typeof t.label === "string" && t.label.length <= 300 &&
-    typeof t.endsAt === "number" && isFinite(t.endsAt) && t.endsAt > 0 && t.endsAt <= Date.now() + 172_800_000 &&
+    // 1-hour grace window allows for Syncthing propagation delay. Timers expired
+    // more than 1 hour ago are dropped silently; future timers capped at 7 days.
+    typeof t.endsAt === "number" && isFinite(t.endsAt) && t.endsAt > Date.now() - 3_600_000 && t.endsAt <= Date.now() + 604_800_000 &&
     (t.emoji === undefined || (typeof t.emoji === "string" && t.emoji.length <= 2))
   ),
   jv_sleep_log:           (v) => isLogObj(v),
@@ -213,7 +220,9 @@ export const SYNC_VALIDATORS = {
       typeof m.target === "number" && isFinite(m.target) && m.target >= 0 && m.target <= 100
     );
   },
-  jv_mission_date:        (v) => v === null || (isDateStr(v) && v <= today()),
+  // Use todayUTC() to match the date comparison in the mission reset effect (App.jsx)
+  // and prevent timezone-based bypass.
+  jv_mission_date:        (v) => v === null || (isDateStr(v) && v <= todayUTC()),
   jv_habit_suggestions:   (v) => isArray(v) && v.length <= 200 && v.every((s) =>
     typeof s === "string" && s.length <= 200
   ),
@@ -223,7 +232,8 @@ export const SYNC_VALIDATORS = {
     (c.content === undefined || (typeof c.content === "string" && c.content.length <= 2000)) &&
     (c.date === undefined || (typeof c.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.date))) &&
     (c.title  === undefined || (typeof c.title  === "string" && c.title.length  <= 120)) &&
-    (c.source === undefined || (typeof c.source === "string" && c.source.length <= 120))
+    (c.source === undefined || (typeof c.source === "string" && c.source.length <= 120)) &&
+    (c.xp === undefined || (typeof c.xp === "number" && isFinite(c.xp) && c.xp >= 0 && c.xp <= 500))
   ),
   jv_gcal_connected:      (v) => isBool(v),
   // NOTE: today() is called lazily inside the lambda (at validation time).
@@ -258,15 +268,31 @@ export const SYNC_VALIDATORS = {
     return true;
   },
   jv_last_shield_use_date:(v) => isNullOrDateStr(v),
-  jv_max_date_seen:       (v) => v === null || (isDateStr(v) && v <= todayUTC()),
   jv_last_shield_buy_date:(v) => v === null || (isDateStr(v) && v <= todayUTC()),
 };
 
 // ── Prototype pollution guard ─────────────────────────────────────
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+function sanitizeChatMessages(arr) {
+  if (!isArray(arr)) return [];
+  return arr
+    .filter((item) => isObj(item) && typeof item.content === "string")
+    .map((item) => {
+      let content = item.content;
+      // eslint-disable-next-line no-control-regex
+      content = content.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
+      // Strip BiDi override/isolate characters rather than rejecting the message.
+      content = content.replace(/[\u202A-\u202E\u2066-\u2069]/g, "");
+      if (content.length > 4000) content = content.slice(0, 4000);
+      return { ...item, content };
+    });
+}
+
 export function isSafeSyncValue(v, depth = 0) {
-  if (depth >= 6) return false;
+  // Depth cap prevents stack overflow on adversarially deep JSON. Legitimate
+  // RITMOL data nests at most 4–5 levels deep.
+  if (depth >= 12) return false;
   if (isObj(v)) {
     for (const k of Object.getOwnPropertyNames(v)) {
       if (DANGEROUS_KEYS.has(k)) return false;
@@ -310,6 +336,14 @@ function getSyncChannel() {
   return _broadcastChannel;
 }
 
+/** Close the BroadcastChannel (called on HMR dispose in dev). */
+export function closeSyncChannel() {
+  if (_broadcastChannel) {
+    _broadcastChannel.close();
+    _broadcastChannel = null;
+  }
+}
+
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open("ritmol_sync_v1", 1);
@@ -349,15 +383,17 @@ async function clearHandleFromDB() {
   } catch { /* ignore */ }
 }
 
-// ── Build sync payload from localStorage ─────────────────────────
+// ── Build sync payload from IDB cache ───────────────────────────
 function buildPayload() {
   const payload = { _schemaVersion: SYNC_SCHEMA_VERSION };
   for (const key of SYNC_KEYS) {
-    let stored = LS.get(storageKey(key));
+    // Read from IDB cache (synchronous after boot)
+    let stored = idbGet(storageKey(key), null);
     if (stored === null && IS_DEV) {
-      const unprefixed = LS.get(key);
+      // Dev fallback: check unprefixed key in IDB cache
+      const unprefixed = idbGet(key, null);
       if (unprefixed !== null) {
-        console.warn(`[SyncManager] Key "${key}" found at unprefixed location. Consider clearing storage.`);
+        console.warn(`[SyncManager] Key "${key}" found at unprefixed location.`);
         stored = unprefixed;
       }
     }
@@ -373,27 +409,8 @@ function buildPayload() {
   return payload;
 }
 
-// ── Apply validated payload to localStorage ───────────────────────
+// ── Apply validated payload to IDB ───────────────────────────────
 function applyPayload(payload) {
-  // Estimate quota risk using UTF-16 storage approximation: browsers store
-  // localStorage as UTF-16 (2 bytes per code unit), so we use (length * 2)
-  // instead of UTF-8 TextEncoder bytes here. This keeps the 4.5 MB guard
-  // meaningfully below typical 10 MB limits on ASCII-heavy data.
-  const payloadSize = JSON.stringify(payload).length * 2;
-  let lsUsed = 0;
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i) ?? "";
-      const v = localStorage.getItem(k) ?? "";
-      lsUsed += (k.length + v.length) * 2;
-    }
-  } catch {
-    // ignore estimation failures
-  }
-  if (lsUsed + payloadSize > 4.5 * 1024 * 1024) {
-    throw new Error("APPLY_QUOTA_RISK");
-  }
-
   for (const key of SYNC_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
     let val = payload[key];
@@ -405,7 +422,11 @@ function applyPayload(payload) {
     const validator = SYNC_VALIDATORS[key];
     if (validator && !validator(val)) continue;
     if (!isSafeSyncValue(val)) continue;
-    LS.set(storageKey(key), val);
+    if (key === "jv_chat") {
+      val = sanitizeChatMessages(val);
+    }
+    // Write to IDB (sync cache update + fire-and-forget IDB put)
+    idbSet(storageKey(key), val);
   }
 }
 
@@ -476,6 +497,12 @@ export const SyncManager = {
     return handle;
   },
 
+  /** Returns true if a persisted file handle is available in IndexedDB. */
+  async isHandlePersisted() {
+    const h = await loadHandleFromDB();
+    return h !== null;
+  },
+
   /** Write current localStorage state to the linked sync file. */
   async push() {
     const handle = await SyncManager.getHandle();
@@ -491,7 +518,10 @@ export const SyncManager = {
         if (perm !== "granted") {
           perm = await handle.requestPermission({ mode: "readwrite" });
         }
-      } catch {
+      } catch (err) {
+        if (err && err.name === "NotFoundError") {
+          throw new Error("SYNC_FILE_NOT_FOUND");
+        }
         throw new Error("PERMISSION_DENIED");
       }
       if (perm !== "granted") throw new Error("PERMISSION_DENIED");

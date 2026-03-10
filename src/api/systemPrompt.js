@@ -112,6 +112,14 @@ export function buildSystemPrompt(state, profile) {
     })
     .join("\n---\n");
 
+  // Defence-in-depth: prevent crafted content from injecting literal boundary tag
+  // names like RECENT_CONTEXT or HUNTER_DATA back into the prompt in a way that
+  // could confuse downstream parsing. These replacements are safe no-ops for
+  // normal text but ensure the XML-like markers remain unique to this builder.
+  const safeRecent = recentChatSummary
+    .replace(/RECENT_CONTEXT/gi, "RECENT_CTX")
+    .replace(/HUNTER_DATA/gi, "HUNTER_CTX");
+
   return `You are RITMOL — the AI companion of a gamified life-OS for STEM university students. Solo Leveling RPG aesthetic. Be brief, punchy, motivating. Never break character.
 
 <HUNTER_DATA>
@@ -131,7 +139,7 @@ Active Goals: ${activeGoals}
 </HUNTER_DATA>
 
 <RECENT_CONTEXT>
-${recentChatSummary || "No recent chat."}
+${safeRecent || "No recent chat."}
 </RECENT_CONTEXT>
 
 You can issue commands by including a "commands" array in your JSON response. Allowed commands:

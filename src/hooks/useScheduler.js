@@ -21,6 +21,7 @@ import { today, nowHour, nowMin } from "../utils/storage";
 export function useScheduler({ state, profile, showBanner, setModal }) {
   // Snapshot of the state slices the interval needs — updated every render
   // so the interval callback always sees fresh data without being in deps.
+  const panicWarnedRef = useRef(null);
   const scheduledStateRef = useRef({});
   useEffect(() => {
     scheduledStateRef.current = {
@@ -36,7 +37,7 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
   useEffect(() => {
     if (!profile) return;
 
-    const interval = setInterval(() => {
+    const runChecks = () => {
       if (document.visibilityState !== "visible") return;
       const h = nowHour();
       const m = nowMin();
@@ -56,10 +57,11 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
         setModal({ type: "screen_time", period: "evening" });
       }
 
-      // Streak panic — evening only, no habits logged
+      // Streak panic — evening only, no habits logged, warn once per day
       if (h >= 21) {
         const todayLog = habitLog?.[t] || [];
-        if (todayLog.length === 0 && streak > 0) {
+        if (todayLog.length === 0 && streak > 0 && panicWarnedRef.current !== t) {
+          panicWarnedRef.current = t;
           showBanner("⚠ Hunter. Your streak expires at midnight. 0 habits logged.", "alert");
         }
       }
@@ -84,8 +86,21 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
           detail: { ids: upcoming.map((u) => u.id) },
         }));
       }
-    }, 60_000);
+    };
 
-    return () => clearInterval(interval);
+    const interval = setInterval(runChecks, 60_000);
+    // Run once immediately on mount so we don't miss narrow trigger windows
+    // when the app becomes visible mid-window.
+    runChecks();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") runChecks();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [profile, showBanner, setModal]);
 }
