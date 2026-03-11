@@ -19,7 +19,7 @@ const iconStr = z.string().refine(
 ).optional()
 
 // ── Schemas ────────────────────────────────────────────────────
-export const ProfileSchema = z.object({
+const ProfileSchemaBase = z.object({
   name:         z.string().max(60).optional(),
   major:        z.string().max(80).optional(),
   interests:    z.string().max(200).optional(),
@@ -28,10 +28,13 @@ export const ProfileSchema = z.object({
   // geminiKey must never appear in sync payload
   geminiKey:    z.undefined({ message: 'geminiKey must not be in sync payload' }),
   googleClientId: z.undefined({ message: 'googleClientId must not be in sync payload' }),
-}).strip().nullable()
+})
+
+export const ProfileSchema = ProfileSchemaBase.strip().nullable()
 
 // Relax ProfileSchema for partial profile objects (geminiKey may simply be absent)
-export const SafeProfileSchema = ProfileSchema.omit({ geminiKey: true, googleClientId: true })
+// Omit must be called on the object schema, not on .strip().nullable() (Zod v4)
+export const SafeProfileSchema = ProfileSchemaBase.omit({ geminiKey: true, googleClientId: true }).strip().nullable()
 
 export const HabitSchema = z.object({
   id:       z.string().max(64).regex(/^[\w-]+$/),
