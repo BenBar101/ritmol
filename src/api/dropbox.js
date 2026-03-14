@@ -222,11 +222,15 @@ export async function handleOAuthCallback(code) {
   const verifier = sessionStorage.getItem(SS_CODE_VERIFIER);
   if (!verifier) throw new Error("DROPBOX_AUTH_REQUIRED");
 
+  // PKCE public-client flow: client_id goes in the request body.
+  // Do NOT send an Authorization: Basic header — Dropbox rejects it with 400
+  // when there is no client secret (which there isn't for PKCE apps).
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
     redirect_uri: REDIRECT_URI,
     code_verifier: verifier,
+    client_id: DROPBOX_CLIENT_ID,
   });
 
   try {
@@ -234,7 +238,6 @@ export async function handleOAuthCallback(code) {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${btoa(`${DROPBOX_CLIENT_ID}:`)}`,
       },
       body: body.toString(),
     });
@@ -273,9 +276,13 @@ export async function refreshAccessToken() {
   const tokens = getTokens();
   if (!tokens?.refreshToken) throw new Error("DROPBOX_TOKEN_EXPIRED");
 
+  // PKCE public-client flow: client_id goes in the request body.
+  // Do NOT send an Authorization: Basic header — Dropbox rejects it with 400
+  // when there is no client secret (which there isn't for PKCE apps).
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: tokens.refreshToken,
+    client_id: DROPBOX_CLIENT_ID,
   });
 
   try {
@@ -283,7 +290,6 @@ export async function refreshAccessToken() {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${btoa(`${DROPBOX_CLIENT_ID}:`)}`,
       },
       body: body.toString(),
     });
