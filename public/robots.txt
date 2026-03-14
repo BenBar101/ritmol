@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /
+
+# RITMOL is a personal single-user app. There is no content here
+# for search engines to index. All user data lives in the user's
+# own browser and JSON file, not on this server.

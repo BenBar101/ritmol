@@ -164,7 +164,7 @@ The project intentionally avoids:
 * complex authentication systems
 * multi-user support
 * enterprise security infrastructure
-* third-party cloud storage (Dropbox, Google Drive, etc.)
+* other cloud storage (Google Drive, iCloud, etc.) — Dropbox is supported
 
 Contributors and automated tools should **not** add server components or cloud sync services unless the project scope changes. The goal is to keep the system **simple, portable, and peer-to-peer friendly**.
 
@@ -194,11 +194,81 @@ If you are setting up a fresh device with no existing sync file, create a minima
 
 ### Getting a key
 
-Go to [Google AI Studio](https://aistudio.google.com/apikey) → **Create API key**. Restrict it to the Gemini API only and set a daily usage quota so a runaway loop cannot silently drain it.
+Go to [Google AI Studio](https://aistudio.google.com/apikey) → **Create API key**.
+
+### Restricting the key and setting a daily quota (recommended)
+
+A Gemini API key created at AI Studio has no spending cap and is not restricted by default. The app enforces a client-side daily token budget, but that can be bypassed with DevTools. The only real budget enforcement is a server-side quota cap set in [Google Cloud Console](https://console.cloud.google.com).
+
+**Part A — Get the key into Cloud Console**
+
+1. At [aistudio.google.com/apikey](https://aistudio.google.com/apikey), find the API key you use for RITMOL. Note the project it belongs to.
+2. Go to [console.cloud.google.com](https://console.cloud.google.com) and select the same project.
+
+**Part B — Restrict the key to Gemini API only**
+
+1. Go to **APIs & Services → Credentials**.
+2. Find your API key and click its name.
+3. Under **API restrictions**, select **Restrict key**.
+4. Search for and select **Generative Language API** (the official name for the Gemini API in Cloud Console).
+5. Click **Save**.
+
+**Part C — Set a daily quota cap**
+
+1. Go to **APIs & Services → Enabled APIs & services**.
+2. Find **Generative Language API** and click it.
+3. Click **Quotas & System Limits**.
+4. Find **Requests per day** (or **Tokens per day** if available) and click the pencil icon.
+5. Set a daily limit that matches your use. For a single-user personal app:
+   - **Requests per day:** `500` (generous for one user, low enough to cap abuse)
+   - **Tokens per day** (if available): `100000` (slightly above the app's 80,000 in-app cap)
+6. Click **Save**.
+
+**Part D — Enable billing alerts (optional)**
+
+1. Go to **Billing → Budgets & alerts**.
+2. Create a budget (e.g. $5/month) with alerts at 50%, 90%, and 100%.
 
 ### Security note
 
 After a Pull, the key lives in `sessionStorage` for the lifetime of the tab. It is visible in DevTools → Application → Session Storage to anyone with access to your running browser. This is the accepted risk for this app's threat model (trusted device). Close the tab when done if you are on a shared machine.
+
+---
+
+## Dropbox sync setup (optional)
+
+RITMOL can sync via Dropbox instead of (or in addition to) the File System Access API. Dropbox uses OAuth PKCE — no app secret is needed. The **App Key** is built into the JS bundle at build time via `VITE_DROPBOX_APP_KEY`.
+
+**Where:** [https://www.dropbox.com/developers/apps](https://www.dropbox.com/developers/apps)
+
+### Steps
+
+1. Go to [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps) and sign in.
+2. Click **Create app**.
+3. Choose:
+   - **Choose an API:** Scoped access
+   - **Choose the type of access:** App folder
+   - **Name your app:** `RITMOL` (or any name)
+4. Click **Create app**.
+5. Under **OAuth 2 / Redirect URIs**, add every URI where the app will be hosted:
+   - Production: `https://YOUR_USERNAME.github.io/ritmol/dropbox-callback` (replace `YOUR_USERNAME` and `ritmol` with your values)
+   - Custom domain: `https://yourdomain.com/dropbox-callback`
+   - Local dev: `http://localhost:5173/dropbox-callback`
+   - If `VITE_BASE_PATH` is set (e.g. `/ritmol`), the redirect URI must include it: `https://YOUR_USERNAME.github.io/ritmol/dropbox-callback`
+6. Under **Permissions**, enable only:
+   - `files.content.read`
+   - `files.content.write`
+7. Under **Settings → App key**, copy the App Key.
+8. Add it to your `.env` (copy from `.env.example` if needed):
+   ```
+   VITE_DROPBOX_APP_KEY=your_app_key_here
+   ```
+9. Do **not** copy or store the App secret — RITMOL uses PKCE and does not need it.
+10. Click **Save** on the Dropbox app settings page.
+
+**For deployment:** If you deploy via GitHub Actions and want Dropbox to work, add `VITE_DROPBOX_APP_KEY` as a repository secret and pass it in the Build step's `env` block in `.github/workflows/deploy.yml`.
+
+**Verify:** After deploying, go to **Profile → Settings** and click **CONNECT DROPBOX**. You should be redirected to Dropbox's authorization page and then back to the app with a success message.
 
 ---
 
@@ -270,5 +340,5 @@ To test the production build locally: `npm run build` then `npm run preview`.
 If you want to deploy your own copy (e.g. your own GitHub Pages):
 
 1. Push the repo to GitHub and enable **Pages** from **GitHub Actions** (Settings → Pages → Source: GitHub Actions).
-2. The workflow at `.github/workflows/deploy.yml` builds and deploys `dist` on every push to `main`. No GitHub Variables or secrets are required — the built app is just static files; all config is loaded by users from their own JSON file.
+2. The workflow at `.github/workflows/deploy.yml` builds and deploys `dist` on every push to `main`. No secrets are required for basic deployment — the built app is just static files; all config is loaded by users from their own JSON file. If you want **Dropbox sync** to work on the deployed site, add `VITE_DROPBOX_APP_KEY` as a repository secret and pass it in the Build step's `env` block (see [Dropbox sync setup](#dropbox-sync-setup-optional) above).
 3. The app is served at `https://YOUR_USERNAME.github.io/REPO_NAME/` (or your custom domain). Users open that URL and link/import their `ritmol-data.json` as above.
