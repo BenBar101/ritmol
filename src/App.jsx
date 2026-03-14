@@ -327,13 +327,10 @@ export default function App() {
             setState((s) => ({ ...s, profile }));
             setShowOnboarding(false);
           }}
-          showGeminiKeySetup={showGeminiKeySetup}
           onGeminiKeySaved={async (key, profile) => {
             setGeminiApiKey(key);
             if (profile) setState((s) => ({ ...s, profile }));
             await syncPush();
-            setShowGeminiKeySetup(false);
-            setShowOnboarding(false);
           }}
           connectDropbox={connectDropbox}
         />
