@@ -19,7 +19,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useCallback, useRef, useEffect } from "react";
-import { storageKey, todayUTC, getMaxDateSeen } from "../utils/storage";
+import { storageKey, todayUTC, localDateFromUTC, getMaxDateSeen } from "../utils/storage";
 import { idbGet } from "../utils/db";
 import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
 import { getGeminiApiKey } from "../utils/storage";
@@ -48,7 +48,7 @@ const BIDI_RE   = /[\u202A-\u202E\u2066-\u2069]/g;
 // Include square brackets in the injection character set so prompt-injection
 // patterns that rely on [SYSTEM]/[INSTRUCTION] style markers are stripped
 // consistently with sanitizeForPrompt in systemPrompt.js.
-const INJECT_RE = /[<>"`&'[\]]|\u2223\uFF5C\u01C0/g;
+const INJECT_RE = /[<>"`&'[\]\u2223\uFF5C\u01C0]/g;
 
 function sanitizeStr(s, max = MAX_STR_LEN) {
   if (typeof s !== "string") return "";
@@ -192,7 +192,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
     const pendingData = { toasts: [], levelUp: null };
 
     setState((s) => {
-      const t = todayUTC();
+      const t = localDateFromUTC();
       if (!s.dailyMissions) return s;
       const todayLog = s.habitLog[t] || [];
       let bonusXP = 0;
@@ -286,7 +286,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
     actionLocksRef.current.add(habitId);
     setTimeout(() => actionLocksRef.current.delete(habitId), 500);
 
-    const t = todayUTC();
+    const t = localDateFromUTC();
     // pendingRef is a plain object (not useRef) intentionally — it is local to each
     // logHabit invocation. In React Strict Mode the updater runs twice:
     //   - 1st run: log does NOT include habitId → sets didLog=true, xp=h.xp
@@ -371,7 +371,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
           break;
 
         case "complete_task": {
-          const doneDate = todayUTC();
+          const doneDate = localDateFromUTC();
           setState((s) => {
             const tasks    = [...(s.tasks || [])];
             const isValidId = typeof cmd.id === "string" && cmd.id.length <= 40 && /^[a-zA-Z0-9_]+$/.test(cmd.id);

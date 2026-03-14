@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
-import { todayUTC } from "./utils/storage";
+import { todayUTC, localDateFromUTC } from "./utils/storage";
 import { STYLE_CSS, DAILY_TOKEN_LIMIT } from "./constants";
 import { callGemini } from "./api/gemini";
 // Fix [H-1]: import the canonical sanitizeForPrompt instead of maintaining a local copy.
@@ -12,7 +12,7 @@ import GeometricCorners from "./GeometricCorners";
 
 export default function HabitsTab() {
   const { state, setState, logHabit, showBanner, profile, apiKey, trackTokens, rehydrateCount } = useAppContext();
-  const todayLog = state.habitLog[todayUTC()] || [];
+  const todayLog = state.habitLog[localDateFromUTC()] || [];
   const categories = ["body", "mind", "work"];
   const [initializing, setInitializing] = useState(false);
   // Abort controller so navigating away mid-init cancels the Gemini request.

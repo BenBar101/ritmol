@@ -18,13 +18,13 @@ A gamified life companion PWA for STEM university students. Solo Leveling RPG ae
 ```
 src/
   App.jsx               — orchestration; mounts hooks, renders tabs, keys config gate
-  main.jsx              — entry point; mounts App, GlobalStyles, ErrorBoundary
+  main.jsx              — entry point; awaits bootDb(), then mounts App, GlobalStyles, ErrorBoundary
   theme.js              — single source of truth for colours, fonts, button/input styles
   context/
     AppContext.js        — React context; useAppContext() for tabs
   hooks/
     useAppState.js      — React state + write-through persistence to TinyBase store (db.js)
-    useSync.js          — Syncthing push/pull/pick/forget + auto-push on tab hide
+    useSync.js          — Syncthing push/pull/pick/forget + auto-push on tab hide; pull mutex in useSync
     useGameEngine.js    — XP, missions, achievements, AI command executor, habit logger
     useDailyLogin.js    — daily login streak math and login XP
     useScheduler.js     — timed prompts: sleep check-in, screen time, lecture reminders
@@ -37,9 +37,9 @@ src/
   Onboarding.jsx        — first-run wizard
   Layout.jsx            — TopBar, BottomNav, Banner
   Modals.jsx            — DailyLogin, SleepCheckin, ScreenTime, SessionLog, LevelUp, AchievementToast
-  GlobalStyles.jsx      — CSS reset and shared styles; ErrorBoundary
+  GlobalStyles.jsx      — CSS reset and shared styles; ErrorBoundary (exported from App.jsx)
   GeometricCorners.jsx  — decorative SVG corner component
-  constants.js          — shared constants (ranks, session types, focus levels, XP defaults)
+  constants.js          — shared constants (ranks, session types, focus levels, XP defaults, SYNC_SCHEMA_VERSION)
   api/
     gemini.js           — callGemini() with timeout, abort, token counting
     gcal.js             — Google Calendar REST + GIS token client
@@ -47,16 +47,16 @@ src/
     systemPrompt.js     — builds the RITMOL system prompt; sanitizeForPrompt()
     dynamicCosts.js     — AI-driven XP economy adjustments
   sync/
-    SyncManager.js      — SYNC_KEYS, SYNC_SCHEMA_VERSION, SYNC_VALIDATORS, buildSyncPayload,
-                          applySyncPayload; File System Access API push/pull/import/download
+    SyncManager.js      — SYNC_KEYS; SYNC_SCHEMA_VERSION (constants.js); Zod SyncPayloadSchema
+                          (utils/schemas.js); payload build/apply; File System Access API push/pull/import/download
   utils/
-    storage.js          — re-exports from db.js (LS, storageKey, Gemini key, date helpers)
+    storage.js          — re-exports from db.js (LS, storageKey, Gemini key, date helpers, getMaxDateSeen)
     db.js               — TinyBase store, bootDb(), IDB persister (ritmol_tb / ritmol_tb_dev),
                           idbGet/idbSet/… shims; getMaxDateSeen; LS for non-IDB keys (theme, etc.);
                           one-shot migration from legacy IDB store (runs inside bootDb)
     state.js            — initState(), state shape
     xp.js               — XP/level/rank math, session XP calc
-    schemas.js          — Zod schemas (profile, habits, tasks, etc.)
+    schemas.js          — Zod schemas (profile, habits, tasks, SyncPayloadSchema for sync, etc.)
 ```
 
 - **`index.html`** — entry point; includes SPA redirect handling for GitHub Pages.
@@ -143,7 +143,7 @@ The sync layer enforces several layers of defence:
 
 - **Key allowlist:** Only keys in `SYNC_KEYS` (in `sync/SyncManager.js`) are written from an incoming sync payload — unknown keys are silently dropped.
 - **Schema versioning:** `SYNC_SCHEMA_VERSION` (in `sync/SyncManager.js`) is checked on every Pull/Import; outdated files are rejected before any data is applied.
-- **Per-key validators (`SYNC_VALIDATORS`):** Every sync key has a typed validator checking structure, value ranges, string lengths, and allowed sub-keys. Log objects (habit/sleep/screen) enforce date-string key format and a ~2-year key cap. Array fields (missions, timers, habit suggestions) enforce per-item shape.
+- **Zod SyncPayloadSchema (schemas.js):** Every sync key is validated via a single Zod schema: structure, value ranges, string lengths, and allowed sub-keys. Log objects (habit/sleep/screen) enforce date-string key format and a ~2-year key cap. Array fields (missions, timers, habit suggestions) enforce per-item shape.
 - **Prototype pollution guard:** `isSafeSyncValue()` rejects payloads containing `__proto__`, `constructor`, or `prototype` keys.
 - **Payload size cap:** `assertPayloadSize()` rejects payloads over 10 MB before writing, so a large Push cannot produce a file that every subsequent Pull immediately rejects.
 - **Prompt injection mitigation:** `sanitizeForPrompt()` strips XML-breakout characters and control characters from all user-derived strings injected into the system prompt. Chat history is re-sanitised at replay time so previously-stored messages cannot break out of the `<HUNTER_DATA>` boundary.

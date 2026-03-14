@@ -117,15 +117,17 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
   const canBuyShield = state.xp >= effectiveShieldCost;
   const shieldSnapshotRef = useRef(null);
   const buyShieldInFlightRef = useRef(false);
+  const buyShieldSkipReasonRef = useRef(null); // "already_purchased" | "insufficient_xp" | null
 
   function buyShield() {
     if (buyShieldInFlightRef.current) return;
     buyShieldInFlightRef.current = true;
-    if (!canBuyShield || !apiKey) {
+    if (!apiKey) {
       buyShieldInFlightRef.current = false;
       return;
     }
 
+    buyShieldSkipReasonRef.current = null;
     let appliedCost = 0;
     setState((s) => {
       // NOTE: lastShieldBuyDate is tracked in UTC rather than local time. This means
@@ -134,9 +136,17 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       // just after UTC midnight, but the economic impact is limited and keeps
       // streak logic consistent with other UTC-based checks.
       const t = todayUTC();
-      if (s.lastShieldBuyDate === t) return s;
+      if (s.lastShieldBuyDate === t) {
+        // Mark as skipped — mutex will be released after setState commits
+        buyShieldSkipReasonRef.current = "already_purchased";
+        shieldSnapshotRef.current = null;
+        return s;
+      }
       const currentCost = s.dynamicCosts?.streakShieldCost ?? streakShieldCost;
-      if (s.xp < currentCost) { return s; }
+      if (s.xp < currentCost) {
+        buyShieldSkipReasonRef.current = "insufficient_xp";
+        return s;
+      }
       appliedCost = currentCost;
       const next = {
         ...s,
@@ -148,12 +158,14 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       return next;
     });
 
-    if (!shieldSnapshotRef.current) {
-      buyShieldInFlightRef.current = false;
-      showBanner("Streak shield already purchased today.", "info");
-      return;
-    }
     queueMicrotask(() => {
+      if (!shieldSnapshotRef.current) {
+        buyShieldInFlightRef.current = false;
+        if (buyShieldSkipReasonRef.current === "already_purchased") {
+          showBanner("Streak shield already purchased today.", "info");
+        }
+        return;
+      }
       buyShieldInFlightRef.current = false;
       const snapshotForApi = shieldSnapshotRef.current;
       shieldSnapshotRef.current = null;
@@ -625,12 +637,6 @@ Respond ONLY with JSON:
       prompt = prompt.replace(/`/g, "");
 
       const { text: raw, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a master of literary atmosphere and ASCII art. Respond only in JSON.", true, controller.signal);
-      if (controller.signal.aborted) {
-        setState((s) => ({ ...s, xp: s.xp + deductedCost }));
-        if (mountedRef.current) setPulling(false);
-        pullingRef.current = false;
-        return;
-      }
       if (mountedRef.current) {
         trackTokens(tokensUsed);
       }
@@ -724,9 +730,14 @@ Respond ONLY with JSON:
         setLastPull(safeCard);
         showToast({ icon: safeCard.type === "chronicle" ? "≡" : "◈", title: safeCard.title, desc: safeCard.rarity.toUpperCase() + " PULL", rarity: safeCard.rarity, isAchievement: false });
       }
-    } catch {
-      setState((s) => ({ ...s, xp: s.xp + deductedCost }));
-      if (mountedRef.current) showBanner("Pull failed. System error.", "alert");
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        // Request was cancelled (unmount or new pull started). Refund XP silently.
+        setState((s) => ({ ...s, xp: s.xp + deductedCost }));
+      } else {
+        setState((s) => ({ ...s, xp: s.xp + deductedCost }));
+        if (mountedRef.current) showBanner("Pull failed. System error.", "alert");
+      }
     } finally {
       pullingRef.current = false;
       if (mountedRef.current) setPulling(false);

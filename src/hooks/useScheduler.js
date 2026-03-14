@@ -16,7 +16,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from "react";
-import { todayUTC, nowHour, nowMin } from "../utils/storage";
+import { localDateFromUTC, localHour, localMin } from "../utils/storage";
 
 export function useScheduler({ state, profile, showBanner, setModal }) {
   // Snapshot of the state slices the interval needs — updated every render
@@ -51,12 +51,12 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
     const runChecks = () => {
       if (!mounted) return;
       if (document.visibilityState !== "visible") return;
-      const h = nowHour();
-      const m = nowMin();
-      // t is the UTC date key used for log lookups (sleepLog, screenTimeLog) and
-      // streak-panic boundary. h/m are now LOCAL hours/minutes (see db.js), so
-      // modal trigger times (07:30, 13:00, 20:00) fire at the user's local wall clock.
-      const t = todayUTC();
+      const h = localHour();
+      const m = localMin();
+      // t is the local date key used for log lookups (sleepLog, screenTimeLog) and
+      // streak-panic boundary. h/m are local hours/minutes. Modal trigger times
+      // (07:30, 13:00, 20:00) fire at the user's local wall clock.
+      const t = localDateFromUTC();
       const { sleepLog, screenTimeLog, calendarEvents, habitLog, streak } = scheduledStateRef.current;
 
       // Sleep check-in at 07:30 UTC

@@ -1,11 +1,13 @@
 import { z } from 'zod'
-import { todayUTC } from './db'
+import { todayUTC, localDateFromUTC } from './db'
+import { SYNC_SCHEMA_VERSION } from '../constants'
 
 // ── Primitives ─────────────────────────────────────────────────
 const dateStr       = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-// NOTE: refine callbacks re-evaluate todayUTC() at call-time — safe.
-const pastDateStr   = dateStr.refine(v => v <= todayUTC(), { message: 'Date is in the future' })
-const nullOrDate    = z.union([z.null(), pastDateStr])
+// NOTE: refine callbacks re-evaluate at call-time — safe.
+const pastDateStr     = dateStr.refine(v => v <= localDateFromUTC(), { message: 'Date is in the future' })
+const pastDateStrUTC  = dateStr.refine(v => v <= todayUTC(), { message: 'Date is in the future' }) // token usage billing-day bucket
+const nullOrDate      = z.union([z.null(), pastDateStr])
 
 // Grapheme-cluster-aware icon: allow up to 2 visible characters.
 // Intl.Segmenter is available in all modern browsers (Chrome 87+, Firefox 116+, Safari 16.4+).
@@ -23,14 +25,17 @@ const iconStr = z.string().refine(
 
 // Keep as a raw ZodObject so .omit() can be called on it
 const ProfileSchemaBase = z.object({
-  name:           z.string().max(60).optional(),
-  major:          z.string().max(80).optional(),
-  interests:      z.string().max(200).optional(),
-  books:          z.string().max(200).optional(),
-  semesterGoal:   z.string().max(300).optional(),
+  name:             z.string().max(60).optional(),
+  major:            z.string().max(80).optional(),
+  interests:        z.string().max(200).optional(),
+  books:            z.string().max(200).optional(),
+  semesterGoal:     z.string().max(300).optional(),
+  // Timezone fields added in Task 1
+  utcOffsetMinutes: z.number().int().min(-840).max(840).optional(),
+  timezoneLabel:    z.string().max(80).optional(),
   // geminiKey must never appear in sync payload
-  geminiKey:      z.undefined(),
-  googleClientId: z.undefined(),
+  geminiKey:        z.undefined(),
+  googleClientId:   z.undefined(),
 })
 
 export const ProfileSchema = ProfileSchemaBase.strip().nullable()
@@ -79,7 +84,7 @@ export const GoalSchema = z.object({
 
 export const SessionSchema = z.object({
   id:       z.string().max(64).regex(/^[\w-]+$/),
-  date:     dateStr.refine(v => v <= todayUTC() && v >= '2020-01-01').optional(),
+  date:     dateStr.refine(v => v <= localDateFromUTC() && v >= '2020-01-01').optional(),
   course:   z.string().max(100).optional(),
   notes:    z.string().max(300).optional(),
   duration: z.number().min(0).max(600).optional(),
@@ -142,7 +147,7 @@ export const LogObjSchema = z.record(
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   LogEntryValue
 ).refine(v => Object.keys(v).length <= 800, { message: 'Too many log entries' })
- .refine(v => !Object.keys(v).some(k => k > todayUTC()), { message: 'Future log dates not allowed' })
+ .refine(v => !Object.keys(v).some(k => k > localDateFromUTC()), { message: 'Future log dates not allowed' })
 
 export const MissionSchema = z.object({
   id:     z.string().max(40),
@@ -164,7 +169,7 @@ export const TimerSchema = z.object({
 })
 
 export const TokenUsageSchema = z.object({
-  date:       pastDateStr,
+  date:       pastDateStrUTC,
   tokens:     z.number().min(0).max(10_000_000).optional(),
   aiXpToday:  z.number().min(0).max(5000).optional(),
   warnedAt:   z.array(z.number().int().refine(v => [50, 80, 99].includes(v), { message: "invalid threshold" })).max(3).optional(),
@@ -178,9 +183,12 @@ export const DynamicCostsSchema = z.object({
 
 // ── Master sync payload schema ─────────────────────────────────
 export const SyncPayloadSchema = z.object({
-  _schemaVersion: z.number().int().min(1).max(1),
+  _schemaVersion: z.number().int().min(1).max(SYNC_SCHEMA_VERSION),
   jv_profile:             SafeProfileSchema.optional(),
-  jv_xp:                  z.number().min(0).max(10_000_000).optional(),
+  jv_xp:                  z.number().min(0).max(10_000_000).refine(
+    (v) => v <= 10_000_000,
+    { message: "jv_xp exceeds maximum allowed value" }
+  ).optional(),
   jv_streak:              z.number().min(0).max(1095).optional(),
   jv_shields:             z.number().int().min(0).max(50).optional(),
   jv_last_login:          nullOrDate.optional(),
@@ -217,20 +225,4 @@ export const SyncPayloadSchema = z.object({
   // geminiKey is allowed in the payload for reading (extracted to sessionStorage)
   // but is never written back out on push
   geminiKey:                z.string().max(60).regex(/^AIza[A-Za-z0-9_-]{35,45}$/).optional(),
-}).superRefine((data, ctx) => {
-  // Plausibility warning: flag XP values that exceed what is achievable through
-  // normal gameplay (10 000 sessions × 10 000 XP cap each = 100 000 000, but the
-  // state cap is 10 000 000). We do not hard-reject — legitimate users can reach
-  // high XP over time — but we surface a warning so unexpected values are visible
-  // in the console during development.
-  if (typeof data.jv_xp === "number" && data.jv_xp > 5_000_000) {
-    console.warn(
-      `[SyncManager] jv_xp in imported payload is unusually high (${data.jv_xp}). ` +
-      "Verify this is expected before proceeding."
-    );
-  }
-  // Anti-cheat: reject XP that exceeds the enforced state cap entirely.
-  if (typeof data.jv_xp === "number" && data.jv_xp > 10_000_000) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "jv_xp exceeds maximum allowed value", path: ["jv_xp"] });
-  }
 })

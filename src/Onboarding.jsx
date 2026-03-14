@@ -164,6 +164,13 @@ export default function Onboarding({ onComplete }) {
       books: sanitizeField(f.books, 200),
       interests: sanitizeField(f.interests, 200),
       semesterGoal: sanitizeField(f.semesterGoal, 300),
+      // utcOffsetMinutes: the user's current UTC offset in minutes (positive = east of UTC).
+      // Re-read from the browser at onboarding time. DST is handled automatically because
+      // we re-read this value at every call to localDateFromUTC() — it is stored here only
+      // as the initial profile snapshot for the sync file.
+      utcOffsetMinutes: -(new Date().getTimezoneOffset()),
+      // timezoneLabel: human-readable string for display only. Never used in date math.
+      timezoneLabel: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Unknown",
     };
     return allowed;
   }
@@ -257,6 +264,11 @@ export default function Onboarding({ onComplete }) {
         )}
 
         {error && <div style={{ color: "#ccc", fontSize: "12px", marginTop: "8px" }}>⚠ {error}</div>}
+
+        <div style={{ fontSize: "11px", color: "#555", fontFamily: "'Share Tech Mono', monospace", marginTop: "8px" }}>
+          DETECTED TIMEZONE: {Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Unknown"}
+          {" "}(UTC{-(new Date().getTimezoneOffset()) >= 0 ? "+" : ""}{(-(new Date().getTimezoneOffset()) / 60).toFixed(0)})
+        </div>
 
         <button onClick={handleNext} style={{ ...primaryBtn, marginTop: "16px" }}>
           {step === steps.length - 1 ? "INITIALIZE RITMOL" : current.optional ? "NEXT › (or skip)" : "NEXT ›"}

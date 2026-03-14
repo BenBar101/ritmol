@@ -13,7 +13,40 @@ export const todayUTC = () => new Date().toISOString().slice(0, 10)
 // version caused habit-log vs mission-date mismatches (bug-25).
 // All callers that previously used today() now get UTC.
 export const today = todayUTC
+
+/**
+ * Returns the user's current local calendar date as "YYYY-MM-DD".
+ * Uses the browser's live UTC offset so DST transitions are handled automatically.
+ * Use this for ALL habit log keys, mission date keys, streak date comparisons,
+ * and scheduler date checks. Do NOT use todayUTC() for those purposes.
+ */
+export const localDateFromUTC = () => {
+  const offsetMs = -(new Date().getTimezoneOffset()) * 60_000
+  return new Date(Date.now() + offsetMs).toISOString().slice(0, 10)
+}
+
+/**
+ * Returns the user's current local hour (0-23).
+ * Replaces nowHour() for all scheduler trigger comparisons.
+ */
+export const localHour = () => {
+  const offsetMs = -(new Date().getTimezoneOffset()) * 60_000
+  return new Date(Date.now() + offsetMs).getUTCHours()
+}
+
+/**
+ * Returns the user's current local minute (0-59).
+ * Replaces nowMin() for all scheduler trigger comparisons.
+ */
+export const localMin = () => {
+  const offsetMs = -(new Date().getTimezoneOffset()) * 60_000
+  return new Date(Date.now() + offsetMs).getUTCMinutes()
+}
+
+/** @deprecated Use localHour() instead. Returns local hour via getHours() which is
+ *  equivalent but kept for compatibility. Will be removed in a future cleanup. */
 export const nowHour = () => new Date().getHours()
+/** @deprecated Use localMin() instead. */
 export const nowMin  = () => new Date().getMinutes()
 
 // ── Dev/prod isolation ─────────────────────────────────────────

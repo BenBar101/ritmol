@@ -16,9 +16,10 @@
 import { LS, storageKey, setGeminiApiKey, IS_DEV, DEV_PREFIX } from "../utils/storage";
 import { idbGet, idbSet, store } from "../utils/db";
 import { SyncPayloadSchema } from "../utils/schemas.js";
+import { SYNC_SCHEMA_VERSION } from "../constants";
 
-// ── Schema version ──────────────────────────────────────────────
-export const SYNC_SCHEMA_VERSION = 1;
+// Re-export for consumers that need the current schema version
+export { SYNC_SCHEMA_VERSION };
 
 // ── IDB readiness (set by db.bootDb after persister load completes) ──
 let _idbReady = false;
@@ -287,18 +288,48 @@ function applyPayload(payload) {
   }
 }
 
+// ── Migration registry ────────────────────────────────────────────
+// When you bump SYNC_SCHEMA_VERSION and write the corresponding migration
+// block inside migratePayload, add the fromVersion number to this Set.
+// The dev-only assertion in migratePayload will throw if a version gap exists.
+//
+// HOW TO ADD A NEW MIGRATION:
+//   1. Bump SYNC_SCHEMA_VERSION (e.g. 1 → 2)
+//   2. Write the 'if (fromVersion === 1)' block in migratePayload below
+//   3. Add 1 to COMPLETED_MIGRATIONS here
+//   4. Update SyncPayloadSchema _schemaVersion .max() in schemas.js to match
+const COMPLETED_MIGRATIONS = new Set([
+  // 1,  // ← uncomment when V1→V2 migration block is written
+]);
+
 // ── Schema migration (V1 → V2, etc.) ─────────────────────────────
 function migratePayload(p) {
   if (p._schemaVersion >= SYNC_SCHEMA_VERSION) return p;
+
+  // Dev-only guard: if SYNC_SCHEMA_VERSION was bumped, the migration block
+  // below and COMPLETED_MIGRATIONS above must both be updated first.
+  // This throws immediately in development so the omission cannot reach production.
+  if (import.meta.env.DEV) {
+    for (let v = 1; v < SYNC_SCHEMA_VERSION; v++) {
+      if (!COMPLETED_MIGRATIONS.has(v)) {
+        throw new Error(
+          `[SyncManager] SYNC_SCHEMA_VERSION is ${SYNC_SCHEMA_VERSION} but the ` +
+          `V${v}→V${v + 1} migration block has not been registered in ` +
+          `COMPLETED_MIGRATIONS. Write the migration then add ${v} to the Set.`
+        );
+      }
+    }
+  }
+
   let out = { ...p };
   while (out._schemaVersion < SYNC_SCHEMA_VERSION) {
     const fromVersion = out._schemaVersion;
     out._schemaVersion = fromVersion + 1;
     if (fromVersion === 1) {
-      // V1 → V2: add key renames or data transforms here when V2 is introduced.
-      // Example: if (out.jv_old_key !== undefined) { out.jv_new_key = out.jv_old_key; delete out.jv_old_key; }
+      // V1 is the initial schema — no structural changes exist yet.
+      // When V2 ships: write transforms here, then add 1 to COMPLETED_MIGRATIONS above.
     }
-    // Add further `if (fromVersion === N)` blocks for each future version step.
+    // Add further 'if (fromVersion === N)' blocks for each future version step.
   }
   return out;
 }
@@ -338,6 +369,9 @@ function parseAndValidate(text) {
   if (!result.success) {
     console.warn("[RITMOL] Zod parse errors:", result.error.issues);
     throw new Error("CORRUPT_FILE");
+  }
+  if (import.meta.env.DEV && typeof result.data.jv_xp === "number" && result.data.jv_xp > 5_000_000) {
+    console.warn(`[SyncManager] jv_xp in imported payload is unusually high (${result.data.jv_xp}).`);
   }
   // Return the Zod-parsed (stripped) object so applyPayload only sees known keys.
   return result.data;

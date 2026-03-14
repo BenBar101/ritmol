@@ -10,6 +10,9 @@ export const THEME_KEY = "jv_theme";
 export const DAILY_TOKEN_LIMIT = 80000;
 export const DAILY_AI_XP_LIMIT = 5000;
 
+// Sync schema version — bump when payload format changes; schemas.js uses this for Zod ceiling.
+export const SYNC_SCHEMA_VERSION = 1;
+
 // XP / gacha defaults
 export const DEFAULT_XP_PER_LEVEL = 1000;
 export const DEFAULT_GACHA_COST = 100;
@@ -23,14 +26,24 @@ export const GACHA_RARITY_WEIGHTS = Object.freeze({
   legendary: 3,
 });
 
-/** Sealed function: weights captured in closure, not patchable via DevTools. */
+/** Sealed function: weights captured in closure, not patchable via DevTools.
+ * Uses crypto.getRandomValues so the roll value is generated atomically — no observable
+ * intermediate state for a debugger breakpoint to replay until legendary. */
 export function sampleGachaRarity() {
   const W = Object.freeze({ common: 60, rare: 25, epic: 12, legendary: 3 });
-  const total = Object.values(W).reduce((a, b) => a + b, 0);
-  let roll = Math.random() * total;
+  const total = Object.values(W).reduce((a, b) => a + b, 0); // 100
+  const buf = new Uint8Array(1);
+  let attempts = 0;
+  while (attempts < 8) {
+    crypto.getRandomValues(buf);
+    // Rejection sampling: discard values >= 200 to keep distribution uniform over 0-99.
+    if (buf[0] >= 200) { attempts++; continue; }
+    break;
+  }
+  let roll = buf[0] % total;
   for (const [rarity, weight] of Object.entries(W)) {
     roll -= weight;
-    if (roll <= 0) return rarity;
+    if (roll < 0) return rarity;
   }
   return "common";
 }

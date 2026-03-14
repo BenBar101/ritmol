@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAppContext } from "./context/AppContext";
-import { todayUTC, LS, storageKey } from "./utils/storage";
+import { todayUTC, localDateFromUTC, LS, storageKey } from "./utils/storage";
 import { DAILY_TOKEN_LIMIT, DATA_DISCLOSURE_SEEN_KEY } from "./constants";
 import { callGemini } from "./api/gemini";
 
@@ -11,7 +11,7 @@ const INJECTION_CHARS_RE = /[<>{}`"'\\]/g;
 let _msgSeq = 0;
 
 export default function ChatTab() {
-  const { state, setState, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, trackTokens } = useAppContext();
+  const { state, setState, latestStateRef, profile, apiKey, executeCommands, showBanner, buildSystemPrompt, checkMissions, trackTokens } = useAppContext();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -62,7 +62,7 @@ export default function ChatTab() {
     }
     if (!apiKey) { showBanner("No Gemini API key configured.", "alert"); return; }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { showBanner("SYSTEM: No network connection. AI offline.", "alert"); return; }
-    const usage = state.tokenUsage;
+    const usage = latestStateRef?.current?.tokenUsage ?? state.tokenUsage;
     if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) {
       showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
       return;
@@ -83,7 +83,7 @@ export default function ChatTab() {
       content: sanitizedUserContent,
       ts: Date.now(),
       seq: ++_msgSeq,
-      date: todayUTC(),
+      date: localDateFromUTC(),
     };
     const newHistory = [...latestHistoryRef.current, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
@@ -94,7 +94,7 @@ export default function ChatTab() {
     try {
       // NOTE: state here is the pre-setState snapshot. buildSystemPrompt must tolerate stale refs —
       // all string fields must be sanitized inside buildSystemPrompt, not assumed clean here.
-      const systemPrompt = buildSystemPrompt(state, profile);
+      const systemPrompt = buildSystemPrompt(latestStateRef?.current ?? state, profile);
       // Fix [C-2]: use the canonical sanitization set (control chars + injection chars)
       // when re-sending stored messages to the API, not just angle brackets. Old stored
       // messages may predate sanitization, and assistant messages could have been tampered
@@ -144,7 +144,7 @@ export default function ChatTab() {
         content: safeContent,
         ts: Date.now(),
         seq: ++_msgSeq,
-        date: todayUTC(),
+        date: localDateFromUTC(),
       };
       setState((s) => ({ ...s, chatHistory: [...s.chatHistory, assistantMsg].slice(-1000) }));
 
@@ -167,7 +167,7 @@ export default function ChatTab() {
         content: `Connection error: ${safeMsg}. ${navigator.onLine === false ? "You appear to be offline." : "Check API key or retry."}`,
         ts: Date.now(),
         seq: ++_msgSeq,
-        date: todayUTC(),
+        date: localDateFromUTC(),
       };
       if (mountedRef.current) {
         setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg].slice(-1000) }));

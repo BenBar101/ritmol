@@ -10,7 +10,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from "react";
-import { todayUTC, getMaxDateSeen, updateMaxDateSeen } from "../utils/storage";
+import { localDateFromUTC, getMaxDateSeen, updateMaxDateSeen } from "../utils/storage";
 import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
 import { getGeminiApiKey } from "../utils/storage";
 import { updateDynamicCosts } from "../api/dynamicCosts";
@@ -39,7 +39,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       return new Date(Date.UTC(y, m - 1, d));
     };
 
-    const effectiveDate = todayUTC();
+    const effectiveDate = localDateFromUTC();
     const maxDateSeen = getMaxDateSeen();
     if (maxDateSeen && effectiveDate < maxDateSeen) {
       setState((s) => ({ ...s, lastLoginDate: effectiveDate, streak: 0, xp: s.xp }));
@@ -140,31 +140,35 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       if (pendingData.levelUp) {
         const { level, rank, snapshot } = pendingData.levelUp;
         setLevelUpData((prev) => prev && prev.level >= level ? prev : { level, rank });
-        updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
-          .then((costs) => {
-            if (costs && Object.keys(costs).length) {
-              setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-            }
-          }
-          ).catch((err) => {
-            if (import.meta.env.DEV) {
-              console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
-            }
-          });
+        if (typeof navigator === "undefined" || navigator.onLine !== false) {
+          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
+            .then((costs) => {
+              if (costs && Object.keys(costs).length) {
+                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+              }
+            })
+            .catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
+              }
+            });
+        }
       }
       if (pendingData.shieldUpdate) {
         const { newShields, lastShieldUseDate } = pendingData.shieldUpdate;
-        updateDynamicCosts(getGeminiApiKey(), { streakShields: newShields, lastShieldUseDate }, "streak_shield_use", trackTokens)
-          .then((costs) => {
-            if (costs && Object.keys(costs).length) {
-              setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-            }
-          }
-          ).catch((err) => {
-            if (import.meta.env.DEV) {
-              console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
-            }
-          });
+        if (typeof navigator === "undefined" || navigator.onLine !== false) {
+          updateDynamicCosts(getGeminiApiKey(), { streakShields: newShields, lastShieldUseDate }, "streak_shield_use", trackTokens)
+            .then((costs) => {
+              if (costs && Object.keys(costs).length) {
+                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+              }
+            })
+            .catch((err) => {
+              if (import.meta.env.DEV) {
+                console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
+              }
+            });
+        }
       }
     });
     const resetTimer = setTimeout(() => {
