@@ -3,6 +3,7 @@ import { STYLE_CSS } from "./constants";
 import { sanitizeForPrompt } from "./api/systemPrompt";
 import { getGeminiApiKey } from "./utils/db";
 import { isAuthenticated } from "./api/dropbox";
+import { loadGoogleGIS } from "./api/gcal";
 import GeometricCorners from "./GeometricCorners";
 
 export const primaryBtn = {
@@ -136,7 +137,136 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
   );
 }
 
-// ── Gemini key step ───────────────────────────────────────────
+// ── Google Calendar step ───────────────────────────────────────
+function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
+  const envClientId = (typeof import.meta !== "undefined" && import.meta.env?.VITE_GOOGLE_CLIENT_ID || "").trim();
+  const [clientId, setClientId] = useState(profile?.googleClientId || envClientId || "");
+  const [status, setStatus] = useState("idle"); // "idle" | "connecting" | "connected"
+  const [error, setError] = useState("");
+  const needsClientId = !envClientId && !(profile?.googleClientId);
+
+  function handleClientIdChange(val) {
+    setClientId(val);
+    onClientIdChange?.(val);
+  }
+
+  async function handleConnect() {
+    const id = clientId.trim();
+    if (!id) {
+      setError("Enter your Google Client ID to continue, or skip.");
+      return;
+    }
+    if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(id)) {
+      setError("Invalid format — must end in .apps.googleusercontent.com");
+      return;
+    }
+    setStatus("connecting");
+    setError("");
+    try {
+      await loadGoogleGIS();
+      await new Promise((resolve, reject) => {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: id,
+          scope: "https://www.googleapis.com/auth/calendar.readonly",
+          callback: (resp) => {
+            if (resp.error) reject(new Error(resp.error));
+            else resolve(resp);
+          },
+        });
+        // Always use "consent" on first connect so the OAuth consent screen appears
+        tokenClient.requestAccessToken({ prompt: "consent" });
+      });
+      setStatus("connected");
+      // Auto-advance after briefly showing success
+      setTimeout(() => onAdvance?.(), 1200);
+    } catch (e) {
+      setStatus("idle");
+      if (e?.message === "popup_closed_by_user" || e?.message === "access_denied") {
+        setError("Auth cancelled. You can connect later in Profile → Calendar.");
+      } else {
+        setError("Could not connect. Check your Client ID or try again.");
+      }
+    }
+  }
+
+  if (status === "connected") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px", alignItems: "center", padding: "8px 0" }}>
+        <div style={{
+          width: "48px", height: "48px", borderRadius: "50%",
+          border: "2px solid #4caf50", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "24px", color: "#4caf50",
+        }}>✓</div>
+        <div style={{ fontSize: "13px", color: "#4caf50", letterSpacing: "1px" }}>GOOGLE CALENDAR CONNECTED</div>
+        <div style={{ fontSize: "10px", color: "#555", textAlign: "center" }}>Continuing…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8" }}>
+        Connect Google Calendar to automatically import lectures, exams, and deadlines.
+        RITMOL will adapt your study plan around your schedule.
+      </div>
+
+      {needsClientId && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <label style={{ fontSize: "11px", color: "#aaa", letterSpacing: "2px" }}>
+            GOOGLE CLIENT ID
+          </label>
+          <input
+            type="text"
+            value={clientId}
+            onChange={(e) => handleClientIdChange(e.target.value)}
+            placeholder="xxxx.apps.googleusercontent.com"
+            style={{
+              width: "100%", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
+              color: "#e8e8e8", padding: "10px", fontSize: "12px",
+              fontFamily: "'Share Tech Mono', monospace", outline: "none",
+            }}
+          />
+          <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.6" }}>
+            Get one at console.cloud.google.com → APIs &amp; Services → Credentials.
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleConnect}
+        disabled={status === "connecting"}
+        style={{
+          width: "100%", padding: "14px", border: "2px solid #fff",
+          background: status === "connecting" ? "transparent" : "#fff",
+          color: status === "connecting" ? "#888" : "#000",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
+          cursor: status === "connecting" ? "not-allowed" : "pointer",
+          transition: "all 0.2s",
+        }}
+      >
+        {status === "connecting" ? "OPENING GOOGLE…" : "CONNECT GOOGLE CALENDAR"}
+      </button>
+
+      {error && <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {error}</div>}
+
+      <div style={{ height: "1px", background: "#333" }} />
+
+      <button
+        type="button"
+        onClick={onSkip}
+        style={{
+          width: "100%", padding: "10px", border: "1px solid #444", background: "transparent", color: "#888",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+        }}
+      >
+        SKIP FOR NOW
+      </button>
+    </div>
+  );
+}
+
+
 export function GeminiKeySetupScreen({ onSave }) {
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
@@ -194,7 +324,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
   const needsGemini  = useMemo(() => !getGeminiApiKey(),  []);
 
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "" });
+  const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "", gcalClientId: "" });
   const [error, setError] = useState("");
 
   // ── Build step list dynamically ──────────────────────────────
@@ -222,6 +352,16 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
         optional: false,
       });
     }
+
+    // Google Calendar — always offered (skippable)
+    list.push({
+      key: "_gcal",
+      title: "CALENDAR SYNC",
+      subtitle: "Import lectures, exams, and deadlines from Google Calendar.",
+      type: "_gcal",
+      style: "geometric",
+      optional: true,
+    });
 
     // Profile fields — always shown
     list.push(
@@ -284,6 +424,11 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
       books: sanitizeField(f.books, 200),
       interests: sanitizeField(f.interests, 200),
       semesterGoal: sanitizeField(f.semesterGoal, 300),
+      // Persist the Client ID entered during onboarding so the profile has it immediately.
+      // Validate format before saving — same rule as ProfileTab's saveClientId().
+      ...(f.gcalClientId && /^[\w.-]+\.apps\.googleusercontent\.com$/.test(f.gcalClientId.trim())
+        ? { googleClientId: f.gcalClientId.trim() }
+        : {}),
       utcOffsetMinutes: -(new Date().getTimezoneOffset()),
       timezoneLabel: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Unknown",
     };
@@ -299,7 +444,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
   }
 
   function handleNext() {
-    if (current.type === "_dropbox" || current.type === "_gemini") {
+    if (current.type === "_dropbox" || current.type === "_gemini" || current.type === "_gcal") {
       advance();
       return;
     }
@@ -374,7 +519,16 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
           />
         )}
 
-        {current.type !== "_dropbox" && current.type !== "_gemini" && (
+        {current.type === "_gcal" && (
+          <GCalOnboardingStep
+            profile={null}
+            onSkip={advance}
+            onAdvance={advance}
+            onClientIdChange={(id) => setForm((f) => ({ ...f, gcalClientId: id }))}
+          />
+        )}
+
+        {current.type !== "_dropbox" && current.type !== "_gemini" && current.type !== "_gcal" && (
           <>
             <label style={{ fontSize: "11px", color: "#aaa", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0" }}>
               {current.label}

@@ -343,7 +343,10 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
             else resolve(resp);
           },
         });
-        tokenClient.requestAccessToken({ prompt: "" });
+        // Use "consent" on first connect so the OAuth consent screen always appears.
+        // Once connected (gCalConnected === true), use "" for a silent re-auth that
+        // skips the consent screen if the user already granted access.
+        tokenClient.requestAccessToken({ prompt: state.gCalConnected ? "" : "consent" });
       });
       let accessToken = tokenResponse.access_token;
       if (!accessToken) throw new Error("No access token");
