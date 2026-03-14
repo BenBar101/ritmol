@@ -66,7 +66,13 @@ function sanitizeChatMessages(arr) {
       content = content.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
       content = content.replace(/[\u202A-\u202E\u2066-\u2069]/g, "");
       while (byteLen(content) > MAX_CHAT_MSG_BYTES) content = content.slice(0, content.length - 1);
-      return { ...item, content };
+      return {
+        role: item.role === "assistant" ? "assistant" : "user",
+        content,
+        ts: typeof item.ts === "number" ? item.ts : undefined,
+        seq: typeof item.seq === "number" ? item.seq : undefined,
+        date: typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? item.date : undefined,
+      };
     });
 }
 
@@ -108,7 +114,7 @@ export function assertPayloadSize(text) {
 let _cachedHandle = null;
 let _opInProgress = false;
 let _broadcastChannel = null;
-let _lastPushTime = Date.now();
+let _lastPushTime = 0;
 let _lastObjectUrl = null;
 
 function getSyncChannel() {
@@ -176,6 +182,7 @@ async function clearHandleFromDB() {
 
 // ── Build sync payload from IDB cache ───────────────────────────
 function buildPayload() {
+  if (!store) throw new Error("IDB_NOT_READY");
   const payload = { _schemaVersion: SYNC_SCHEMA_VERSION };
   for (const key of SYNC_KEYS) {
     // Read from IDB cache (synchronous after boot)
@@ -210,14 +217,19 @@ function applyPayload(payload) {
       const { geminiKey: _gk, googleClientId: _gc, ...safeProfile } = val;
       val = safeProfile;
     }
-    if (!isSafeSyncValue(val)) continue;
+    if (key !== "jv_chat" && !isSafeSyncValue(val)) continue;
     // Anti-cheat: do not overwrite last shield buy date with an older sync value.
     if (key === "jv_last_shield_buy_date") {
       const localVal = idbGet(storageKey(key), null);
-      if (localVal && val && localVal > val) continue;
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      const localIsDate = typeof localVal === "string" && dateRe.test(localVal);
+      const incomingIsDate = typeof val === "string" && dateRe.test(val);
+      if (localIsDate && incomingIsDate && localVal >= val) continue;
+      if (localIsDate && !incomingIsDate) continue;
     }
     if (key === "jv_chat") {
       val = sanitizeChatMessages(val);
+      val = Array.isArray(val) ? val.slice(-1000) : [];
       if (!isSafeSyncValue(val)) continue;
     } else if (key === "jv_gacha" && Array.isArray(val)) {
       // Sanitize gacha content at storage time so later render paths never have
@@ -231,6 +243,9 @@ function applyPayload(payload) {
             // eslint-disable-next-line no-control-regex
             .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
             .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "")
+            // Strip ANSI escape sequences used for terminal styling.
+            // eslint-disable-next-line no-control-regex
+            .replace(/\x1B\[[0-9;]*[mGKHF]/g, "")
             .replace(/[<>"'`&]/g, "")
             .slice(0, 1000);
         } else {
@@ -241,6 +256,9 @@ function applyPayload(payload) {
             // eslint-disable-next-line no-control-regex
             .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
             .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "")
+            // Strip ANSI escape sequences used for terminal styling.
+            // eslint-disable-next-line no-control-regex
+            .replace(/\x1B\[[0-9;]*[mGKHF]/g, "")
             .slice(0, 500);
         } else {
           out.asciiArt = null;
@@ -251,10 +269,29 @@ function applyPayload(payload) {
       // Imported achievements carry their own XP values, but those XP amounts are
       // already baked into the imported jv_xp total. They must never be re-awarded
       // on import — unlockAchievement only grants XP for newly earned achievements.
+    } else if (key === "jv_timers" && Array.isArray(val)) {
+      // Anti-cheat: drop timers with endsAt in the past — crafted sync payloads
+      // could otherwise trigger instant onExpire and banner XP without real wait.
+      const now = Date.now();
+      val = val.filter((t) => typeof t?.endsAt === "number" && t.endsAt > now);
     }
     // Write to IDB (sync cache update + fire-and-forget IDB put)
     idbSet(storageKey(key), val);
   }
+}
+
+// ── Schema migration (V1 → V2, etc.) ─────────────────────────────
+function migratePayload(p) {
+  const v = p._schemaVersion;
+  if (v >= SYNC_SCHEMA_VERSION) return p;
+  let out = { ...p };
+  // V1 → V2: when SYNC_SCHEMA_VERSION is 2, copy known V1 keys into V2 equivalents.
+  // For now (V1 only), just ensure _schemaVersion is set.
+  while (out._schemaVersion < SYNC_SCHEMA_VERSION) {
+    out._schemaVersion = out._schemaVersion + 1;
+    // Add key renames or transformations here when V2 is introduced.
+  }
+  return out;
 }
 
 // ── Parse and validate incoming JSON text ─────────────────────────
@@ -276,14 +313,16 @@ function parseAndValidate(text) {
   if (topLevelKeys.length > 200) {
     throw new Error("CORRUPT_FILE");
   }
-  const schemaVersion = payload._schemaVersion;
-  if (
-    typeof schemaVersion !== "number" ||
-    !Number.isInteger(schemaVersion) ||
-    schemaVersion < 1 ||
-    schemaVersion > SYNC_SCHEMA_VERSION
-  ) {
-    throw new Error("SYNC_SCHEMA_OUTDATED");
+  // Legacy files may lack _schemaVersion; treat as V1 for backward compatibility.
+  if (payload._schemaVersion === undefined) payload._schemaVersion = 1;
+  if (typeof payload._schemaVersion !== "number") {
+    throw new Error("Sync file missing _schemaVersion.");
+  }
+  if (payload._schemaVersion < SYNC_SCHEMA_VERSION) {
+    payload = migratePayload(payload);
+  }
+  if (payload._schemaVersion > SYNC_SCHEMA_VERSION) {
+    throw new Error(`Sync file is from a newer app version (v${payload._schemaVersion}). Update the app first.`);
   }
   // Zod validation — strip unknown keys, enforce shapes and bounds.
   const result = SyncPayloadSchema.safeParse(payload);
@@ -304,7 +343,7 @@ function extractSecretsFromPayload(payload) {
     const trimmed = payload.geminiKey.trim();
     // Accept a range of plausible key lengths so future format changes don't
     // silently break the config gate. We never log the key value itself.
-    if (/^AIza[A-Za-z0-9_-]{35,50}$/.test(trimmed)) {
+    if (/^AIza[A-Za-z0-9_-]{30,50}$/.test(trimmed)) {
       setGeminiApiKey(trimmed);
     } else {
       // Key was present but failed the format check — surface a console warning
@@ -379,7 +418,7 @@ export const SyncManager = {
       try {
         const currentFile = await handle.getFile();
         const lastMod = currentFile.lastModified;
-        if (Date.now() - lastMod < 2000 && lastMod > _lastPushTime) {
+        if (lastMod !== 0 && Date.now() - lastMod < 2000 && lastMod > _lastPushTime) {
           // 2 s window: some filesystems (e.g. FAT32) have 2-second lastModified
           // resolution; 800 ms was too tight and caused false-positive skips.
           console.warn("[SyncManager] Skipping push — file was recently modified by another tab.");
@@ -468,7 +507,7 @@ export const SyncManager = {
     _lastObjectUrl = url;
     const a = document.createElement("a");
     a.href = url;
-    a.download = "ritmol-data.json";
+    a.download = "ritmol-data.json".replace(/[^a-zA-Z0-9._-]/g, "_");
     // Fix: append the anchor to the document before clicking — detached anchors are
     // silently ignored by Firefox and some other browsers, causing the download to
     // never start. Remove after click so it doesn't linger in the DOM.

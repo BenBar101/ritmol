@@ -4,13 +4,18 @@ import { idbGet } from "../utils/db";
 import { DAILY_TOKEN_LIMIT, DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "../constants";
 import { getLevel } from "../utils/xp";
 
+let _dcInFlight = false;
+
 // Ask AI to update dynamic costs (xpPerLevel, gachaCost, streakShieldCost) after level-up, gacha pull, or shield use.
 // event: "level_up" | "gacha_pull" | "streak_shield_use". Returns partial costs to merge into state.dynamicCosts.
 export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
-  if (!apiKey) return {};
+  if (_dcInFlight) return {};
+  _dcInFlight = true;
+  if (!apiKey) { _dcInFlight = false; return {}; }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) { _dcInFlight = false; return {}; }
   // Honour the daily token budget.
   const storedUsage = idbGet(storageKey("jv_token_usage"), null);
-  if (storedUsage && storedUsage.date === todayUTC() && storedUsage.tokens >= DAILY_TOKEN_LIMIT) return {};
+  if (storedUsage && storedUsage.date === todayUTC() && storedUsage.tokens >= DAILY_TOKEN_LIMIT) { _dcInFlight = false; return {}; }
   const d = state.dynamicCosts || {};
   const xpPerLevel = Math.floor(
     Math.max(200, Math.min(10000, Number(d.xpPerLevel ?? DEFAULT_XP_PER_LEVEL) || DEFAULT_XP_PER_LEVEL)),
@@ -31,7 +36,7 @@ export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   const month = now.getUTCMonth(), date = now.getUTCDate();
   const holidayHint = (month === 11 && date === 25) ? "Christmas" : (month === 0 && date === 1) ? "New Year" : (month === 6 && date === 4) ? "US Independence Day" : null;
   const safeHolidayHint = holidayHint ? holidayHint.replace(/[^a-zA-Z]/g, "").slice(0, 30) : null;
-  const VALID_EVENTS = new Set(["level_up", "gacha_pull", "streak_shield_use"]);
+  const VALID_EVENTS = new Set(["level_up", "gacha_pull", "streak_shield_use", "streak_shield_buy"]);
   // Whitelist the event string before embedding it in the prompt.
   const safeEvent = VALID_EVENTS.has(event) ? event : "unknown";
   const safeTotalXp = Math.floor(Math.max(0, Number(state.xp) || 0));
@@ -51,7 +56,7 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
     const out = {};
     if (typeof data.xpPerLevel === "number" && data.xpPerLevel >= 200 && data.xpPerLevel <= 10000) {
       const proposed = Math.round(data.xpPerLevel);
-      out.xpPerLevel = Math.max(Math.min(proposed, xpPerLevel * 2), Math.ceil(xpPerLevel / 2));
+      out.xpPerLevel = Math.max(Math.min(proposed, xpPerLevel * 2), Math.max(Math.ceil(xpPerLevel / 2), 300));
     }
     if (typeof data.gachaCost === "number" && data.gachaCost >= 50 && data.gachaCost <= 5000) {
       const proposed = Math.round(data.gachaCost);
@@ -61,6 +66,7 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
       const proposed = Math.round(data.streakShieldCost);
       out.streakShieldCost = Math.max(Math.min(proposed, streakShieldCost * 2), Math.ceil(streakShieldCost / 2));
     }
+    _dcInFlight = false;
     return out;
   } catch (err) {
     if (err?.name !== "AbortError") {
@@ -73,6 +79,7 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
         .slice(0, 100);
       console.warn("[dynamicCosts] Failed to update dynamic costs:", safeMsg);
     }
+    _dcInFlight = false;
     return {};
   }
 }

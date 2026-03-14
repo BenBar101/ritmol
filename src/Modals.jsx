@@ -3,6 +3,7 @@ import { ACHIEVEMENT_RARITIES, SESSION_TYPES, FOCUS_LEVELS, STYLE_CSS } from "./
 import { calcSessionXP } from "./utils/xp";
 import GeometricCorners from "./GeometricCorners";
 import { primaryBtn, inputStyle } from "./Onboarding";
+import { sanitizeForDisplay } from "./utils/storage";
 
 export function Modal({ children, onClose }) {
   return (
@@ -253,13 +254,13 @@ export function AchievementToast({ toast, onClose }) {
       boxShadow: `0 0 20px ${r.glow}22`,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <span style={{ fontSize: "24px" }}>{toast.icon}</span>
+        <span style={{ fontSize: "24px" }}>{sanitizeForDisplay(String(toast.icon ?? ''), 4)}</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: "9px", color: r.glow, letterSpacing: "2px" }}>
             {toast.isAchievement ? "ACHIEVEMENT UNLOCKED" : "REWARD"} · {r.label}
           </div>
-          <div style={{ fontSize: "13px", marginTop: "2px" }}>{toast.title}</div>
-          <div style={{ fontSize: "11px", color: "#666", marginTop: "1px" }}>{toast.desc}</div>
+          <div style={{ fontSize: "13px", marginTop: "2px" }}>{sanitizeForDisplay(String(toast.title ?? ''), 300)}</div>
+          <div style={{ fontSize: "11px", color: "#666", marginTop: "1px" }}>{sanitizeForDisplay(String(toast.desc ?? ''), 300)}</div>
           {toast.xp && <div style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>+{toast.xp} XP</div>}
         </div>
         <button type="button" onClick={onClose} style={{ color: "#444", fontSize: "16px", background: "none", border: "none" }}>×</button>

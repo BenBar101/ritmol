@@ -42,7 +42,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     const effectiveDate = todayUTC();
     const maxDateSeen = getMaxDateSeen();
     if (maxDateSeen && effectiveDate < maxDateSeen) {
-      setState((s) => ({ ...s, lastLoginDate: effectiveDate, streak: 0 }));
+      setState((s) => ({ ...s, lastLoginDate: effectiveDate, streak: 0, xp: s.xp }));
       loginInProgressRef.current = false;
       return;
     }
@@ -97,7 +97,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       // Award 0 XP on forced-reset login (clock rollback) to avoid rewarding the exploit.
       const streakWasReset = newStreak === 0 && (s.streak ?? 0) > 0;
       const loginXP  = streakWasReset ? 0 : Math.min(50 + newStreak * 10, 5000);
-      const newXP    = s.xp + loginXP;
+      const newXP    = Math.min((typeof s.xp === "number" && isFinite(s.xp) ? s.xp : 0) + loginXP, 10_000_000);
       const xpPl     = getXpPerLevel(s);
       const oldLevel = getLevel(s.xp, xpPl);
       const newLevel = getLevel(newXP, xpPl);
@@ -156,7 +156,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       };
     });
     const resetTimer = setTimeout(() => {
-      loginInProgressRef.current = false;
+      if (!cancelled) loginInProgressRef.current = false;
     }, 500);
 
     return () => {

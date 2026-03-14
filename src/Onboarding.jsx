@@ -2,7 +2,6 @@ import { useState } from "react";
 import { STYLE_CSS } from "./constants";
 import { sanitizeForPrompt } from "./api/systemPrompt";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
-import { setGeminiApiKey } from "./utils/storage";
 import GeometricCorners from "./GeometricCorners";
 
 export const primaryBtn = {
@@ -108,7 +107,7 @@ function SyncOnboardingStep() {
 
 export default function Onboarding({ onComplete }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "", geminiKey: "" });
+  const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "" });
   const [error, setError] = useState("");
 
   const steps = [
@@ -159,13 +158,14 @@ export default function Onboarding({ onComplete }) {
   }
 
   function sanitizeForm(f) {
-    return {
-      name:         sanitizeField(f.name, 60),
-      major:        sanitizeField(f.major, 80),
-      books:        sanitizeField(f.books, 200),
-      interests:    sanitizeField(f.interests, 200),
+    const allowed = {
+      name: sanitizeField(f.name, 60),
+      major: sanitizeField(f.major, 80),
+      books: sanitizeField(f.books, 200),
+      interests: sanitizeField(f.interests, 200),
       semesterGoal: sanitizeField(f.semesterGoal, 300),
     };
+    return allowed;
   }
 
   function handleNext() {
@@ -188,10 +188,6 @@ export default function Onboarding({ onComplete }) {
       setStep(step + 1);
     } else {
       const sanitized = sanitizeForm(form);
-      // Persist Gemini key to sessionStorage but never forward it into App state.
-      if (typeof form.geminiKey === "string" && form.geminiKey.trim()) {
-        setGeminiApiKey(form.geminiKey.trim());
-      }
       onComplete(sanitized);
     }
   }

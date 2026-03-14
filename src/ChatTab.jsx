@@ -21,6 +21,7 @@ export default function ChatTab() {
   // Fix #12: AbortController so navigating away mid-request cancels the fetch and prevents
   // trackTokens / setState from firing against an unmounted component.
   const abortRef = useRef(null);
+  const inFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
   const messages = useMemo(() => state.chatHistory || [], [state.chatHistory]);
@@ -49,7 +50,7 @@ export default function ChatTab() {
   const MAX_INPUT_LENGTH = 4000; // ~1k tokens; prevents accidental budget burn on huge pastes
 
   async function sendMessage(text) {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || inFlightRef.current) return;
     // FIX: enforce max input length so a giant paste or voice transcript can't fire a
     // 10 000-token request and silently drain the daily budget.
     if (text.length > MAX_INPUT_LENGTH) {
@@ -57,6 +58,7 @@ export default function ChatTab() {
       return;
     }
     if (!apiKey) { showBanner("No Gemini API key configured.", "alert"); return; }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) { showBanner("SYSTEM: No network connection. AI offline.", "alert"); return; }
     const usage = state.tokenUsage;
     if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) {
       showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
@@ -83,9 +85,12 @@ export default function ChatTab() {
     const newHistory = [...messages, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
     setInput("");
+    inFlightRef.current = true;
     setLoading(true);
 
     try {
+      // NOTE: state here is the pre-setState snapshot. buildSystemPrompt must tolerate stale refs —
+      // all string fields must be sanitized inside buildSystemPrompt, not assumed clean here.
       const systemPrompt = buildSystemPrompt(state, profile);
       // Fix [C-2]: use the canonical sanitization set (control chars + injection chars)
       // when re-sending stored messages to the API, not just angle brackets. Old stored
@@ -156,15 +161,17 @@ export default function ChatTab() {
       const safeMsg = redactedMsg.slice(0, 60) || "System error";
       const errMsg = {
         role: "assistant",
-        content: `Connection error: ${safeMsg}. Check your API key in Profile → Settings.`,
+        content: `Connection error: ${safeMsg}. ${navigator.onLine === false ? "You appear to be offline." : "Check API key or retry."}`,
         ts: Date.now(),
         seq: ++_msgSeq,
         date: todayUTC(),
       };
       if (mountedRef.current) {
         setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg].slice(-1000) }));
+        showBanner("Request failed — tap to retry or check connection.", "alert");
       }
     } finally {
+      inFlightRef.current = false;
       if (mountedRef.current) setLoading(false);
     }
   }
@@ -258,9 +265,9 @@ export default function ChatTab() {
 
       {/* Suggestion chips */}
       {messages.length < 3 && (
-        <div style={{ padding: "0 16px 8px", display: "flex", gap: "6px", overflowX: "auto" }}>
+        <div style={{ padding: "0 16px 8px", display: "flex", gap: "6px", overflowX: "auto", opacity: loading ? 0.4 : 1, pointerEvents: loading ? "none" : "auto" }}>
           {chips.map((c) => (
-            <button type="button" key={c} onClick={() => sendMessage(c)} style={{
+            <button type="button" key={c} disabled={loading} onClick={() => sendMessage(c)} style={{
               padding: "6px 12px", border: "1px solid #333",
               background: "transparent", color: "#777",
               fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",

@@ -27,14 +27,13 @@ import { idbSet } from "../utils/db";
 import { initState } from "../utils/state";
 
 function persistState(s) {
-  if (!s?.profile) return;
+  if (!s) return;
 
-  const profileToSave = s.profile ? (() => {
+  if (s.profile) {
     // eslint-disable-next-line no-unused-vars
     const { geminiKey: _g, ...rest } = s.profile;
-    return rest;
-  })() : null;
-  idbSet(storageKey("jv_profile"),            profileToSave);
+    idbSet(storageKey("jv_profile"), rest);
+  }
   idbSet(storageKey("jv_xp"),                 s.xp);
   idbSet(storageKey("jv_streak"),             s.streak);
   idbSet(storageKey("jv_shields"),            s.streakShields);

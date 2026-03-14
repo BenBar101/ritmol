@@ -67,7 +67,13 @@ export const GoalSchema = z.object({
   course:  z.string().max(100).optional(),
   due:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   addedBy: z.enum(['user', 'ritmol', 'system']).optional(),
-  tasks:   z.array(z.unknown()).optional(),
+  tasks:   z.array(
+    z.object({
+      id:   z.string().max(64).optional(),
+      text: z.string().max(500).optional(),
+      done: z.boolean().optional(),
+    }).strip()
+  ).max(200).optional(),
 })
 
 export const SessionSchema = z.object({
@@ -88,7 +94,7 @@ export const AchievementSchema = z.object({
   flavorText: z.string().max(300).optional(),
   icon:       iconStr,
   xp:         z.number().min(0).max(500).optional(),
-  unlockedAt: z.number().positive().max(Date.now() + 300_000).optional(),
+  unlockedAt: z.number().positive().refine(v => v <= Date.now() + 300_000, { message: 'unlockedAt is in the future' }).optional(),
   rarity:     z.enum(['common', 'rare', 'epic', 'legendary']).optional(),
 })
 
@@ -122,7 +128,10 @@ const LogEntryValue = z.union([
   z.number(),
   z.string().max(4096),
   z.array(z.string().max(64)).max(200),
-  z.record(z.unknown()),
+  z.record(
+    z.string().max(64),
+    z.union([z.null(), z.boolean(), z.number(), z.string().max(1000)])
+  ),
 ])
 export const LogObjSchema = z.record(
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -143,7 +152,7 @@ export const TimerSchema = z.object({
   id:     z.string().max(64),
   label:  z.string().max(100),
   endsAt: z.number().refine(
-    v => { const now = Date.now(); return v > now - 3_600_000 && v <= now + 86_400_000 },
+    v => { const now = Date.now(); return v > now - 86_400_000 && v <= now + 86_400_000 },
     { message: 'Timer endsAt out of valid range' }
   ),
   emoji: iconStr,
@@ -153,7 +162,7 @@ export const TokenUsageSchema = z.object({
   date:       pastDateStr,
   tokens:     z.number().min(0).max(10_000_000).optional(),
   aiXpToday:  z.number().min(0).max(1_000_000).optional(),
-  warnedAt:   z.array(z.number().min(0).max(99)).max(20).optional(),
+  warnedAt:   z.array(z.number().int().refine(v => [50, 80, 99].includes(v), { message: "invalid threshold" })).max(3).optional(),
 })
 
 export const DynamicCostsSchema = z.object({
@@ -166,9 +175,9 @@ export const DynamicCostsSchema = z.object({
 export const SyncPayloadSchema = z.object({
   _schemaVersion: z.number().int().min(1).max(1),
   jv_profile:             SafeProfileSchema.optional(),
-  jv_xp:                  z.number().min(0).max(100_000_000).optional(),
+  jv_xp:                  z.number().min(0).max(10_000_000).optional(),
   jv_streak:              z.number().min(0).max(1095).optional(),
-  jv_shields:             z.number().min(0).max(10000).optional(),
+  jv_shields:             z.number().int().min(0).max(50).optional(),
   jv_last_login:          nullOrDate.optional(),
   jv_habits:              z.array(HabitSchema).max(500).optional(),
   jv_habit_log:           LogObjSchema.optional(),
@@ -202,5 +211,5 @@ export const SyncPayloadSchema = z.object({
   jv_last_shield_buy_date:  nullOrDate.optional(),
   // geminiKey is allowed in the payload for reading (extracted to sessionStorage)
   // but is never written back out on push
-  geminiKey:                z.string().optional(),
+  geminiKey:                z.string().max(60).regex(/^AIza[A-Za-z0-9_-]{30,50}$/).optional(),
 })

@@ -66,6 +66,8 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
   const lastLevelUpXpRef = useRef(-1);
   // Action debounce map (habitId → locked)
   const actionLocksRef   = useRef(new Set());
+  const _engineMountedRef = useRef(true);
+  useEffect(() => { _engineMountedRef.current = true; return () => { _engineMountedRef.current = false; }; }, []);
 
   // ── Token tracker ─────────────────────────────────────────
   const trackTokens = useCallback((amount) => {
@@ -103,6 +105,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
   }, [setState, showBanner]);
 
   const trackTokensRef = useRef(trackTokens);
+  // trackTokensRef is intentionally updated via the ref so it always holds the latest version without being a dep of other callbacks
   useEffect(() => { trackTokensRef.current = trackTokens; }, [trackTokens]);
 
   // ── AI XP budget (ref-based to avoid race conditions) ────
@@ -117,7 +120,9 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
     if (aiXpTodayRef.current === null || aiXpTodayRef.current.date !== t) {
       const persisted = idbGet(storageKey("jv_token_usage"), null);
       const live = latestStateRef?.current?.tokenUsage;
-      const baseXp = (live?.date === t ? live.aiXpToday : (persisted?.date === t ? persisted.aiXpToday : 0)) || 0;
+      const persistedXp = persisted?.date === t ? (typeof persisted.aiXpToday === "number" && isFinite(persisted.aiXpToday) ? Math.max(0, Math.floor(persisted.aiXpToday)) : 0) : 0;
+      const liveXp = live?.date === t ? (typeof live.aiXpToday === "number" && isFinite(live.aiXpToday) ? Math.max(0, Math.floor(live.aiXpToday)) : 0) : 0;
+      const baseXp = Math.max(persistedXp, liveXp);
       aiXpTodayRef.current = { date: t, value: baseXp };
     }
     const alreadyAwarded = aiXpTodayRef.current.value;
@@ -183,10 +188,10 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
   // ── Mission checker ───────────────────────────────────────
   // [A-3] pendingData object prevents double-toasts in React Strict Mode
   const checkMissions = useCallback((hintType = null) => {
-    const t = todayUTC();  // use UTC to match mission reset date in App.jsx
     const pendingData = { toasts: [], levelUp: null };
 
     setState((s) => {
+      const t = todayUTC();
       if (!s.dailyMissions) return s;
       const todayLog = s.habitLog[t] || [];
       let bonusXP = 0;
@@ -218,7 +223,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
       });
 
       const safeBonus = Math.min(bonusXP > 0 && isFinite(bonusXP) ? bonusXP : 0, 10_000);
-      const newXP     = Math.min(s.xp + safeBonus, 100_000_000);
+      const newXP     = Math.min(s.xp + safeBonus, 10_000_000);
 
       if (safeBonus > 0) {
         const xpPl    = getXpPerLevel(s);
@@ -234,6 +239,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
     });
 
     queueMicrotask(() => {
+      if (!_engineMountedRef.current) return;
       pendingData.toasts.forEach((t, i) => setTimeout(() => showToast(t), 200 + i * 5500));
       if (pendingData.levelUp) {
         const { level, rank, snapshot } = pendingData.levelUp;
@@ -269,7 +275,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
       setTimeout(() => showToast({ ...ach, isAchievement: true }), 300);
       return { ...s, achievements: [...(s.achievements || []), ach] };
     });
-    if (!skipXP && data.xp > 0) awardXP(data.xp, null, false);
+    if (!skipXP && data.xp > 0) queueMicrotask(() => awardXP(data.xp, null, false));
   }, [setState, showToast, awardXP]);
 
   // ── Habit logger ──────────────────────────────────────────

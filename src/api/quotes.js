@@ -1,4 +1,10 @@
-import { IS_DEV, DEV_PREFIX, LS, storageKey, today } from "../utils/storage";
+import { IS_DEV, DEV_PREFIX, LS, storageKey } from "../utils/storage";
+
+// Local-date helper so quote cache rollover aligns with user's local midnight.
+const localToday = () => {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+};
 
 // ═══════════════════════════════════════════════════════════════
 // DAILY QUOTE  (Quotable API — no tokens consumed)
@@ -28,7 +34,7 @@ function _extractAuthorTokens(booksStr) {
 export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
   // _apiKey and _onTokens kept in signature for call-site compatibility but unused —
   // Quotable is free and consumes no Gemini tokens.
-  const key = storageKey(`jv_quote_${today()}`);
+  const key = storageKey(`jv_quote_${localToday()}`);
 
   // Evict stale quote cache keys from previous days.
   // Fix: collect all keys first BEFORE deleting — iterating localStorage while
@@ -115,7 +121,7 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
       // A compromised or spoofed API response should not be able to store content that
       // could be injected into the system prompt or rendered with unexpected characters.
       // eslint-disable-next-line no-control-regex
-      const stripCtrl = (s) => String(s).replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "").replace(/[<>]/g, "");
+      const stripCtrl = (s) => String(s).replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "").replace(/[<>]/g, "");
       const safe = {
         quote:  stripCtrl(hit.quote).slice(0, 500),
         author: stripCtrl(hit.author).slice(0, 100),

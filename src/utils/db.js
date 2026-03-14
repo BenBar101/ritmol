@@ -2,6 +2,7 @@ import { createStore } from 'tinybase'
 import { createIndexedDbPersister } from 'tinybase/persisters/persister-indexed-db'
 import { useValues as _useValues, useValue as _useValue } from 'tinybase/ui-react'
 import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from '../constants'
+import { isSafeSyncValue } from '../sync/SyncManager'
 
 // ── Date utilities (previously in storage.js) ─────────────────
 // Keep these here so imports from storage.js can be redirected here.
@@ -74,6 +75,8 @@ export const LS = {
   del: (k) => { try { localStorage.removeItem(k) } catch { /* ignore */ } },
 }
 
+// NOTE: intentionally does NOT strip < > & — React escapes these in JSX text nodes.
+// Do NOT use this function for strings interpolated into style attributes, data-* attributes, or non-JSX HTML.
 // For rendering user content in the UI — strips control/BiDi chars only.
 // Does NOT strip display-safe chars like " ' & [ ] which sanitizeForPrompt removes.
 export function sanitizeForDisplay(str, maxLen = 500) {
@@ -96,17 +99,25 @@ export const store = createStore()
 // jv_max_date_seen is device-local and must never be synced or reset.
 // Dual-read/write with idb.js so the watermark survives reloads even when
 // TinyBase store is not yet booted.
+const _DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const getMaxDateSeen = () => {
   const v = store.getValue('jv_max_date_seen')
-  if (v != null) return v
+  if (typeof v === 'string' && _DATE_RE.test(v)) return v
   try {
     const lsKey = (IS_DEV ? DEV_PREFIX : '') + 'jv_max_date_seen'
     const raw = localStorage.getItem(lsKey)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      try {
+        const p = JSON.parse(raw)
+        if (typeof p === 'string' && _DATE_RE.test(p)) return p
+      } catch { /* ignore */ }
+    }
   } catch { /* localStorage unavailable or invalid JSON */ }
-  return idbGet('jv_max_date_seen', null)
+  const legacy = idbGet('jv_max_date_seen', null)
+  return (typeof legacy === 'string' && _DATE_RE.test(legacy)) ? legacy : null
 }
 export const updateMaxDateSeen = (dateStr) => {
+  if (typeof dateStr !== 'string' || !_DATE_RE.test(dateStr)) return
   const current = getMaxDateSeen()
   if (!current || dateStr > current) {
     store.setValue('jv_max_date_seen', dateStr)
@@ -157,10 +168,11 @@ async function _migrateFromLocalStorage() {
     const oldData = await _readOldIdb()
     if (oldData && Object.keys(oldData).length > 0) {
       console.info('[RITMOL] Migrating data from old IDB store to TinyBase…')
-      const DANGEROUS_MIGRATION_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
       Object.entries(oldData).forEach(([k, v]) => {
-        if (DANGEROUS_MIGRATION_KEYS.has(k) || k.length > 200) return
-        if (v !== null && v !== undefined) store.setValue(k, v)
+        if (k.length > 200) return
+        if (v !== null && v !== undefined && isSafeSyncValue(v)) {
+          store.setValue(k, v)
+        }
       })
       console.info('[RITMOL] Migration complete.')
     }
@@ -201,6 +213,7 @@ export const useValues = (selector) => _useValues(store, selector)
 export const useValue  = (key) => _useValue(store, key)
 
 // ── IDB shims (delegate to TinyBase store; replace legacy idb.js) ──
+// NOTE: 0 and false are valid stored values and pass the !== null check correctly.
 export function idbGet(key, def = null) {
   const v = store.getValue(key)
   return (v !== undefined && v !== null) ? v : def

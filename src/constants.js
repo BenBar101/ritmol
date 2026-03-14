@@ -22,6 +22,18 @@ export const GACHA_RARITY_WEIGHTS = Object.freeze({
   legendary: 3,
 });
 
+/** Sealed function: weights captured in closure, not patchable via DevTools. */
+export function sampleGachaRarity() {
+  const W = Object.freeze({ common: 60, rare: 25, epic: 12, legendary: 3 });
+  const total = Object.values(W).reduce((a, b) => a + b, 0);
+  let roll = Math.random() * total;
+  for (const [rarity, weight] of Object.entries(W)) {
+    roll -= weight;
+    if (roll <= 0) return rarity;
+  }
+  return "common";
+}
+
 // Session types & focus levels used by XP calc and UI.
 export const SESSION_TYPES = [
   { id: "lecture", label: "Lecture", baseXP: 40, style: "ascii" },

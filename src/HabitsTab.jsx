@@ -21,6 +21,7 @@ export default function HabitsTab() {
   // First-open: ask RITMOL to generate personalized habits
   useEffect(() => {
     if (state.habitsInitialized || !apiKey || !profile || initializing) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     const usage = state.tokenUsage;
     if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) return;
     let mounted = true;
@@ -125,10 +126,10 @@ Respond ONLY with JSON array:
       });
     return () => {
       mounted = false;
-      habitInitAbortRef.current?.abort();
+      controller.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.habitsInitialized, apiKey, !!profile, rehydrateCount]);
+  }, [state.habitsInitialized, apiKey, profile?.name ?? "", rehydrateCount]);
 
   function deleteHabit(id) {
     setState((s) => ({ ...s, habits: s.habits.filter((h) => h.id !== id) }));

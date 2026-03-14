@@ -39,6 +39,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   const debounceTimerRef = useRef(null);
   const reloadTimerRef = useRef(null);
   const pageHideInProgressRef = useRef(false);
+  const blockUntilRef = useRef(0);
 
   // ── Check if a sync file is already linked on mount ──
   useEffect(() => {
@@ -49,10 +50,12 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   useEffect(() => {
     const schedulePush = () => {
       if (debounceTimerRef.current) return;
+      if (Date.now() < blockUntilRef.current) return;
       // 500ms debounce: ensures React's write-through setState has committed
       // to localStorage before SyncManager.push() reads it.
       debounceTimerRef.current = setTimeout(async () => {
         try {
+          if (Date.now() < blockUntilRef.current) return;
           if (isPullingRef.current) return; // skip during Pull [S-2]
           const handle = await SyncManager.getHandle().catch(() => null);
           if (!handle) return;
@@ -69,6 +72,10 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       }, 500);
     };
 
+    const onBlockAutopush = (e) => {
+      const ms = e?.detail?.ms ?? 3000;
+      blockUntilRef.current = Date.now() + ms;
+    };
     const onVisibility = () => { if (document.visibilityState === "hidden") schedulePush(); };
     const onPageHide   = () => {
       if (pageHideInProgressRef.current) return;
@@ -84,7 +91,9 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
           if (!handle || isPullingRef.current || !latestStateRef.current?.profile) return null;
           return SyncManager.push();
         })
-        .catch(() => {})
+        .catch((e) => {
+          if (e?.message !== "IDB_NOT_READY") console.warn("[useSync] pagehide push failed:", e?.message);
+        })
         .finally(() => {
           pageHideInProgressRef.current = false;
         });
@@ -92,6 +101,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("ritmol:block-autopush", onBlockAutopush);
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -103,6 +113,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       }
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("ritmol:block-autopush", onBlockAutopush);
     };
   }, [latestStateRef]); // latestStateRef is stable — safe dep
 
@@ -150,6 +161,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   // ── Pull ──────────────────────────────────────────────────
   const syncPull = useCallback(async () => {
     setSyncStatus("syncing");
+    // Write-through setState (useAppState) persists synchronously to IDB; no flush needed before pull.
     isPullingRef.current = true; // [S-2] block auto-push during Pull
     try {
       const ts = await SyncManager.pull();
@@ -174,7 +186,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
             isPullingRef.current = false;
           }
         }
-      }, 250);
+      }, 800);
     } catch (e) {
       isPullingRef.current = false;
       setSyncStatus("error");

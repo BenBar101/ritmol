@@ -73,8 +73,10 @@ function KeysConfigGate({ resetPullMutex }) {
   async function handleLoadFromFile() {
     if (!FSAPI_SUPPORTED) return;
     setSyncError(""); setSyncStatus("syncing");
+    window.dispatchEvent(new CustomEvent("ritmol:block-autopush", { detail: { ms: 3000 } }));
     try {
       await SyncManager.pull();
+      LS.set(storageKey("jv_last_synced"), String(Date.now()));
       setSyncStatus("synced");
       // Wait briefly for any fire-and-forget IDB writes triggered by Pull to
       // flush, then attempt a hard reload. If reload is blocked (CSP, tests),
@@ -97,7 +99,7 @@ function KeysConfigGate({ resetPullMutex }) {
       }, 250);
     } catch (e) {
       setSyncStatus("error");
-      const msgs = { NO_HANDLE: "No sync file linked yet.", CORRUPT_FILE: "Sync file is corrupt or not valid JSON.", SYNC_SCHEMA_OUTDATED: "Sync file was written by an older version of RITMOL.", SYNC_FILE_TOO_LARGE: "Sync file exceeds 10 MB. Check the file." };
+      const msgs = { NO_HANDLE: "No sync file linked yet.", CORRUPT_FILE: "Sync file is corrupt or not valid JSON.", SYNC_SCHEMA_OUTDATED: "Sync file was written by an older version of RITMOL.", SYNC_FILE_TOO_LARGE: "Sync file exceeds 10 MB. Check the file.", SYNC_BUSY: "Sync already in progress. Please wait." };
       setSyncError(msgs[e.message] ?? "Pull failed. Check your sync file and try again.");
     }
   }
@@ -208,10 +210,10 @@ export default function App() {
       return { ...s, dailyMissions: [...MISSION_DEFS], lastMissionDate: t };
     });
     resetMissions();
-    const id = setInterval(resetMissions, 60_000);
+    const id = setInterval(resetMissions, 30_000);
     return () => clearInterval(id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!profile]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setState is stable (useCallback with [] dep); !!profile is the only meaningful trigger
+  }, [!!profile, setState]);
 
   const quoteFetchedRef = useRef(false);
   useEffect(() => {

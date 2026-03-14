@@ -5,7 +5,7 @@
 // Extracted from App.jsx to give each piece of state a clear owner.
 // ═══════════════════════════════════════════════════════════════
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 export function useUI() {
   const [modal,       setModal]       = useState(null); // { type, ...data }
@@ -26,6 +26,11 @@ export function useUI() {
     clearTimeout(bannerTimerRef.current);
     setBanner({ text, type });
     bannerTimerRef.current = setTimeout(() => setBanner(null), 4000);
+  }, []);
+
+  useEffect(() => () => {
+    clearTimeout(toastTimerRef.current);
+    clearTimeout(bannerTimerRef.current);
   }, []);
 
   return {

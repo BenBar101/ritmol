@@ -108,7 +108,7 @@ export function buildSystemPrompt(state, profile) {
   const recentChatSummary = (state.chatHistory || [])
     .slice(-6)
     .map((m) => {
-      const safe = sanitizeForPrompt(m.content, 300).replace(/\s{2,}/g, " ").trim();
+      const safe = sanitizeForPrompt(m.content, 300).replace(/\s{2,}/g, " ").replace(/\b(HUNTER|RITMOL|RECENT_CTX|HUNTER_CTX|SYSTEM)\b/gi, "").trim();
       const role = m.role === "user" ? "[HUNTER]" : "[RITMOL]";
       return `${role} ${safe}`;
     })

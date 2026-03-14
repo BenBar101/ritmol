@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
 import { todayUTC, getGeminiApiKey, setGeminiApiKey, getMaxDateSeen, storageKey } from "./utils/storage";
-import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT, RANKS, GACHA_RARITY_WEIGHTS } from "./constants";
+import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT, RANKS, sampleGachaRarity } from "./constants";
 import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "./constants";
 import { getLevelProgress } from "./utils/xp";
 import { callGemini } from "./api/gemini";
@@ -141,12 +141,17 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       return next;
     });
 
+    if (!shieldSnapshotRef.current) {
+      showBanner("Streak shield already purchased today.", "info");
+      return;
+    }
     queueMicrotask(() => {
       const snapshotForApi = shieldSnapshotRef.current;
       shieldSnapshotRef.current = null;
       if (!snapshotForApi) return;
-      showBanner(`Streak shield purchased. Cost: ${appliedCost} XP. Next cost may change.`, "success");
-      updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_use", trackTokens)
+      const _displayCost = snapshotForApi?.xp !== undefined ? ((state.xp ?? 0) - (snapshotForApi.xp ?? 0)) : appliedCost;
+      showBanner(`Streak shield purchased. Cost: ${_displayCost > 0 ? _displayCost : appliedCost} XP. Next cost may change.`, "success");
+      updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_buy", trackTokens)
         .then((costs) => {
           if (costs && Object.keys(costs).length) {
             setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
@@ -260,10 +265,10 @@ function AchievementsSection({ state }) {
             background: "#0a0a0a",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ fontSize: "24px" }}>{ach.icon}</span>
+              <span style={{ fontSize: "24px" }}>{sanitizeForPrompt(String(ach.icon ?? ''), 4)}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "13px" }}>{ach.title}</span>
+                  <span style={{ fontSize: "13px" }}>{sanitizeForPrompt(String(ach.title ?? ''), 300)}</span>
                   <span style={{ fontSize: "8px", color: r.glow, letterSpacing: "1px" }}>{r.label}</span>
                 </div>
                 <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
@@ -298,8 +303,8 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
     // Fix: sanitize user-supplied fields before persisting. These values end up in localStorage,
     // the sync file, and (via buildSystemPrompt) in the AI prompt — sanitize at write time so
     // prompt injection characters don't reach any of those sinks.
-    const safeTitle = sanitizeForPrompt(form.title.replace(/[<>{}[\]`"'\\]/g, "")).slice(0, 200).trim();
-    const safeType  = ["exam","lecture","homework","tirgul","other"].includes(form.type) ? form.type : "other";
+    const safeTitle = sanitizeForPrompt(form.title, 200);
+    const safeType  = ["lecture","tirgul","exam","assignment","homework","other"].includes(form.type) ? form.type : "other";
     const safeStart = typeof form.start === "string" && /^\d{4}-\d{2}-\d{2}/.test(form.start) ? form.start : "";
     const safeEnd   = typeof form.end === "string" && /^\d{4}-\d{2}-\d{2}/.test(form.end) ? form.end : "";
     if (!safeTitle || !safeStart) return;
@@ -511,22 +516,6 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
     gachaAbortRef.current?.abort();
   }, []);
 
-  function rollRarity() {
-    const totalWeight = Object.values(GACHA_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
-    if (totalWeight <= 0) return "common";
-    const buf = new Uint32Array(1);
-    crypto.getRandomValues(buf);
-    const roll = (buf[0] / 0x100000000) * totalWeight;
-    let acc = 0;
-    let chosenRarity = null;
-    for (const r of ["legendary", "epic", "rare", "common"]) {
-      acc += GACHA_RARITY_WEIGHTS[r] ?? 0;
-      if (roll < acc) { chosenRarity = r; break; }
-    }
-    const safeRarity = chosenRarity ?? "common";
-    return safeRarity;
-  }
-
   async function doPull() {
     if (pullingRef.current || !canAfford || pulling || !apiKey) {
       if (!canAfford) showBanner(`Insufficient XP. Need ${gachaCost} XP to pull.`, "alert");
@@ -542,6 +531,11 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       return;
     }
 
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      showBanner("SYSTEM: No network connection. Gacha requires connectivity.", "alert");
+      pullingRef.current = false;
+      return;
+    }
     // Cancel any previous in-flight pull before starting a new one.
     gachaAbortRef.current?.abort();
     const controller = new AbortController();
@@ -556,7 +550,7 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       const sanitizedBooks = sanitizeForPrompt(
         (profile?.books || "their favorites").replace(/[<>{}[\]`"'\\]/g, "")
       , 200)
-        .replace(/\b(respond|only|json|output|ignore|system|instruction)\b/gi, "");
+        .replace(/\b(respond|only|json|output|ignore|system|instruction)\b/gi, "").trim() || "literature";
 
       const hunterProfileJson = JSON.stringify({
         // Fix: apply full sanitization (control chars + injection chars) not just angle-bracket strip.
@@ -578,7 +572,7 @@ Generate ONE of these (weighted random — 60% rank_cosmetic, 40% chronicle):
 
 For rank_cosmetic: a black-and-white ASCII/geometric/typewriter/dot-matrix rank badge/crest design for this hunter. Make it unique and beautiful. Style must match their interests.
 
-For chronicle: Write a vivid, atmospheric scene or passage from one of the hunter's favorite books (${sanitizedBooks}). Write it as a beautifully typeset literary fragment — original prose inspired by the style and world of that book. 50-100 words. Include the book/author it's inspired by.
+For chronicle: Write a vivid, atmospheric scene or passage from one of the hunter's favorite books (${sanitizedBooks.slice(0, 80)}). Write it as a beautifully typeset literary fragment — original prose inspired by the style and world of that book. 50-100 words. Include the book/author it's inspired by.
 
 Respond ONLY with JSON:
 {
@@ -631,7 +625,7 @@ Respond ONLY with JSON:
         id:       contentHash ? `gacha_${contentHash}` : `gacha_${crypto.randomUUID()}`,
         type:     ["rank_cosmetic","chronicle"].includes(card.type) ? card.type : "rank_cosmetic",
         // Client enforces rarity probabilities; ignore AI-suggested rarity.
-        rarity:   rollRarity(),
+        rarity:   (() => { const r = sampleGachaRarity(); return ["common","rare","epic","legendary"].includes(r) ? r : "common"; })(),
         title:    stripGachaStr(card.title, 120) ?? "Unknown",
         content:  stripGachaStr(card.content, 1000) ?? "",
         style:    ["ascii","dots","geometric","typewriter"].includes(card.style) ? card.style : "ascii",
@@ -689,6 +683,7 @@ Respond ONLY with JSON:
         }
       });
 
+      setCollectionPage(0);
       if (mountedRef.current) {
         setLastPull(safeCard);
         showToast({ icon: safeCard.type === "chronicle" ? "≡" : "◈", title: safeCard.title, desc: safeCard.rarity.toUpperCase() + " PULL", rarity: safeCard.rarity, isAchievement: false });
@@ -953,6 +948,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
       if (!file) return;
       try {
         await SyncManager.importFile(file);
+        window.dispatchEvent(new CustomEvent("ritmol:block-autopush", { detail: { ms: 3000 } }));
         window.location.reload();
       } catch (err) {
         const msgs = {
@@ -1027,7 +1023,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
             ⚠ Your browser does not support direct file access. Use Download + Import below.<br />
             Place the downloaded file in your Syncthing folder manually.
           </div>
-        <button onClick={() => {
+        <button type="button" onClick={() => {
             // Write-through persistence in useAppState keeps localStorage in sync —
             // no explicit flush needed before download.
             SyncManager.download((msg) => showBanner(msg, "alert"));

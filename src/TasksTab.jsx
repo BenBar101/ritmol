@@ -2,6 +2,7 @@ import { useAppContext } from "./context/AppContext";
 import { useState } from "react";
 import { todayUTC } from "./utils/storage";
 import { primaryBtn } from "./Onboarding";
+import { sanitizeForPrompt } from "./api/systemPrompt";
 
 export default function TasksTab() {
   const { state, setState, awardXP, showBanner, checkMissions, actionLocksRef } = useAppContext();
@@ -17,13 +18,7 @@ export default function TasksTab() {
 
   // Sanitize free-text user input before storing in state/localStorage.
   function sanitizeText(str, maxLen = 300) {
-    if (typeof str !== "string") return "";
-    return str
-      .replace(/[<>{}[\]`"'\\]/g, "")
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
-      .slice(0, maxLen)
-      .trim();
+    return sanitizeForPrompt(str ?? '', maxLen);
   }
 
   function addTask() {
@@ -50,23 +45,15 @@ export default function TasksTab() {
     actionLocksRef.current.add(id);
     setTimeout(() => actionLocksRef.current.delete(id), 500);
 
-    // Fix: move the task.done guard inside the setState updater so we read the
-    // authoritative (latest) task state, not a potentially stale closure snapshot.
-    // Use a flag written before the updater returns so the callers below run only
-    // when the task genuinely transitioned from undone → done.
+    const alreadyDone = (state.tasks || []).find((t) => t.id === id)?.done ?? true;
+    if (alreadyDone) return;
+
     const doneDate = todayUTC(); // capture outside updater — clock call is impure
-    let didComplete = false;
-    setState((s) => {
-      const task = (s.tasks || []).find(t => t.id === id);
-      if (!task || task.done) return s; // already done in latest state — no-op
-      didComplete = true;
-      return {
-        ...s,
-        tasks: s.tasks.map((t) => t.id === id ? { ...t, done: true, doneDate } : t),
-      };
-    });
+    setState((s) => ({
+      ...s,
+      tasks: s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneDate } : t)),
+    }));
     queueMicrotask(() => {
-      if (!didComplete) return;
       awardXP(25, event);
       checkMissions("task");
       showBanner("Task complete. +25 XP", "success");
@@ -107,13 +94,13 @@ export default function TasksTab() {
     setTimeout(() => actionLocksRef.current.delete(id), 500);
 
     const doneDate = todayUTC(); // Fix: capture outside updater — clock call is impure
-    let isFirstSubmission = false;
+    const currentGoal = (state.goals || []).find((g) => g.id === id);
+    const isFirstSubmission = currentGoal ? (currentGoal.submissionCount || 0) === 0 : false;
     setState((s) => ({
       ...s,
       goals: s.goals.map((g) => {
         if (g.id !== id) return g;
         const count = g.submissionCount || 0;
-        if (count === 0) isFirstSubmission = true;
         return { ...g, submissionCount: count + 1, done: true, doneDate };
       }),
     }));
@@ -139,7 +126,7 @@ export default function TasksTab() {
       {/* Section toggle */}
       <div style={{ display: "flex", gap: "0", border: "1px solid #333" }}>
         {["tasks", "goals"].map((s) => (
-          <button key={s} onClick={() => setActiveSection(s)} style={{
+          <button type="button" key={s} onClick={() => setActiveSection(s)} style={{
             flex: 1, padding: "8px",
             background: activeSection === s ? "#fff" : "transparent",
             color: activeSection === s ? "#000" : "#666",
@@ -172,7 +159,7 @@ export default function TasksTab() {
               <option value="medium">MED</option>
               <option value="high">HIGH</option>
             </select>
-            <button onClick={addTask} style={{ padding: "8px 14px", background: "#fff", color: "#000", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", border: "none" }}>+</button>
+            <button type="button" onClick={addTask} style={{ padding: "8px 14px", background: "#fff", color: "#000", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", border: "none" }}>+</button>
           </div>
 
           {/* Active tasks */}
@@ -189,7 +176,7 @@ export default function TasksTab() {
                 display: "flex", alignItems: "center", gap: "10px",
                 background: "#0d0d0d",
               }}>
-                <button onClick={(e) => completeTask(task.id, e)} style={{ color: "#555", fontSize: "16px", background: "none", border: "1px solid #333", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <button type="button" onClick={(e) => completeTask(task.id, e)} style={{ color: "#555", fontSize: "16px", background: "none", border: "1px solid #333", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   ○
                 </button>
                 <div style={{ flex: 1 }}>
@@ -198,7 +185,7 @@ export default function TasksTab() {
                     {priorityLabel[task.priority]} {task.priority?.toUpperCase()} {task.due ? `· due ${task.due}` : ""} {task.addedBy === "ritmol" ? "· RITMOL" : ""}
                   </div>
                 </div>
-                <button onClick={() => deleteTask(task.id)} style={{ color: "#333", fontSize: "14px", background: "none", border: "none" }}>×</button>
+                <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#333", fontSize: "14px", background: "none", border: "none" }}>×</button>
               </div>
             ))}
           </div>
@@ -208,6 +195,7 @@ export default function TasksTab() {
             <div>
               <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#333", letterSpacing: "2px", marginBottom: "6px" }}>COMPLETED</div>
               <button
+                type="button"
                 onClick={() => setState((s) => ({ ...s, tasks: (s.tasks || []).filter((t) => !t.done) }))}
                 style={{
                   marginBottom: "8px",
@@ -226,7 +214,7 @@ export default function TasksTab() {
               {doneTasks.slice(-5).map((task) => (
                 <div key={task.id} style={{ padding: "8px 0", borderBottom: "1px solid #111", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#444", display: "flex", justifyContent: "space-between" }}>
                   <span style={{ textDecoration: "line-through" }}>✓ {task.text}</span>
-                  <button onClick={() => deleteTask(task.id)} style={{ color: "#333", background: "none", border: "none", fontSize: "12px" }}>×</button>
+                  <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#333", background: "none", border: "none", fontSize: "12px" }}>×</button>
                 </div>
               ))}
             </div>
@@ -236,7 +224,7 @@ export default function TasksTab() {
 
       {activeSection === "goals" && (
         <>
-          <button onClick={() => setShowGoalForm(!showGoalForm)} style={{ padding: "10px", border: "1px solid #333", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px" }}>
+          <button type="button" onClick={() => setShowGoalForm(!showGoalForm)} style={{ padding: "10px", border: "1px solid #333", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px" }}>
             {showGoalForm ? "CANCEL" : "+ ADD GOAL / HOMEWORK"}
           </button>
 
@@ -262,7 +250,7 @@ export default function TasksTab() {
                 onChange={(e) => setGoalForm((f) => ({ ...f, due: e.target.value }))}
                 style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
               />
-              <button onClick={addGoal} style={primaryBtn}>ADD GOAL</button>
+              <button type="button" onClick={addGoal} style={primaryBtn}>ADD GOAL</button>
             </div>
           )}
 
@@ -293,7 +281,7 @@ export default function TasksTab() {
                         </div>
                       )}
                     </div>
-                    <button onClick={() => submitGoal(goal.id)} style={{ padding: "4px 8px", border: "1px solid #555", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px" }}>
+                    <button type="button" onClick={() => submitGoal(goal.id)} style={{ padding: "4px 8px", border: "1px solid #555", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px" }}>
                       SUBMIT
                     </button>
                   </div>

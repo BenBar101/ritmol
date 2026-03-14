@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
 import { todayUTC, nowHour, sanitizeForDisplay } from "./utils/storage";
-import { sanitizeForPrompt } from "./api/systemPrompt";
 import { DAILY_TOKEN_LIMIT } from "./constants";
 
 export default function HomeTab() {
@@ -59,7 +58,7 @@ export default function HomeTab() {
         const rawDiff = (new Date(exam.start) - Date.now()) / 86400000;
         const days = rawDiff <= 0 ? 0 : Math.ceil(rawDiff);
         if (rawDiff < -0.05) return null;
-        const safeTitle = sanitizeForPrompt(exam.title ?? "", 200);
+        const safeTitle = sanitizeForDisplay(exam.title ?? "", 200);
         return (
           <div key={exam.id} style={{
             border: "2px solid #fff", padding: "12px",
@@ -165,18 +164,18 @@ export default function HomeTab() {
       </div>
 
       {/* Active timers */}
-      {(state.activeTimers || []).length > 0 && (
+      {(state.activeTimers || []).filter((t) => typeof t.endsAt === "number" && t.endsAt > Date.now() + 1000).length > 0 && (
         <div style={{ border: "1px solid #1a1a1a", padding: "12px" }}>
           <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#555", letterSpacing: "2px", marginBottom: "8px" }}>
             ACTIVE TIMERS
           </div>
-          {state.activeTimers.map((timer) => (
+          {(state.activeTimers || []).filter((t) => typeof t.endsAt === "number" && t.endsAt > Date.now() + 1000).map((timer) => (
             <CountdownTimer
               key={timer.id}
               timer={timer}
               onExpire={() => {
                 setState((s) => ({ ...s, activeTimers: s.activeTimers.filter((t) => t.id !== timer.id) }));
-                const safeLabel = sanitizeForPrompt(timer.label ?? "", 200);
+                const safeLabel = sanitizeForDisplay(timer.label ?? "", 200);
                 showBanner(`Timer complete: ${safeLabel}`, "success");
               }}
             />
@@ -271,10 +270,11 @@ function CountdownTimer({ timer, onExpire }) {
    useEffect(() => () => { mountedRef.current = false; }, []);
 
   useEffect(() => {
+    expiredRef.current = false;
     if (timer.endsAt <= Date.now()) {
       if (!expiredRef.current) {
         expiredRef.current = true;
-        setTimeout(() => { if (mountedRef.current && expiredRef.current) onExpireRef.current(); }, 0);
+        setTimeout(() => { if (mountedRef.current) onExpireRef.current(); }, 0);
       }
       return;
     }
@@ -285,12 +285,12 @@ function CountdownTimer({ timer, onExpire }) {
       if (r === 0 && !expiredRef.current) { expiredRef.current = true; clearInterval(iv); if (mountedRef.current) onExpireRef.current(); }
     }, 1000);
     return () => clearInterval(iv);
-  }, [timer.endsAt]); // onExpire accessed via ref — no stale closure risk
+  }, [timer.id, timer.endsAt]); // id+endsAt avoid object-identity churn; onExpire via ref
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
   return (
     <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", padding: "4px 0", display: "flex", justifyContent: "space-between" }}>
-      <span>{sanitizeForPrompt(timer.emoji ?? "", 2)} {sanitizeForPrompt(timer.label ?? "", 200)}</span>
+      <span>{sanitizeForDisplay(timer.emoji ?? "", 2)} {sanitizeForDisplay(timer.label ?? "", 200)}</span>
       <span style={{ color: remaining < 60000 ? "#fff" : "#888" }}>{mins}:{secs.toString().padStart(2, "0")}</span>
     </div>
   );
