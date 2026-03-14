@@ -48,53 +48,53 @@ import ProfileTab from "./ProfileTab";
 // ─────────────────────────────────────────────────────────────
 // KEYS CONFIG GATE
 // ─────────────────────────────────────────────────────────────
-function KeysConfigGate({ resetPullMutex }) {
-  const [syncFileConnected, setSyncFileConnected] = useState(false);
-  const [syncChecking,      setSyncChecking]      = useState(true);
-  const [syncError,         setSyncError]         = useState("");
-  const [syncStatus,        setSyncStatus]        = useState("idle");
-  const hasMissingKey = !getGeminiApiKey();
+// KeysConfigGate is intentionally removed.
+// Missing-key handling is done inline in the main App render (after hooks run)
+// so it has access to connectDropbox, syncPull, pickSyncFile, setShowGeminiKeySetup, etc.
 
-  useEffect(() => {
-    if (!hasMissingKey || !FSAPI_SUPPORTED) { setSyncChecking(false); return; }
-    let cancelled = false;
-    SyncManager.getHandle()
-      .then((h) => { if (!cancelled) { setSyncFileConnected(!!h); setSyncChecking(false); } })
-      .catch(() => { if (!cancelled) setSyncChecking(false); });
-    return () => { cancelled = true; };
-  }, [hasMissingKey]);
+// ─────────────────────────────────────────────────────────────
+// MISSING KEY GATE
+// Shown when there is no Gemini API key in sessionStorage.
+// Rendered inside the main App (after hooks run) so it has access
+// to connectDropbox, syncPull, pickSyncFile, etc.
+// ─────────────────────────────────────────────────────────────
+function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPull, resetPullMutex, onGeminiKeySaved }) {
+  const [mode, setMode]           = useState("choose"); // "choose" | "gemini" | "syncthing"
+  const [syncFileLinked, setSyncFileLinked] = useState(false);
+  const [syncStatus, setSyncStatus]         = useState("idle"); // "idle" | "syncing" | "synced" | "error"
+  const [syncError, setSyncError]           = useState("");
 
-  async function handlePickSyncFile() {
-    if (!FSAPI_SUPPORTED) return;
+  const mono = { fontFamily: "'Share Tech Mono', monospace" };
+  const btnPrimary = {
+    width: "100%", padding: "13px", border: "2px solid #fff", background: "#fff", color: "#000",
+    ...mono, fontSize: "11px", letterSpacing: "2px", cursor: "pointer", marginBottom: "10px",
+  };
+  const btnSecondary = {
+    width: "100%", padding: "11px", border: "1px solid #444", background: "transparent", color: "#888",
+    ...mono, fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+  };
+
+  async function handleSyncthingLink() {
     setSyncError("");
-    try { await SyncManager.pickFile(); setSyncFileConnected(true); }
-    catch (e) { if (e.name !== "AbortError") setSyncError("Could not link file. Try again."); }
+    try {
+      await pickSyncFile();
+      setSyncFileLinked(true);
+    } catch (e) {
+      if (e?.name !== "AbortError") setSyncError("Could not link file. Try again.");
+    }
   }
 
-  async function handleLoadFromFile() {
-    if (!FSAPI_SUPPORTED) return;
+  async function handleSyncthingPull() {
     setSyncError(""); setSyncStatus("syncing");
     window.dispatchEvent(new CustomEvent("ritmol:block-autopush", { detail: { ms: 3000 } }));
     try {
-      await SyncManager.pull();
-      LS.set(storageKey("jv_last_synced"), String(Date.now()));
+      await syncPull();
       setSyncStatus("synced");
-      // Wait briefly for any fire-and-forget IDB writes triggered by Pull to
-      // flush, then attempt a hard reload. If reload is blocked (CSP, tests),
-      // fall back to replacing location without query/hash so the new data is
-      // picked up without leaving the app in a half-reloaded state.
       setTimeout(() => {
-        try {
-          window.location.reload();
-        } catch {
-          try {
-            window.location.href = window.location.origin + window.location.pathname;
-          } catch {
-            resetPullMutex?.();
-          }
+        try { window.location.reload(); } catch {
+          try { window.location.href = window.location.origin + window.location.pathname; }
+          catch { resetPullMutex?.(); }
         }
-        // Safety: if navigation was silently blocked (no exception thrown but page not reloaded),
-        // release the mutex after 3 s so future pulls and auto-push can proceed.
         setTimeout(() => resetPullMutex?.(), 3000);
       }, 250);
     } catch (e) {
@@ -103,48 +103,105 @@ function KeysConfigGate({ resetPullMutex }) {
         NO_HANDLE:            "No sync file linked yet.",
         CORRUPT_FILE:         "Sync file is corrupt or not valid JSON.",
         SYNC_SCHEMA_OUTDATED: "Sync file was written by an older version of RITMOL.",
-        SYNC_FILE_TOO_LARGE:  "Sync file exceeds 10 MB. Check the file.",
+        SYNC_FILE_TOO_LARGE:  "Sync file exceeds 10 MB.",
         SYNC_BUSY:            "Sync already in progress. Please wait.",
         IDB_NOT_READY:        "Still loading, try again in a moment.",
       };
-      setSyncError(msgs[e.message] ?? "Pull failed. Check your sync file and try again.");
+      setSyncError(msgs[e?.message] ?? "Pull failed. Check your sync file and try again.");
     }
   }
 
-  if (!hasMissingKey) return null;
-  const mono = { fontFamily: "'Share Tech Mono', monospace" };
-  const btnBase = { width: "100%", padding: "10px", ...mono, fontSize: "11px", letterSpacing: "2px", cursor: "pointer" };
-
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a0a0a", color: "#e8e8e8", ...mono, padding: "24px", textAlign: "center" }}>
-      <img src={APP_ICON_URL} alt="" style={{ width: 48, height: 48, marginBottom: "16px" }} />
-      <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOL — CONFIGURATION REQUIRED</div>
-      <div style={{ color: "#c44", fontSize: "12px", maxWidth: "420px", lineHeight: "1.8", marginBottom: "20px" }}>
-        No Gemini API key found. Add <code>&ldquo;geminiKey&rdquo;: &ldquo;AIza...&rdquo;</code> to your <code>ritmol-data.json</code> and link it below.
+    <div style={{
+      minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "flex-start", padding: "32px 24px", background: "#0a0a0a",
+      color: "#e8e8e8", ...mono,
+    }}>
+      <img src={APP_ICON_URL} alt="" style={{ width: 44, height: 44, marginBottom: "20px", marginTop: "24px" }} />
+      <div style={{ fontSize: "11px", color: "#555", letterSpacing: "3px", marginBottom: "6px" }}>RITMOL</div>
+      <div style={{ fontSize: "20px", fontWeight: "bold", letterSpacing: "1px", marginBottom: "6px" }}>
+        {mode === "gemini" ? "GEMINI API KEY" : mode === "syncthing" ? "LOAD FROM FILE" : "SETUP REQUIRED"}
       </div>
-      {FSAPI_SUPPORTED ? (
-        <div style={{ maxWidth: "420px", width: "100%", textAlign: "left", border: "1px solid #333", padding: "16px", fontSize: "11px", color: "#aaa" }}>
-          <div style={{ fontSize: "10px", color: "#777", letterSpacing: "2px", marginBottom: "8px" }}>STEP 1 — LINK YOUR SYNC FILE</div>
-          <div style={{ marginBottom: "10px", lineHeight: "1.8" }}>Pick <code>ritmol-data.json</code> inside your Syncthing folder.</div>
-          <button type="button" onClick={handlePickSyncFile} disabled={syncChecking} style={{ ...btnBase, border: "2px solid #fff", background: "#fff", color: "#000", marginBottom: "10px" }}>
-            {syncFileConnected ? "✓ SYNC FILE LINKED" : "LINK SYNCTHING FILE →"}
-          </button>
-          <div style={{ fontSize: "10px", color: "#777", marginTop: "8px", lineHeight: "1.6" }}>STEP 2 — After your file contains <code>geminiKey</code>, load it:</div>
-          <button type="button" onClick={handleLoadFromFile} disabled={!syncFileConnected || syncStatus === "syncing"} style={{ ...btnBase, marginTop: "8px", border: "1px solid #444", background: !syncFileConnected || syncStatus === "syncing" ? "#151515" : "transparent", color: !syncFileConnected || syncStatus === "syncing" ? "#444" : "#ccc" }}>
-            {syncStatus === "syncing"
-              ? "LOADING FROM FILE..."
-              : syncStatus === "synced"
-              ? "✓ LOADED — RELOADING…"
-              : "LOAD KEY FROM SYNC FILE ↓"}
-          </button>
-          {syncError && <div style={{ marginTop: "8px", color: "#c44", fontSize: "10px" }}>⚠ {syncError}</div>}
-        </div>
-      ) : (
-        <div style={{ fontSize: "11px", color: "#777", maxWidth: "420px", lineHeight: "1.8" }}>
-          Your browser does not support direct file access. Use <strong>Download / Import</strong> in Profile → Settings after setup.
-        </div>
-      )}
-      <div style={{ fontSize: "10px", color: "#555", marginTop: "24px" }}>See README — Gemini API Key & Sync sections.</div>
+      <div style={{ fontSize: "12px", color: "#666", marginBottom: "28px" }}>
+        {mode === "gemini"   ? "Enter your key to enable AI features." :
+         mode === "syncthing" ? "Pull your data file to restore your config." :
+         "A Gemini API key is needed to continue."}
+      </div>
+
+      <div style={{ width: "100%", maxWidth: "360px" }}>
+
+        {/* ── Choose mode ── */}
+        {mode === "choose" && (
+          <>
+            {!dropboxConnected && (
+              <>
+                <div style={{ fontSize: "10px", color: "#555", letterSpacing: "2px", marginBottom: "10px" }}>
+                  RETURNING USER? PULL FROM SYNC
+                </div>
+                <button type="button" onClick={connectDropbox} style={btnPrimary}>
+                  CONNECT DROPBOX ↗
+                </button>
+                {FSAPI_SUPPORTED && (
+                  <button type="button" onClick={() => setMode("syncthing")} style={{ ...btnSecondary, marginBottom: "24px" }}>
+                    LOAD FROM SYNCTHING FILE
+                  </button>
+                )}
+                <div style={{ height: "1px", background: "#222", marginBottom: "24px" }} />
+              </>
+            )}
+            <div style={{ fontSize: "10px", color: "#555", letterSpacing: "2px", marginBottom: "10px" }}>
+              NEW USER? ENTER KEY MANUALLY
+            </div>
+            <button type="button" onClick={() => setMode("gemini")} style={btnPrimary}>
+              ENTER GEMINI API KEY
+            </button>
+          </>
+        )}
+
+        {/* ── Gemini key entry ── */}
+        {mode === "gemini" && (
+          <>
+            <GeminiKeySetupScreen onSave={onGeminiKeySaved} />
+            <button type="button" onClick={() => setMode("choose")} style={{ ...btnSecondary, marginTop: "12px" }}>
+              ← BACK
+            </button>
+          </>
+        )}
+
+        {/* ── Syncthing pull ── */}
+        {mode === "syncthing" && (
+          <>
+            <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8", marginBottom: "16px" }}>
+              Link your <code>ritmol-data.json</code> from your Syncthing folder, then pull to load your Gemini key and data.
+            </div>
+            <button type="button" onClick={handleSyncthingLink} style={btnPrimary}>
+              {syncFileLinked ? "✓ FILE LINKED" : "LINK SYNC FILE →"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSyncthingPull}
+              disabled={!syncFileLinked || syncStatus === "syncing"}
+              style={{
+                ...btnSecondary,
+                opacity: (!syncFileLinked || syncStatus === "syncing") ? 0.4 : 1,
+                cursor: (!syncFileLinked || syncStatus === "syncing") ? "not-allowed" : "pointer",
+                marginBottom: "12px",
+              }}
+            >
+              {syncStatus === "syncing" ? "LOADING..." : syncStatus === "synced" ? "✓ LOADED — RELOADING…" : "PULL FROM FILE ↓"}
+            </button>
+            {syncError && <div style={{ color: "#c44", fontSize: "10px", marginBottom: "8px" }}>⚠ {syncError}</div>}
+            <button type="button" onClick={() => { setMode("choose"); setSyncError(""); setSyncStatus("idle"); }} style={btnSecondary}>
+              ← BACK
+            </button>
+          </>
+        )}
+
+      </div>
+
+      <div style={{ fontSize: "10px", color: "#333", marginTop: "32px" }}>
+        RITMOL v1.0 // ZERO TELEMETRY
+      </div>
     </div>
   );
 }
@@ -318,7 +375,23 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-  if (!apiKey) return <ErrorBoundary><KeysConfigGate resetPullMutex={resetPullMutex} /></ErrorBoundary>;
+  if (!apiKey) {
+    return (
+      <ErrorBoundary>
+        <MissingKeyGate
+          connectDropbox={connectDropbox}
+          dropboxConnected={dropboxConnected}
+          pickSyncFile={pickSyncFile}
+          syncPull={syncPull}
+          resetPullMutex={resetPullMutex}
+          onGeminiKeySaved={async (key) => {
+            setGeminiApiKey(key);
+            await syncPush();
+          }}
+        />
+      </ErrorBoundary>
+    );
+  }
   if (showOnboarding) {
     return (
       <ErrorBoundary>
