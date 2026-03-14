@@ -254,20 +254,52 @@ export default function App() {
     useSync({ latestStateRef, rehydrate, showBanner });
 
   // OAuth callback: when returning from Dropbox, exchange code and pull.
-  // After GitHub Pages 404 redirect, params can be in top-level search or inside q= (public/404.html encodes query in q).
+  // Two landing scenarios:
+  //   1. Direct: the host serves all routes (Vercel, local dev). Dropbox lands on
+  //      /dropbox-callback?code=X&state=Y → code/state are in window.location.search.
+  //   2. GitHub Pages 404 redirect: 404.html encodes the original URL as
+  //      /?q=%2Fritmol%2Fdropbox-callback%3Fcode%3DX%26state%3DY
+  //      The q= value is a full path+query string, so we must extract its search
+  //      part before parsing it as URLSearchParams.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     let code = params.get("code");
     let stateParam = params.get("state");
+
+    // Scenario 2: GitHub Pages 404 → q= redirect.
+    // Only attempt extraction when the current path doesn't already look like the
+    // callback route (avoids double-processing on direct landings).
     if ((!code || !stateParam) && params.get("q")) {
       try {
-        const qParams = new URLSearchParams(decodeURIComponent(params.get("q")));
-        code = code || qParams.get("code");
-        stateParam = stateParam || qParams.get("state");
+        const decoded = decodeURIComponent(params.get("q"));
+        // decoded may be a full path like "/ritmol/dropbox-callback?code=X&state=Y"
+        // or a bare query string like "code=X&state=Y". Handle both.
+        let search = decoded;
+        if (decoded.includes("?")) {
+          // It's a path+query — check it's actually the callback path, then extract search.
+          const [pathPart, queryPart] = decoded.split("?");
+          if (pathPart.includes("dropbox-callback")) {
+            search = queryPart;
+          } else {
+            search = ""; // not a dropbox callback redirect — ignore
+          }
+        }
+        if (search) {
+          const qParams = new URLSearchParams(search);
+          code = code || qParams.get("code");
+          stateParam = stateParam || qParams.get("state");
+        }
       } catch { /* ignore malformed q */ }
     }
-    if (code && stateParam) {
-      window.history.replaceState({}, "", window.location.pathname);
+
+    // For direct landings (scenario 1), also guard on the current path so we
+    // don't accidentally consume code/state params on non-callback pages.
+    const isCallbackPath = window.location.pathname.includes("dropbox-callback");
+    const hasDirectParams = isCallbackPath && params.get("code") && params.get("state");
+    const hasQParams = !!code && !!stateParam && !hasDirectParams;
+
+    if ((hasDirectParams || hasQParams) && code && stateParam) {
+      window.history.replaceState({}, "", window.location.pathname.replace(/\/dropbox-callback\/?$/, "") || "/");
       if (!verifyOAuthState(stateParam)) {
         showBanner("OAuth state mismatch. Please try connecting Dropbox again.", "alert");
         return;
