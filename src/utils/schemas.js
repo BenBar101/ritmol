@@ -132,10 +132,10 @@ const LogEntryValue = z.union([
   z.boolean(),
   z.number(),
   z.string().max(4096),
-  z.array(z.string().max(64)).max(200),
+  z.array(z.string().max(64)).max(50),
   z.record(
     z.string().max(64),
-    z.union([z.null(), z.boolean(), z.number(), z.string().max(1000)])
+    z.union([z.null(), z.boolean(), z.number(), z.string().max(200)])
   ),
 ])
 export const LogObjSchema = z.record(
@@ -217,4 +217,20 @@ export const SyncPayloadSchema = z.object({
   // geminiKey is allowed in the payload for reading (extracted to sessionStorage)
   // but is never written back out on push
   geminiKey:                z.string().max(60).regex(/^AIza[A-Za-z0-9_-]{35,45}$/).optional(),
+}).superRefine((data, ctx) => {
+  // Plausibility warning: flag XP values that exceed what is achievable through
+  // normal gameplay (10 000 sessions × 10 000 XP cap each = 100 000 000, but the
+  // state cap is 10 000 000). We do not hard-reject — legitimate users can reach
+  // high XP over time — but we surface a warning so unexpected values are visible
+  // in the console during development.
+  if (typeof data.jv_xp === "number" && data.jv_xp > 5_000_000) {
+    console.warn(
+      `[SyncManager] jv_xp in imported payload is unusually high (${data.jv_xp}). ` +
+      "Verify this is expected before proceeding."
+    );
+  }
+  // Anti-cheat: reject XP that exceeds the enforced state cap entirely.
+  if (typeof data.jv_xp === "number" && data.jv_xp > 10_000_000) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "jv_xp exceeds maximum allowed value", path: ["jv_xp"] });
+  }
 })

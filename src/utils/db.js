@@ -13,8 +13,8 @@ export const todayUTC = () => new Date().toISOString().slice(0, 10)
 // version caused habit-log vs mission-date mismatches (bug-25).
 // All callers that previously used today() now get UTC.
 export const today = todayUTC
-export const nowHour = () => new Date().getUTCHours()
-export const nowMin  = () => new Date().getUTCMinutes()
+export const nowHour = () => new Date().getHours()
+export const nowMin  = () => new Date().getMinutes()
 
 // ── Dev/prod isolation ─────────────────────────────────────────
 export const IS_DEV     = import.meta.env.DEV === true

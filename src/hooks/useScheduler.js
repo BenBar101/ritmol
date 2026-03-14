@@ -53,7 +53,10 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
       if (document.visibilityState !== "visible") return;
       const h = nowHour();
       const m = nowMin();
-      const t = todayUTC(); // use UTC so panic timing aligns with streak date boundary
+      // t is the UTC date key used for log lookups (sleepLog, screenTimeLog) and
+      // streak-panic boundary. h/m are now LOCAL hours/minutes (see db.js), so
+      // modal trigger times (07:30, 13:00, 20:00) fire at the user's local wall clock.
+      const t = todayUTC();
       const { sleepLog, screenTimeLog, calendarEvents, habitLog, streak } = scheduledStateRef.current;
 
       // Sleep check-in at 07:30 UTC

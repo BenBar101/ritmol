@@ -291,13 +291,14 @@ function applyPayload(payload) {
 function migratePayload(p) {
   if (p._schemaVersion >= SYNC_SCHEMA_VERSION) return p;
   let out = { ...p };
-  // V1 → V2: when SYNC_SCHEMA_VERSION is 2, copy known V1 keys into V2 equivalents.
-  // Increment first, THEN apply the transformation for THIS version step.
   while (out._schemaVersion < SYNC_SCHEMA_VERSION) {
-    if (out._schemaVersion < 1) { out._schemaVersion = 1; }
-    if (out._schemaVersion >= SYNC_SCHEMA_VERSION) break;
-    out._schemaVersion = out._schemaVersion + 1;
-    // Add key renames or transformations here when V2 is introduced.
+    const fromVersion = out._schemaVersion;
+    out._schemaVersion = fromVersion + 1;
+    if (fromVersion === 1) {
+      // V1 → V2: add key renames or data transforms here when V2 is introduced.
+      // Example: if (out.jv_old_key !== undefined) { out.jv_new_key = out.jv_old_key; delete out.jv_old_key; }
+    }
+    // Add further `if (fromVersion === N)` blocks for each future version step.
   }
   return out;
 }

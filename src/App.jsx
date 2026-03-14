@@ -307,11 +307,11 @@ export default function App() {
         )}
         <TopBar xp={state.xp} xpPerLevel={xpPerLevel} level={level} rank={rank} streak={state.streak} profile={profile} syncStatus={syncStatus} lastSynced={lastSynced} onPush={syncPush} onPull={syncPull} syncFileConnected={syncFileConnected} />
         <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: "70px", paddingTop: "56px" }}>
-          {tab === "home"    && <ErrorBoundary><HomeTab /></ErrorBoundary>}
-          {tab === "habits"  && <ErrorBoundary><HabitsTab /></ErrorBoundary>}
-          {tab === "tasks"   && <ErrorBoundary><TasksTab /></ErrorBoundary>}
-          {tab === "chat"    && <ErrorBoundary><ChatTab /></ErrorBoundary>}
-          {tab === "profile" && <ErrorBoundary><ProfileTab /></ErrorBoundary>}
+          {tab === "home"    && <ErrorBoundary key="home"><HomeTab /></ErrorBoundary>}
+          {tab === "habits"  && <ErrorBoundary key="habits"><HabitsTab /></ErrorBoundary>}
+          {tab === "tasks"   && <ErrorBoundary key="tasks"><TasksTab /></ErrorBoundary>}
+          {tab === "chat"    && <ErrorBoundary key="chat"><ChatTab /></ErrorBoundary>}
+          {tab === "profile" && <ErrorBoundary key="profile"><ProfileTab /></ErrorBoundary>}
         </div>
         <BottomNav tab={tab} setTab={setTab} />
 

@@ -49,6 +49,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   // ── Auto-push on tab hide / page hide ──
   useEffect(() => {
     const schedulePush = () => {
+      if (isPullingRef.current) return;
       if (debounceTimerRef.current) return;
       if (Date.now() < blockUntilRef.current) return;
       // 500ms debounce: ensures React's write-through setState has committed
@@ -76,6 +77,15 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       const ms = e?.detail?.ms ?? 3000;
       blockUntilRef.current = Date.now() + ms;
     };
+    const onPageShow = (e) => {
+      // e.persisted is true when the page is restored from bfcache.
+      // isPullingRef may have been left true by a Pull that triggered the
+      // reload that caused this bfcache entry — reset it so auto-push and
+      // future Pulls are not permanently blocked.
+      if (e.persisted) {
+        isPullingRef.current = false;
+      }
+    };
     const onVisibility = () => { if (document.visibilityState === "hidden") schedulePush(); };
     const onPageHide   = () => {
       if (pageHideInProgressRef.current) return;
@@ -101,6 +111,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
 
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
     window.addEventListener("ritmol:block-autopush", onBlockAutopush);
     return () => {
       if (debounceTimerRef.current) {
@@ -113,6 +124,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       }
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
       window.removeEventListener("ritmol:block-autopush", onBlockAutopush);
     };
   }, [latestStateRef]); // latestStateRef is stable — safe dep

@@ -99,3 +99,12 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
 export function resetDcInFlight() {
   _dcInFlight = false;
 }
+
+// Reset the in-flight flag when Vite HMR hot-swaps this module in development.
+// Without this, an in-progress request at swap time leaves _dcInFlight latched
+// true on the old module binding, silencing economy updates for that dev session.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    _dcInFlight = false;
+  });
+}

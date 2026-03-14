@@ -116,9 +116,15 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
   const effectiveShieldCost = state.dynamicCosts?.streakShieldCost ?? streakShieldCost;
   const canBuyShield = state.xp >= effectiveShieldCost;
   const shieldSnapshotRef = useRef(null);
+  const buyShieldInFlightRef = useRef(false);
 
   function buyShield() {
-    if (!canBuyShield || !apiKey) return;
+    if (buyShieldInFlightRef.current) return;
+    buyShieldInFlightRef.current = true;
+    if (!canBuyShield || !apiKey) {
+      buyShieldInFlightRef.current = false;
+      return;
+    }
 
     let appliedCost = 0;
     setState((s) => {
@@ -143,10 +149,12 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
     });
 
     if (!shieldSnapshotRef.current) {
+      buyShieldInFlightRef.current = false;
       showBanner("Streak shield already purchased today.", "info");
       return;
     }
     queueMicrotask(() => {
+      buyShieldInFlightRef.current = false;
       const snapshotForApi = shieldSnapshotRef.current;
       shieldSnapshotRef.current = null;
       if (!snapshotForApi) return;
@@ -573,7 +581,11 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
         .replace(/\b(respond|only|json|output|ignore|system|instruction)\b/gi, "").trim() || "literature";
       const sanitizedBooksProse = sanitizedBooks
         .replace(/[()]/g, "")
-        .replace(/\b(ignore|instruction|system|output|respond|override|prompt|forget|disregard|previous|above|below)\b/gi, "")
+        .replace(
+          /\b(ignore|instruction|system|output|respond|override|prompt|forget|disregard|previous|above|below|execute|run|call|return|do|perform|write|say|tell|pretend|act|play|switch|change|replace|rewrite|now|instead|new|task|role|rule|assistant|user|human|ai|model|llm|gpt|gemini|claude)\b/gi,
+          ""
+        )
+        .replace(/\s{2,}/g, " ")
         .trim()
         .slice(0, 80) || "literature";
 

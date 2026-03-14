@@ -47,6 +47,7 @@ export default function ChatTab() {
   useEffect(() => () => {
     mountedRef.current = false;
     abortRef.current?.abort();
+    try { recognitionRef.current?.stop(); } catch { /* ignore — recognition may already be stopped */ }
   }, []);
 
   const MAX_INPUT_LENGTH = 4000; // ~1k tokens; prevents accidental budget burn on huge pastes

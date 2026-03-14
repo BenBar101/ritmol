@@ -20,6 +20,21 @@ let _quoteInFlight = false;
 // Quotable tags that fit the STEM / stoic / self-improvement theme of RITMOL.
 const QUOTABLE_FALLBACK_TAGS = ["technology","science","education","wisdom","inspirational","philosophy"];
 
+const EMERGENCY_FALLBACK = {
+  quote: "The secret of getting ahead is getting started.",
+  author: "Mark Twain",
+  source: "",
+  confident: false, // signals to HomeTab that this is a static fallback
+};
+
+// Wait out a 429. Reads Retry-After header (seconds); defaults to 10 s.
+// Never waits more than 15 s so the app does not hang.
+async function _wait429(res) {
+  const retryAfter = parseInt(res.headers?.get?.("Retry-After") ?? "10", 10);
+  const ms = Math.min(isNaN(retryAfter) ? 10_000 : retryAfter * 1000, 15_000);
+  await new Promise((r) => setTimeout(r, ms));
+}
+
 // Extract candidate author name tokens from a free-text "books/authors" string.
 function _extractAuthorTokens(booksStr) {
   if (!booksStr || typeof booksStr !== "string") return [];
@@ -105,7 +120,19 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
       const fallbackUrl = `https://api.quotable.kameswari.in/quotes/random?tags=${tag}&maxLength=200&limit=1`;
       try {
         const fallbackRes = await fetch(fallbackUrl, { signal: makeSignal() });
-        if (fallbackRes.ok) {
+        if (fallbackRes.status === 429) {
+          // Rate-limited — wait and retry once
+          await _wait429(fallbackRes);
+          const retryRes = await fetch(fallbackUrl, { signal: makeSignal() });
+          if (retryRes.ok) {
+            const fallbackArr = await retryRes.json();
+            const q = Array.isArray(fallbackArr) ? fallbackArr[0] : fallbackArr?.results?.[0];
+            if (q?.content && q?.author) {
+              const candidate = { quote: q.content, author: q.author, source: q.authorSlug || "" };
+              if (isValidQuote(candidate)) hit = candidate;
+            }
+          }
+        } else if (fallbackRes.ok) {
           const fallbackArr = await fallbackRes.json();
           const q = Array.isArray(fallbackArr) ? fallbackArr[0] : fallbackArr?.results?.[0];
           if (q?.content && q?.author) {
@@ -137,5 +164,8 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
     // Always reset the in-flight flag so future calls are not permanently blocked.
     _quoteInFlight = false;
   }
-  return null;
+  // All network paths failed — cache and return the static emergency fallback
+  // so the quote area is never permanently blank.
+  LS.set(key, EMERGENCY_FALLBACK);
+  return EMERGENCY_FALLBACK;
 }
