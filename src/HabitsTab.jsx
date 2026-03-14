@@ -128,8 +128,8 @@ Respond ONLY with JSON array:
       mounted = false;
       controller.abort();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.habitsInitialized, apiKey, profile?.name ?? "", rehydrateCount]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only re-run when habits init, api key, profile identity, or rehydrate changes
+  }, [state.habitsInitialized, apiKey, profile?.name ?? "", profile?.major ?? "", rehydrateCount]);
 
   function deleteHabit(id) {
     setState((s) => ({ ...s, habits: s.habits.filter((h) => h.id !== id) }));

@@ -8,6 +8,7 @@ export const THEME_KEY = "jv_theme";
 
 // AI / token limits
 export const DAILY_TOKEN_LIMIT = 80000;
+export const DAILY_AI_XP_LIMIT = 5000;
 
 // XP / gacha defaults
 export const DEFAULT_XP_PER_LEVEL = 1000;

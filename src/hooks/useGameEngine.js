@@ -25,10 +25,9 @@ import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
 import { getGeminiApiKey } from "../utils/storage";
 import { updateDynamicCosts } from "../api/dynamicCosts";
 import { sanitizeForPrompt } from "../api/systemPrompt";
-import { DAILY_TOKEN_LIMIT } from "../constants";
+import { DAILY_TOKEN_LIMIT, DAILY_AI_XP_LIMIT } from "../constants";
 
 const TOKEN_WARN_THRESHOLDS = [0.5, 0.8, 0.99];
-const DAILY_AI_XP_LIMIT     = 5000;
 const MAX_XP_PER_CMD        = 500;
 const MAX_XP_PER_RESPONSE   = 1500;
 const MAX_STR_LEN           = 300;
@@ -49,7 +48,7 @@ const BIDI_RE   = /[\u202A-\u202E\u2066-\u2069]/g;
 // Include square brackets in the injection character set so prompt-injection
 // patterns that rely on [SYSTEM]/[INSTRUCTION] style markers are stripped
 // consistently with sanitizeForPrompt in systemPrompt.js.
-const INJECT_RE = /[<>"`&'[\]]/g;
+const INJECT_RE = /[<>"`&'[\]]|\u2223\uFF5C\u01C0/g;
 
 function sanitizeStr(s, max = MAX_STR_LEN) {
   if (typeof s !== "string") return "";
@@ -110,6 +109,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
 
   // ── AI XP budget (ref-based to avoid race conditions) ────
   const consumeAiXpBudget = useCallback((requested) => {
+    if (!latestStateRef?.current) return 0;
     const t = todayUTC();
     // Harden against clock rollback: if the current date is earlier than the
     // anti-rollback watermark, treat the daily AI XP budget as already spent.
@@ -122,7 +122,8 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
       const live = latestStateRef?.current?.tokenUsage;
       const persistedXp = persisted?.date === t ? (typeof persisted.aiXpToday === "number" && isFinite(persisted.aiXpToday) ? Math.max(0, Math.floor(persisted.aiXpToday)) : 0) : 0;
       const liveXp = live?.date === t ? (typeof live.aiXpToday === "number" && isFinite(live.aiXpToday) ? Math.max(0, Math.floor(live.aiXpToday)) : 0) : 0;
-      const baseXp = Math.max(persistedXp, liveXp);
+      const refXp = aiXpTodayRef.current?.date === t ? aiXpTodayRef.current.value : 0;
+      const baseXp = Math.max(persistedXp, liveXp, refXp);
       aiXpTodayRef.current = { date: t, value: baseXp };
     }
     const alreadyAwarded = aiXpTodayRef.current.value;
@@ -459,7 +460,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
               ? cmd.minutes
               : (typeof cmd.minutes === "string" ? parseFloat(cmd.minutes) : NaN);
             const safeMins = isFinite(rawMins)
-              ? Math.min(Math.max(1, Math.floor(rawMins)), 1440)
+              ? Math.min(Math.max(1, Math.floor(rawMins)), 480)
               : 90;
             return {
               ...s,

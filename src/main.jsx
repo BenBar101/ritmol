@@ -32,5 +32,6 @@ if (document.readyState === "loading") {
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     import("./sync/SyncManager").then(({ closeSyncChannel }) => closeSyncChannel());
+    import("./api/dynamicCosts").then((m) => m.resetDcInFlight());
   });
 }

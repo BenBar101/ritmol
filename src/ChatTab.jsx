@@ -25,6 +25,8 @@ export default function ChatTab() {
   const mountedRef = useRef(true);
 
   const messages = useMemo(() => state.chatHistory || [], [state.chatHistory]);
+  const latestHistoryRef = useRef(messages);
+  useEffect(() => { latestHistoryRef.current = messages; }, [messages]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -82,7 +84,7 @@ export default function ChatTab() {
       seq: ++_msgSeq,
       date: todayUTC(),
     };
-    const newHistory = [...messages, userMsg].slice(-1000);
+    const newHistory = [...latestHistoryRef.current, userMsg].slice(-1000);
     setState((s) => ({ ...s, chatHistory: newHistory }));
     setInput("");
     inFlightRef.current = true;
@@ -154,7 +156,7 @@ export default function ChatTab() {
         return;
       }
       const redactedMsg = (e?.message || "")
-        .replace(/AIza[A-Za-z0-9_-]{34,45}/g, "[key]")
+        .replace(/AIza[A-Za-z0-9_-]{35,45}/g, "[key]")
         .replace(/eyJ[\w.-]+/g, "[token]")
         .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]");
       console.error("RITMOL error:", redactedMsg);

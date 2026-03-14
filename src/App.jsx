@@ -334,7 +334,7 @@ export default function App() {
         {modal?.type === "screen_time" && (
           <ErrorBoundary>
             <ScreenTimeModal period={modal.period} onClose={() => setModal(null)} onSubmit={(mins) => {
-              const safeMins = Math.min(Math.max(0, Number(mins) || 0), 1440);
+              const safeMins = Math.min(Math.max(0, Number(mins) || 0), 480);
               setState((s) => {
                 const key = todayUTC();
                 return {

@@ -19,6 +19,12 @@ import { SyncPayloadSchema } from "../utils/schemas.js";
 
 // ── Schema version ──────────────────────────────────────────────
 export const SYNC_SCHEMA_VERSION = 1;
+
+// ── IDB readiness (set by db.bootDb after persister load completes) ──
+let _idbReady = false;
+export function markIdbReady() {
+  _idbReady = true;
+}
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // ── Storage key for the persisted file handle ────────────────────
@@ -59,7 +65,7 @@ function sanitizeChatMessages(arr) {
   if (!isArray(arr)) return [];
   const MAX_CHAT_MSG_BYTES = 16000;
   return arr
-    .filter((item) => isObj(item) && typeof item.content === "string")
+    .filter((item) => isObj(item) && isSafeSyncValue(item, 0) && typeof item.content === "string")
     .map((item) => {
       let content = item.content;
       // eslint-disable-next-line no-control-regex
@@ -182,6 +188,7 @@ async function clearHandleFromDB() {
 
 // ── Build sync payload from IDB cache ───────────────────────────
 function buildPayload() {
+  if (!_idbReady) throw new Error("IDB_NOT_READY");
   if (!store) throw new Error("IDB_NOT_READY");
   const payload = { _schemaVersion: SYNC_SCHEMA_VERSION };
   for (const key of SYNC_KEYS) {
@@ -282,12 +289,12 @@ function applyPayload(payload) {
 
 // ── Schema migration (V1 → V2, etc.) ─────────────────────────────
 function migratePayload(p) {
-  const v = p._schemaVersion;
-  if (v >= SYNC_SCHEMA_VERSION) return p;
+  if (p._schemaVersion >= SYNC_SCHEMA_VERSION) return p;
   let out = { ...p };
   // V1 → V2: when SYNC_SCHEMA_VERSION is 2, copy known V1 keys into V2 equivalents.
-  // For now (V1 only), just ensure _schemaVersion is set.
+  // Increment first, THEN apply the transformation for THIS version step.
   while (out._schemaVersion < SYNC_SCHEMA_VERSION) {
+    if (out._schemaVersion >= SYNC_SCHEMA_VERSION) break;
     out._schemaVersion = out._schemaVersion + 1;
     // Add key renames or transformations here when V2 is introduced.
   }
@@ -343,7 +350,7 @@ function extractSecretsFromPayload(payload) {
     const trimmed = payload.geminiKey.trim();
     // Accept a range of plausible key lengths so future format changes don't
     // silently break the config gate. We never log the key value itself.
-    if (/^AIza[A-Za-z0-9_-]{30,50}$/.test(trimmed)) {
+    if (/^AIza[A-Za-z0-9_-]{35,45}$/.test(trimmed)) {
       setGeminiApiKey(trimmed);
     } else {
       // Key was present but failed the format check — surface a console warning
@@ -425,8 +432,10 @@ export const SyncManager = {
           const ts = Date.now();
           return ts;
         }
-      } catch {
-        // If we can't read lastModified, fall through and attempt the push.
+      } catch (innerErr) {
+        if (innerErr?.name === "NotFoundError") throw new Error("SYNC_FILE_NOT_FOUND");
+        if (innerErr?.name === "SecurityError") throw new Error("PERMISSION_DENIED");
+        /* other errors: fall through and attempt push */
       }
 
       const payload = buildPayload();

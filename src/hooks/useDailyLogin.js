@@ -43,6 +43,7 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     const maxDateSeen = getMaxDateSeen();
     if (maxDateSeen && effectiveDate < maxDateSeen) {
       setState((s) => ({ ...s, lastLoginDate: effectiveDate, streak: 0, xp: s.xp }));
+      setTimeout(() => setModal({ type: "daily_login", xp: 0, streak: 0 }), 0);
       loginInProgressRef.current = false;
       return;
     }

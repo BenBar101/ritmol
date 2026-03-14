@@ -155,7 +155,7 @@ You can issue commands by including a "commands" array in your JSON response. Al
 - set_daily_goal: { cmd, text }
 - add_habit: { cmd, label, category (body/mind/work), xp (1-200), icon, style (ascii/dots/geometric/typewriter) }
 - unlock_achievement: { cmd, id, title, desc, flavorText, icon, xp, rarity (common/rare/epic/legendary) }
-- add_timer: { cmd, label, emoji, minutes (1-1440) }
+- add_timer: { cmd, label, emoji, minutes (1-480) }
 - suggest_sessions: { cmd }
 
 ECONOMY RULES: Total XP awarded via award_xp or unlock_achievement across ALL commands in one

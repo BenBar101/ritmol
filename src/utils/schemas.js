@@ -3,6 +3,7 @@ import { todayUTC } from './db'
 
 // ── Primitives ─────────────────────────────────────────────────
 const dateStr       = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+// NOTE: refine callbacks re-evaluate todayUTC() at call-time — safe.
 const pastDateStr   = dateStr.refine(v => v <= todayUTC(), { message: 'Date is in the future' })
 const nullOrDate    = z.union([z.null(), pastDateStr])
 
@@ -94,7 +95,10 @@ export const AchievementSchema = z.object({
   flavorText: z.string().max(300).optional(),
   icon:       iconStr,
   xp:         z.number().min(0).max(500).optional(),
-  unlockedAt: z.number().positive().refine(v => v <= Date.now() + 300_000, { message: 'unlockedAt is in the future' }).optional(),
+  unlockedAt: z.number().positive()
+    .refine(v => v <= Date.now() + 60_000, { message: 'unlockedAt is in the future' })
+    .refine(v => v >= 1_600_000_000_000, { message: 'unlockedAt predates RITMOL' })
+    .optional(),
   rarity:     z.enum(['common', 'rare', 'epic', 'legendary']).optional(),
 })
 
@@ -152,7 +156,7 @@ export const TimerSchema = z.object({
   id:     z.string().max(64),
   label:  z.string().max(100),
   endsAt: z.number().refine(
-    v => { const now = Date.now(); return v > now - 86_400_000 && v <= now + 86_400_000 },
+    v => { const now = Date.now(); return v > now - 86_400_000 && v <= now + 28_800_000 },
     { message: 'Timer endsAt out of valid range' }
   ),
   emoji: iconStr,
@@ -161,7 +165,7 @@ export const TimerSchema = z.object({
 export const TokenUsageSchema = z.object({
   date:       pastDateStr,
   tokens:     z.number().min(0).max(10_000_000).optional(),
-  aiXpToday:  z.number().min(0).max(1_000_000).optional(),
+  aiXpToday:  z.number().min(0).max(5000).optional(),
   warnedAt:   z.array(z.number().int().refine(v => [50, 80, 99].includes(v), { message: "invalid threshold" })).max(3).optional(),
 })
 
@@ -211,5 +215,5 @@ export const SyncPayloadSchema = z.object({
   jv_last_shield_buy_date:  nullOrDate.optional(),
   // geminiKey is allowed in the payload for reading (extracted to sessionStorage)
   // but is never written back out on push
-  geminiKey:                z.string().max(60).regex(/^AIza[A-Za-z0-9_-]{30,50}$/).optional(),
+  geminiKey:                z.string().max(60).regex(/^AIza[A-Za-z0-9_-]{35,45}$/).optional(),
 })

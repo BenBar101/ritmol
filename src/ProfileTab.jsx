@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, flushSync } from "react";
 import { useAppContext } from "./context/AppContext";
 import { todayUTC, getGeminiApiKey, setGeminiApiKey, getMaxDateSeen, storageKey } from "./utils/storage";
 import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT, RANKS, sampleGachaRarity } from "./constants";
@@ -113,7 +113,8 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
   const totalHabitsLogged = Object.values(state.habitLog || {}).reduce((acc, arr) => acc + arr.length, 0);
   const totalTasksDone = (state.tasks || []).filter((t) => t.done).length;
   const studyHours = (state.sessions || []).reduce((acc, s) => acc + (Number(s.duration) || 0), 0);
-  const canBuyShield = state.xp >= streakShieldCost;
+  const effectiveShieldCost = state.dynamicCosts?.streakShieldCost ?? streakShieldCost;
+  const canBuyShield = state.xp >= effectiveShieldCost;
   const shieldSnapshotRef = useRef(null);
 
   function buyShield() {
@@ -189,7 +190,7 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       {/* Buy streak shield — cost set by AI, one use per day when protecting streak */}
       <div style={{ border: "1px solid #333", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
         <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px", marginBottom: "8px" }}>STREAK SHIELD</div>
-        <div style={{ fontSize: "11px", color: "#888", marginBottom: "8px" }}>Cost: {streakShieldCost} XP (AI may change after purchase). Max one shield use per calendar day.</div>
+        <div style={{ fontSize: "11px", color: "#888", marginBottom: "8px" }}>Cost: {effectiveShieldCost} XP (AI may change after purchase). Max one shield use per calendar day.</div>
         <button
           type="button"
           onClick={buyShield}
@@ -199,7 +200,7 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
             color: canBuyShield && apiKey ? "#000" : "#333", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", letterSpacing: "1px", cursor: canBuyShield && apiKey ? "pointer" : "default",
           }}
         >
-          BUY SHIELD — {streakShieldCost} XP
+          BUY SHIELD — {effectiveShieldCost} XP
         </button>
       </div>
 
@@ -523,6 +524,20 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       return;
     }
     pullingRef.current = true;
+    let optimisticDeducted = false;
+    flushSync(() => {
+      setState((s) => {
+        const cost = s.dynamicCosts?.gachaCost ?? gachaCost;
+        if (s.xp < cost) return s;
+        optimisticDeducted = true;
+        return { ...s, xp: Math.max(0, s.xp - cost) };
+      });
+    });
+    if (!optimisticDeducted) {
+      pullingRef.current = false;
+      showBanner(`Insufficient XP. Need ${gachaCost} XP to pull`, "alert");
+      return;
+    }
     const usage = state.tokenUsage;
     if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) {
       showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
@@ -589,6 +604,7 @@ Respond ONLY with JSON:
 
       const { text: raw, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a master of literary atmosphere and ASCII art. Respond only in JSON.", true, controller.signal);
       if (controller.signal.aborted) {
+        setState((s) => ({ ...s, xp: s.xp + (s.dynamicCosts?.gachaCost ?? gachaCost) }));
         if (mountedRef.current) setPulling(false);
         pullingRef.current = false;
         return;
@@ -646,12 +662,9 @@ Respond ONLY with JSON:
         if ((s.gachaCollection || []).length >= 2000) { isDuplicate = true; return s; }
         // Authoritative duplicate check using committed state.
         if ((s.gachaCollection || []).find(c => c.id === safeCard.id)) { isDuplicate = true; return s; }
-        // Guard: ensure the XP cost is still affordable in latest state.
-        const currentCost = s.dynamicCosts?.gachaCost ?? gachaCost;
-        if (s.xp < currentCost) { isDuplicate = true; return s; }
+        // XP already deducted optimistically before API call.
         const next = {
           ...s,
-          xp: Math.max(0, s.xp - currentCost),
           gachaCollection: [...(s.gachaCollection || []), { ...safeCard, pulledAt: Date.now() }],
         };
         snapshotForCosts = next;
@@ -659,6 +672,7 @@ Respond ONLY with JSON:
       });
 
       if (isDuplicate) {
+        setState((s) => ({ ...s, xp: s.xp + (s.dynamicCosts?.gachaCost ?? gachaCost) }));
         if (mountedRef.current) {
           showBanner("Duplicate generated or insufficient XP. No XP consumed.", "info");
           setPulling(false);
@@ -689,6 +703,7 @@ Respond ONLY with JSON:
         showToast({ icon: safeCard.type === "chronicle" ? "≡" : "◈", title: safeCard.title, desc: safeCard.rarity.toUpperCase() + " PULL", rarity: safeCard.rarity, isAchievement: false });
       }
     } catch {
+      setState((s) => ({ ...s, xp: s.xp + (s.dynamicCosts?.gachaCost ?? gachaCost) }));
       if (mountedRef.current) showBanner("Pull failed. System error.", "alert");
     } finally {
       pullingRef.current = false;

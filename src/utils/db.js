@@ -76,15 +76,16 @@ export const LS = {
 }
 
 // NOTE: intentionally does NOT strip < > & — React escapes these in JSX text nodes.
-// Do NOT use this function for strings interpolated into style attributes, data-* attributes, or non-JSX HTML.
-// For rendering user content in the UI — strips control/BiDi chars only.
-// Does NOT strip display-safe chars like " ' & [ ] which sanitizeForPrompt removes.
+// Safe for JSX text nodes AND inline style string values after this fix.
+// For rendering user content in the UI — strips control/BiDi chars and CSS-injectable chars.
+// Does NOT strip display-safe chars like [ ] which sanitizeForPrompt removes.
 export function sanitizeForDisplay(str, maxLen = 500) {
   if (typeof str !== 'string') return ''
   return str
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, '')
     .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, '')
+    .replace(/[\\";':(){}]/g, '')
     .slice(0, maxLen)
 }
 
@@ -152,6 +153,7 @@ export async function bootDb() {
   await _persister.startAutoSave()
   // Run one-shot migration from old localStorage data if needed.
   await _migrateFromLocalStorage()
+  import("../sync/SyncManager").then((m) => m.markIdbReady())
 }
 
 // ── One-shot migration from old localStorage/IDB ──────────────

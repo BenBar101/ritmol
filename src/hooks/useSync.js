@@ -182,10 +182,12 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
           try {
             window.location.href = window.location.origin + window.location.pathname;
           } catch {
-            // Reload blocked; release pull mutex so auto-push can resume. State already rehydrated.
-            isPullingRef.current = false;
+            // Reload blocked (e.g. Safari private mode).
           }
         }
+        // Reload may be blocked without throwing. Release mutex so auto-push can resume.
+        // If reload worked we're gone anyway; if blocked, state is already rehydrated.
+        isPullingRef.current = false;
       }, 800);
     } catch (e) {
       isPullingRef.current = false;
@@ -245,6 +247,10 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
     }
     clearTimeout(confirmTimerRef.current);
     setConfirmForgetSync(false);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     await SyncManager.forget();
     setSyncFileConnected(false);
     setSyncStatus("idle");
