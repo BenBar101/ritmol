@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { STYLE_CSS } from "./constants";
 import { sanitizeForPrompt } from "./api/systemPrompt";
 import { getGeminiApiKey } from "./utils/db";
@@ -22,7 +22,76 @@ export function inputStyle(s) {
 }
 
 // ── Dropbox step ──────────────────────────────────────────────
-function DropboxOnboardingStep({ connectDropbox, onSkip }) {
+function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState("");
+  // Check if we just returned from the Dropbox OAuth flow
+  const [connected, setConnected] = useState(() => isAuthenticated());
+
+  // Poll for auth on focus — handles the case where the user approved Dropbox
+  // in the popup/tab and returned to this page.
+  useEffect(() => {
+    if (connected) return;
+    const check = () => {
+      if (isAuthenticated()) {
+        setConnected(true);
+        setConnecting(false);
+      }
+    };
+    window.addEventListener("focus", check);
+    // Also poll every 800ms while connecting so we catch the redirect-back case
+    const interval = setInterval(check, 800);
+    return () => {
+      window.removeEventListener("focus", check);
+      clearInterval(interval);
+    };
+  }, [connected]);
+
+  // Auto-advance 1.2s after connection is confirmed so the user sees the ✓ state
+  useEffect(() => {
+    if (!connected) return;
+    const t = setTimeout(() => onAdvance?.(), 1200);
+    return () => clearTimeout(t);
+  }, [connected, onAdvance]);
+
+  function handleConnect() {
+    setConnectError("");
+    setConnecting(true);
+    try {
+      connectDropbox();
+      // startOAuthFlow() navigates away — if we're still here after 3s,
+      // something went wrong (popup blocked, key not configured, etc.)
+      setTimeout(() => {
+        if (!isAuthenticated()) {
+          setConnecting(false);
+        }
+      }, 3000);
+    } catch (e) {
+      setConnecting(false);
+      if (e?.message === "DROPBOX_NOT_CONFIGURED") {
+        setConnectError("Dropbox is not configured in this build. Skip and enter your Gemini key manually.");
+      } else {
+        setConnectError("Could not start Dropbox connection. Try again.");
+      }
+    }
+  }
+
+  if (connected) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px", alignItems: "center", padding: "8px 0" }}>
+        <div style={{
+          width: "48px", height: "48px", borderRadius: "50%",
+          border: "2px solid #4caf50", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "24px", color: "#4caf50",
+        }}>✓</div>
+        <div style={{ fontSize: "13px", color: "#4caf50", letterSpacing: "1px" }}>DROPBOX CONNECTED</div>
+        <div style={{ fontSize: "10px", color: "#555", textAlign: "center" }}>
+          Continuing to next step…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8" }}>
@@ -32,14 +101,22 @@ function DropboxOnboardingStep({ connectDropbox, onSkip }) {
       </div>
       <button
         type="button"
-        onClick={connectDropbox}
+        onClick={handleConnect}
+        disabled={connecting}
         style={{
-          width: "100%", padding: "14px", border: "2px solid #fff", background: "#fff", color: "#000",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px", cursor: "pointer",
+          width: "100%", padding: "14px", border: "2px solid #fff",
+          background: connecting ? "transparent" : "#fff",
+          color: connecting ? "#888" : "#000",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
+          cursor: connecting ? "not-allowed" : "pointer",
+          transition: "all 0.2s",
         }}
       >
-        CONNECT DROPBOX
+        {connecting ? "OPENING DROPBOX…" : "CONNECT DROPBOX"}
       </button>
+      {connectError && (
+        <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {connectError}</div>
+      )}
       <div style={{ height: "1px", background: "#333" }} />
       <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.6" }}>
         Already have a save file? Connecting Dropbox will pull it automatically.
@@ -105,6 +182,9 @@ export function GeminiKeySetupScreen({ onSave }) {
     </div>
   );
 }
+
+const BASE_URL = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") || "";
+const APP_ICON_URL = `${BASE_URL}/icon-192.png`;
 
 // ── Main onboarding ───────────────────────────────────────────
 export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbox }) {
@@ -240,6 +320,13 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
       height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "flex-start", padding: "24px", background: "#0a0a0a",
     }}>
+      {/* App icon */}
+      <img
+        src={APP_ICON_URL}
+        alt=""
+        style={{ width: 44, height: 44, marginTop: "16px", marginBottom: "12px" }}
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
       {/* Progress bar */}
       <div style={{ width: "100%", maxWidth: "380px", marginBottom: "24px", marginTop: "16px" }}>
         <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
@@ -274,6 +361,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
           <DropboxOnboardingStep
             connectDropbox={connectDropbox}
             onSkip={advance}
+            onAdvance={advance}
           />
         )}
 
