@@ -52,7 +52,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       if (debounceTimerRef.current) return;
       if (Date.now() < blockUntilRef.current) return;
       // 500ms debounce: ensures React's write-through setState has committed
-      // to localStorage before SyncManager.push() reads it.
+      // to the TinyBase store before SyncManager.push() reads it.
       debounceTimerRef.current = setTimeout(async () => {
         try {
           if (Date.now() < blockUntilRef.current) return;
@@ -136,6 +136,10 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       setSyncStatus("synced");
       showBanner("Pushed to Syncthing file.", "success");
     } catch (e) {
+      if (e.message === "SYNC_SKIPPED") {
+        setSyncStatus("idle");
+        return;
+      }
       setSyncStatus("error");
       const msgs = {
         NO_HANDLE:        "No sync file selected. Pick one in Profile → Settings.",
@@ -163,10 +167,12 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
     setSyncStatus("syncing");
     // Write-through setState (useAppState) persists synchronously to IDB; no flush needed before pull.
     isPullingRef.current = true; // [S-2] block auto-push during Pull
+    let _willReload = false;
     try {
       const ts = await SyncManager.pull();
-      // rehydrate reads from localStorage (which Pull just wrote) and
-      // resets React state atomically — no initState race condition.
+      // rehydrate calls initState() which reads from the TinyBase store
+      // (already updated by applyPayload via idbSet) and resets React state
+      // atomically — no initState race condition.
       await rehydrate();
       LS.set(storageKey("jv_last_synced"), String(ts));
       setLastSynced(ts);
@@ -175,6 +181,7 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       // After a successful pull and rehydrate, a full reload ensures any components
       // with local UI state derived from the old global state are reset to match
       // the freshly loaded data.
+      _willReload = true;
       reloadTimerRef.current = setTimeout(() => {
         try {
           window.location.reload();
@@ -183,14 +190,14 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
             window.location.href = window.location.origin + window.location.pathname;
           } catch {
             // Reload blocked (e.g. Safari private mode).
+            _willReload = false;
           }
         }
         // Reload may be blocked without throwing. Release mutex so auto-push can resume.
         // If reload worked we're gone anyway; if blocked, state is already rehydrated.
-        isPullingRef.current = false;
+        if (!_willReload) isPullingRef.current = false;
       }, 800);
     } catch (e) {
-      isPullingRef.current = false;
       setSyncStatus("error");
       const msgs = {
         NO_HANDLE:             "No sync file selected. Pick one in Profile → Settings.",
@@ -205,6 +212,8 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         .replace(/eyJ[\w.-]+/g, "[token]")
         .slice(0, 80);
       showBanner(msgs[e.message] ?? `Pull failed: ${safeMsg}`, "alert");
+    } finally {
+      if (!_willReload) isPullingRef.current = false;
     }
     // On success, isPullingRef stays true until reload clears the page.
   }, [rehydrate, showBanner]);

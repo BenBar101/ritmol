@@ -13,8 +13,8 @@ export const todayUTC = () => new Date().toISOString().slice(0, 10)
 // version caused habit-log vs mission-date mismatches (bug-25).
 // All callers that previously used today() now get UTC.
 export const today = todayUTC
-export const nowHour = () => new Date().getHours()
-export const nowMin  = () => new Date().getMinutes()
+export const nowHour = () => new Date().getUTCHours()
+export const nowMin  = () => new Date().getUTCMinutes()
 
 // ── Dev/prod isolation ─────────────────────────────────────────
 export const IS_DEV     = import.meta.env.DEV === true
@@ -85,6 +85,7 @@ export function sanitizeForDisplay(str, maxLen = 500) {
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, '')
     .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, '')
+    .replace(/[\u27E8\u27E9\u276C\u276D\u276E\u276F\uFE3D\uFE3E\u2329\u232A]/g, '')
     .replace(/[\\";':(){}]/g, '')
     .slice(0, maxLen)
 }
@@ -114,15 +115,15 @@ export const getMaxDateSeen = () => {
       } catch { /* ignore */ }
     }
   } catch { /* localStorage unavailable or invalid JSON */ }
-  const legacy = idbGet('jv_max_date_seen', null)
+  const legacy = idbGet(storageKey('jv_max_date_seen'), null)
   return (typeof legacy === 'string' && _DATE_RE.test(legacy)) ? legacy : null
 }
 export const updateMaxDateSeen = (dateStr) => {
   if (typeof dateStr !== 'string' || !_DATE_RE.test(dateStr)) return
   const current = getMaxDateSeen()
   if (!current || dateStr > current) {
-    store.setValue('jv_max_date_seen', dateStr)
-    idbSet('jv_max_date_seen', dateStr)
+    store.setValue(storageKey('jv_max_date_seen'), dateStr)
+    idbSet(storageKey('jv_max_date_seen'), dateStr)
     try {
       localStorage.setItem((IS_DEV ? DEV_PREFIX : '') + 'jv_max_date_seen', JSON.stringify(dateStr))
     } catch { /* localStorage full or unavailable */ }

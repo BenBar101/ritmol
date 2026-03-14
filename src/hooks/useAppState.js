@@ -25,42 +25,57 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { storageKey } from "../utils/storage";
 import { idbSet } from "../utils/db";
 import { initState } from "../utils/state";
+import { DEFAULT_XP_PER_LEVEL, DEFAULT_GACHA_COST, DEFAULT_STREAK_SHIELD_COST } from "../constants";
+
+let _persistErrorCount = 0;
 
 function persistState(s) {
   if (!s) return;
-
-  if (s.profile) {
-    // eslint-disable-next-line no-unused-vars
-    const { geminiKey: _g, ...rest } = s.profile;
-    idbSet(storageKey("jv_profile"), rest);
+  try {
+    if (s.profile) {
+      // eslint-disable-next-line no-unused-vars
+      const { geminiKey: _g, ...rest } = s.profile;
+      idbSet(storageKey("jv_profile"), rest);
+    }
+    idbSet(storageKey("jv_xp"),                 s.xp);
+    idbSet(storageKey("jv_streak"),             s.streak);
+    idbSet(storageKey("jv_shields"),            s.streakShields);
+    idbSet(storageKey("jv_last_login"),         s.lastLoginDate);
+    idbSet(storageKey("jv_habits"),             s.habits);
+    idbSet(storageKey("jv_habit_log"),          s.habitLog);
+    idbSet(storageKey("jv_tasks"),              s.tasks);
+    idbSet(storageKey("jv_goals"),              s.goals);
+    idbSet(storageKey("jv_sessions"),           s.sessions);
+    idbSet(storageKey("jv_achievements"),       s.achievements);
+    idbSet(storageKey("jv_gacha"),              s.gachaCollection);
+    idbSet(storageKey("jv_cal_events"),         s.calendarEvents);
+    idbSet(storageKey("jv_chat"),               s.chatHistory);
+    idbSet(storageKey("jv_daily_goal"),         s.dailyGoal);
+    idbSet(storageKey("jv_sleep_log"),          s.sleepLog);
+    idbSet(storageKey("jv_screen_log"),         s.screenTimeLog);
+    idbSet(storageKey("jv_missions"),           s.dailyMissions);
+    idbSet(storageKey("jv_mission_date"),       s.lastMissionDate);
+    idbSet(storageKey("jv_chronicles"),         s.chronicles);
+    idbSet(storageKey("jv_token_usage"),        s.tokenUsage);
+    idbSet(storageKey("jv_timers"),             Array.isArray(s.activeTimers) ? s.activeTimers.filter(t => typeof t.endsAt === "number" && t.endsAt > Date.now() - 3_600_000) : []);
+    idbSet(storageKey("jv_habit_suggestions"),  Array.isArray(s.pendingHabitSuggestions) ? s.pendingHabitSuggestions : []);
+    idbSet(storageKey("jv_gcal_connected"),     s.gCalConnected);
+    idbSet(storageKey("jv_habits_init"),        s.habitsInitialized);
+    idbSet(storageKey("jv_dynamic_costs"), s.dynamicCosts ?? null);
+    idbSet(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);
+    idbSet(storageKey("jv_last_shield_buy_date"), s.lastShieldBuyDate ?? null);
+    _persistErrorCount = 0;
+  } catch (e) {
+    _persistErrorCount += 1;
+    if (e?.name === "QuotaExceededError") {
+      window.dispatchEvent(new CustomEvent("ls-quota-exceeded"));
+    } else if (_persistErrorCount >= 3) {
+      window.dispatchEvent(new CustomEvent("ls-quota-exceeded"));
+      if (import.meta.env.DEV) {
+        console.error("[persistState] IDB write failed:", e?.message ?? e);
+      }
+    }
   }
-  idbSet(storageKey("jv_xp"),                 s.xp);
-  idbSet(storageKey("jv_streak"),             s.streak);
-  idbSet(storageKey("jv_shields"),            s.streakShields);
-  idbSet(storageKey("jv_last_login"),         s.lastLoginDate);
-  idbSet(storageKey("jv_habits"),             s.habits);
-  idbSet(storageKey("jv_habit_log"),          s.habitLog);
-  idbSet(storageKey("jv_tasks"),              s.tasks);
-  idbSet(storageKey("jv_goals"),              s.goals);
-  idbSet(storageKey("jv_sessions"),           s.sessions);
-  idbSet(storageKey("jv_achievements"),       s.achievements);
-  idbSet(storageKey("jv_gacha"),              s.gachaCollection);
-  idbSet(storageKey("jv_cal_events"),         s.calendarEvents);
-  idbSet(storageKey("jv_chat"),               s.chatHistory);
-  idbSet(storageKey("jv_daily_goal"),         s.dailyGoal);
-  idbSet(storageKey("jv_sleep_log"),          s.sleepLog);
-  idbSet(storageKey("jv_screen_log"),         s.screenTimeLog);
-  idbSet(storageKey("jv_missions"),           s.dailyMissions);
-  idbSet(storageKey("jv_mission_date"),       s.lastMissionDate);
-  idbSet(storageKey("jv_chronicles"),         s.chronicles);
-  idbSet(storageKey("jv_token_usage"),        s.tokenUsage);
-  idbSet(storageKey("jv_timers"),             Array.isArray(s.activeTimers) ? s.activeTimers.filter(t => typeof t.endsAt === "number" && t.endsAt > Date.now() - 3_600_000) : []);
-  idbSet(storageKey("jv_habit_suggestions"),  Array.isArray(s.pendingHabitSuggestions) ? s.pendingHabitSuggestions : []);
-  idbSet(storageKey("jv_gcal_connected"),     s.gCalConnected);
-  idbSet(storageKey("jv_habits_init"),        s.habitsInitialized);
-  if (s.dynamicCosts) idbSet(storageKey("jv_dynamic_costs"), s.dynamicCosts);
-  idbSet(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);
-  idbSet(storageKey("jv_last_shield_buy_date"), s.lastShieldBuyDate ?? null);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -121,6 +136,13 @@ export function useAppState() {
               pendingHabitSuggestions: [],
               gCalConnected: false,
               habitsInitialized: false,
+              dynamicCosts: {
+                xpPerLevel: DEFAULT_XP_PER_LEVEL,
+                gachaCost: DEFAULT_GACHA_COST,
+                streakShieldCost: DEFAULT_STREAK_SHIELD_COST,
+              },
+              lastShieldUseDate: null,
+              lastShieldBuyDate: null,
             };
             latestStateRef.current = emergency;
             _setState(emergency);

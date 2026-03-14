@@ -116,6 +116,7 @@ export const CalEventSchema = z.object({
   start: z.string().nullable(),
   type:  z.enum(['lecture', 'tirgul', 'exam', 'assignment', 'other']).optional(),
   end:   z.string().nullable().optional(),
+  reminded: z.boolean().optional(),
 })
 
 export const ChatMessageSchema = z.object({

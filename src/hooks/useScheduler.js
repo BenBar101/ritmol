@@ -56,14 +56,14 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
       const t = todayUTC(); // use UTC so panic timing aligns with streak date boundary
       const { sleepLog, screenTimeLog, calendarEvents, habitLog, streak } = scheduledStateRef.current;
 
-      // Sleep check-in at 07:30
+      // Sleep check-in at 07:30 UTC
       if (h === 7 && m >= 30 && m < 35 && !sleepLog?.[t]) {
         if (sleepModalShownRef.current === t) return;
         sleepModalShownRef.current = t;
         setModal({ type: "sleep_checkin" });
       }
 
-      // Screen time at 13:00 and 20:00
+      // Screen time at 13:00 UTC and 20:00 UTC
       if (h === 13 && m >= 0 && m < 5 && !screenTimeLog?.[t]?.afternoon) {
         if (screenModalShownRef.current.afternoon === t) return;
         screenModalShownRef.current.afternoon = t;

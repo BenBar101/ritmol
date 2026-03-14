@@ -294,6 +294,7 @@ function migratePayload(p) {
   // V1 → V2: when SYNC_SCHEMA_VERSION is 2, copy known V1 keys into V2 equivalents.
   // Increment first, THEN apply the transformation for THIS version step.
   while (out._schemaVersion < SYNC_SCHEMA_VERSION) {
+    if (out._schemaVersion < 1) { out._schemaVersion = 1; }
     if (out._schemaVersion >= SYNC_SCHEMA_VERSION) break;
     out._schemaVersion = out._schemaVersion + 1;
     // Add key renames or transformations here when V2 is introduced.
@@ -322,7 +323,7 @@ function parseAndValidate(text) {
   }
   // Legacy files may lack _schemaVersion; treat as V1 for backward compatibility.
   if (payload._schemaVersion === undefined) payload._schemaVersion = 1;
-  if (typeof payload._schemaVersion !== "number") {
+  if (typeof payload._schemaVersion !== "number" || !Number.isInteger(payload._schemaVersion) || payload._schemaVersion < 1) {
     throw new Error("Sync file missing _schemaVersion.");
   }
   if (payload._schemaVersion < SYNC_SCHEMA_VERSION) {
@@ -389,7 +390,7 @@ export const SyncManager = {
     return h !== null;
   },
 
-  /** Write current localStorage state to the linked sync file. */
+  /** Write current TinyBase store state to the linked sync file. */
   async push() {
     if (_opInProgress) throw new Error("SYNC_BUSY");
     _opInProgress = true;
@@ -428,11 +429,10 @@ export const SyncManager = {
         if (lastMod !== 0 && Date.now() - lastMod < 2000 && lastMod > _lastPushTime) {
           // 2 s window: some filesystems (e.g. FAT32) have 2-second lastModified
           // resolution; 800 ms was too tight and caused false-positive skips.
-          console.warn("[SyncManager] Skipping push — file was recently modified by another tab.");
-          const ts = Date.now();
-          return ts;
+          throw new Error("SYNC_SKIPPED");
         }
       } catch (innerErr) {
+        if (innerErr?.message === "SYNC_SKIPPED") throw innerErr;
         if (innerErr?.name === "NotFoundError") throw new Error("SYNC_FILE_NOT_FOUND");
         if (innerErr?.name === "SecurityError") throw new Error("PERMISSION_DENIED");
         /* other errors: fall through and attempt push */
@@ -459,7 +459,7 @@ export const SyncManager = {
     }
   },
 
-  /** Read the linked sync file and apply it to localStorage. */
+  /** Read the linked sync file and apply it to the TinyBase store. */
   async pull() {
     const handle = await SyncManager.getHandle();
     if (!handle) throw new Error("NO_HANDLE");

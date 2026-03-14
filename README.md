@@ -1,6 +1,6 @@
 # RITMOL
 
-A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **TinyBase** (in-memory store persisted to IndexedDB via `utils/db.js`). Validation uses **Zod**. Application logic and UI are split across modular `src/` files (root: **`src/App.jsx`**). Sync across devices by **reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API.
+A gamified life companion PWA for STEM university students. Solo Leveling RPG aesthetic. Black and white. No server — runs entirely in your browser. **Stack:** React, Vite; data lives in **TinyBase** (in-memory store persisted to IndexedDB via `utils/db.js`). Validation uses **Zod**. Application logic and UI are split across modular `src/` files (root: **`src/App.jsx`**). Sync across devices by **manually reading and writing a single JSON file** with [Syncthing](https://syncthing.net/) via the browser File System Access API. **Manual sync only** — do not run two instances (e.g. two tabs or two devices) at the same time; there is no conflict resolution.
 
 **Using the app (static site):** You don't need to clone this repo — just open the deployed static site (e.g. GitHub Pages). The app expects a single JSON data file in the same format as **`example-data/ritmol-data.json`** (with `_schemaVersion`, `geminiKey`, and your app data). In the app, go to **Profile → Settings → SYNCTHING SYNC** to link or import that file.
 
@@ -52,11 +52,11 @@ src/
   utils/
     storage.js          — re-exports from db.js (LS, storageKey, Gemini key, date helpers)
     db.js               — TinyBase store, bootDb(), IDB persister (ritmol_tb / ritmol_tb_dev),
-                          idbGet/idbSet/… shims; getMaxDateSeen; LS for non-IDB keys (theme, etc.)
+                          idbGet/idbSet/… shims; getMaxDateSeen; LS for non-IDB keys (theme, etc.);
+                          one-shot migration from legacy IDB store (runs inside bootDb)
     state.js            — initState(), state shape
     xp.js               — XP/level/rank math, session XP calc
     schemas.js          — Zod schemas (profile, habits, tasks, etc.)
-    migrate.js          — migration from legacy IDB/localStorage into TinyBase store
 ```
 
 - **`index.html`** — entry point; includes SPA redirect handling for GitHub Pages.
@@ -205,6 +205,8 @@ After a Pull, the key lives in `sessionStorage` for the lifetime of the tab. It 
 ## Sync: Syncthing + File System Access API
 
 Data is stored in a **TinyBase** in-memory store, persisted to **IndexedDB** (databases `ritmol_tb` in production and `ritmol_tb_dev` in dev, via `utils/db.js`). To use the same data on multiple devices, RITMOL uses the browser's [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API) to read and write a JSON file directly on disk — no OAuth, no cloud accounts, no extra services.
+
+**Manual sync only.** RITMOL does **not** support two instances running simultaneously (e.g. two browser tabs or two devices open at once). Sync is manual: Push before switching devices, Pull after. There is no conflict resolution or real-time sync — running multiple instances at the same time will cause data loss or overwrites.
 
 ### How it works
 

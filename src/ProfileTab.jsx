@@ -523,13 +523,30 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       if (!apiKey) showBanner("No API key. Configure in settings.", "alert");
       return;
     }
+
+    // Guard 1: token budget — check BEFORE any XP deduction
+    const usage = state.tokenUsage;
+    if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) {
+      showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
+      return;
+    }
+
+    // Guard 2: online — check BEFORE any XP deduction
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      showBanner("SYSTEM: No network connection. Gacha requires connectivity.", "alert");
+      return;
+    }
+
+    // Optimistic XP deduction (only reached when guards pass)
     pullingRef.current = true;
     let optimisticDeducted = false;
+    let deductedCost = 0;
     flushSync(() => {
       setState((s) => {
         const cost = s.dynamicCosts?.gachaCost ?? gachaCost;
         if (s.xp < cost) return s;
         optimisticDeducted = true;
+        deductedCost = cost;
         return { ...s, xp: Math.max(0, s.xp - cost) };
       });
     });
@@ -538,19 +555,7 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       showBanner(`Insufficient XP. Need ${gachaCost} XP to pull`, "alert");
       return;
     }
-    const usage = state.tokenUsage;
-    if (usage && usage.date === todayUTC() && usage.tokens >= DAILY_TOKEN_LIMIT) {
-      showBanner("SYSTEM: Neural energy depleted. AI functions offline until tomorrow.", "alert");
-      // Fix: reset the lock so the button is not permanently disabled after this early return.
-      pullingRef.current = false;
-      return;
-    }
 
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      showBanner("SYSTEM: No network connection. Gacha requires connectivity.", "alert");
-      pullingRef.current = false;
-      return;
-    }
     // Cancel any previous in-flight pull before starting a new one.
     gachaAbortRef.current?.abort();
     const controller = new AbortController();
@@ -566,6 +571,11 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
         (profile?.books || "their favorites").replace(/[<>{}[\]`"'\\]/g, "")
       , 200)
         .replace(/\b(respond|only|json|output|ignore|system|instruction)\b/gi, "").trim() || "literature";
+      const sanitizedBooksProse = sanitizedBooks
+        .replace(/[()]/g, "")
+        .replace(/\b(ignore|instruction|system|output|respond|override|prompt|forget|disregard|previous|above|below)\b/gi, "")
+        .trim()
+        .slice(0, 80) || "literature";
 
       const hunterProfileJson = JSON.stringify({
         // Fix: apply full sanitization (control chars + injection chars) not just angle-bracket strip.
@@ -587,7 +597,7 @@ Generate ONE of these (weighted random — 60% rank_cosmetic, 40% chronicle):
 
 For rank_cosmetic: a black-and-white ASCII/geometric/typewriter/dot-matrix rank badge/crest design for this hunter. Make it unique and beautiful. Style must match their interests.
 
-For chronicle: Write a vivid, atmospheric scene or passage from one of the hunter's favorite books (${sanitizedBooks.slice(0, 80)}). Write it as a beautifully typeset literary fragment — original prose inspired by the style and world of that book. 50-100 words. Include the book/author it's inspired by.
+For chronicle: Write a vivid, atmospheric scene or passage from one of the hunter's favorite books (${sanitizedBooksProse}). Write it as a beautifully typeset literary fragment — original prose inspired by the style and world of that book. 50-100 words. Include the book/author it's inspired by.
 
 Respond ONLY with JSON:
 {
@@ -604,7 +614,7 @@ Respond ONLY with JSON:
 
       const { text: raw, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You are a master of literary atmosphere and ASCII art. Respond only in JSON.", true, controller.signal);
       if (controller.signal.aborted) {
-        setState((s) => ({ ...s, xp: s.xp + (s.dynamicCosts?.gachaCost ?? gachaCost) }));
+        setState((s) => ({ ...s, xp: s.xp + deductedCost }));
         if (mountedRef.current) setPulling(false);
         pullingRef.current = false;
         return;
@@ -672,7 +682,7 @@ Respond ONLY with JSON:
       });
 
       if (isDuplicate) {
-        setState((s) => ({ ...s, xp: s.xp + (s.dynamicCosts?.gachaCost ?? gachaCost) }));
+        setState((s) => ({ ...s, xp: s.xp + deductedCost }));
         if (mountedRef.current) {
           showBanner("Duplicate generated or insufficient XP. No XP consumed.", "info");
           setPulling(false);
@@ -703,7 +713,7 @@ Respond ONLY with JSON:
         showToast({ icon: safeCard.type === "chronicle" ? "≡" : "◈", title: safeCard.title, desc: safeCard.rarity.toUpperCase() + " PULL", rarity: safeCard.rarity, isAchievement: false });
       }
     } catch {
-      setState((s) => ({ ...s, xp: s.xp + (s.dynamicCosts?.gachaCost ?? gachaCost) }));
+      setState((s) => ({ ...s, xp: s.xp + deductedCost }));
       if (mountedRef.current) showBanner("Pull failed. System error.", "alert");
     } finally {
       pullingRef.current = false;

@@ -43,16 +43,21 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
     const maxDateSeen = getMaxDateSeen();
     if (maxDateSeen && effectiveDate < maxDateSeen) {
       setState((s) => ({ ...s, lastLoginDate: effectiveDate, streak: 0, xp: s.xp }));
-      setTimeout(() => setModal({ type: "daily_login", xp: 0, streak: 0 }), 0);
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setModal({ type: "daily_login", xp: 0, streak: 0 });
+      });
       loginInProgressRef.current = false;
       return;
     }
     updateMaxDateSeen(effectiveDate);
 
+    const pendingData = { modal: null, levelUp: null, banner: null, shieldUpdate: null };
     setState((s) => {
       if (s.lastLoginDate === effectiveDate) return s;
       // Reject future-dated lastLoginDate from a crafted sync file
       if (s.lastLoginDate && s.lastLoginDate > effectiveDate) {
+        pendingData.modal = { type: "daily_login", xp: 0, streak: 0 };
         return { ...s, lastLoginDate: effectiveDate, streak: 0 };
       }
 
@@ -108,43 +113,15 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       if (newLevel > oldLevel) {
         lastLevelUpXpRef.current = newXP;
         const snapshot = { ...s, xp: newXP, streak: newStreak, streakShields: newShields, lastLoginDate: effectiveDate, lastShieldUseDate: newLastShieldUseDate };
-        setTimeout(() => {
-          if (cancelled) return;
-          setLevelUpData({ level: newLevel, rank: getRank(newLevel) });
-          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
-            .then((costs) => {
-              if (costs && Object.keys(costs).length) {
-                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-              }
-            }).catch((err) => {
-              if (import.meta.env.DEV) {
-                console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
-              }
-            });
-        }, 300);
+        pendingData.levelUp = { level: newLevel, rank: getRank(newLevel), snapshot };
       }
 
-      if (bannerMsg) setTimeout(() => showBanner(bannerMsg, "info"), 0);
+      if (bannerMsg) pendingData.banner = bannerMsg;
       if (usedShield) {
-        setTimeout(() => {
-          if (cancelled) return;
-          updateDynamicCosts(getGeminiApiKey(), { ...s, streakShields: newShields, lastShieldUseDate: effectiveDate }, "streak_shield_use", trackTokens)
-            .then((costs) => {
-              if (costs && Object.keys(costs).length) {
-                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-              }
-            }).catch((err) => {
-              if (import.meta.env.DEV) {
-                console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
-              }
-            });
-        }, 0);
+        pendingData.shieldUpdate = { newShields, lastShieldUseDate: effectiveDate };
       }
 
-      setTimeout(() => {
-        if (cancelled) return;
-        setModal({ type: "daily_login", xp: loginXP, streak: newStreak });
-      }, 0);
+      pendingData.modal = { type: "daily_login", xp: loginXP, streak: newStreak };
 
       return {
         ...s,
@@ -155,6 +132,40 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
         lastShieldBuyDate:   clearShieldBuyDate ? null : s.lastShieldBuyDate,
         xp:                 newXP,
       };
+    });
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (pendingData.banner) showBanner(pendingData.banner, "info");
+      if (pendingData.modal) setModal(pendingData.modal);
+      if (pendingData.levelUp) {
+        const { level, rank, snapshot } = pendingData.levelUp;
+        setLevelUpData((prev) => prev && prev.level >= level ? prev : { level, rank });
+        updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokens)
+          .then((costs) => {
+            if (costs && Object.keys(costs).length) {
+              setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+            }
+          }
+          ).catch((err) => {
+            if (import.meta.env.DEV) {
+              console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
+            }
+          });
+      }
+      if (pendingData.shieldUpdate) {
+        const { newShields, lastShieldUseDate } = pendingData.shieldUpdate;
+        updateDynamicCosts(getGeminiApiKey(), { streakShields: newShields, lastShieldUseDate }, "streak_shield_use", trackTokens)
+          .then((costs) => {
+            if (costs && Object.keys(costs).length) {
+              setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+            }
+          }
+          ).catch((err) => {
+            if (import.meta.env.DEV) {
+              console.warn("[useDailyLogin] updateDynamicCosts failed:", err?.message || err);
+            }
+          });
+      }
     });
     const resetTimer = setTimeout(() => {
       if (!cancelled) loginInProgressRef.current = false;

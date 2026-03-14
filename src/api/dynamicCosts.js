@@ -11,6 +11,7 @@ let _dcInFlight = false;
 export async function updateDynamicCosts(apiKey, state, event, onTokensUsed) {
   if (_dcInFlight) return {};
   _dcInFlight = true;
+  let _dcTimeout;
   try {
     if (!apiKey) return {};
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return {};
@@ -49,8 +50,16 @@ Keep values within these strict bounds: xpPerLevel 200–10000, gachaCost 50–5
 Typical reasonable values: xpPerLevel 300–1500, gachaCost 80–400, streakShieldCost 150–600.
 Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShieldCost (only include keys you want to change). Example: {"gachaCost": 180} or {"xpPerLevel": 550, "streakShieldCost": 320}. No explanation.`;
 
+    const _dcAbort = new AbortController();
+    _dcTimeout = setTimeout(() => _dcAbort.abort(), 15000);
     try {
-      const { text, tokensUsed } = await callGemini(apiKey, [{ role: "user", content: prompt }], "You output only valid JSON with numeric values.", true);
+      const { text, tokensUsed } = await callGemini(
+        apiKey,
+        [{ role: "user", content: prompt }],
+        "You output only valid JSON with numeric values.",
+        true,
+        _dcAbort.signal,
+      );
       if (onTokensUsed && tokensUsed > 0) onTokensUsed(tokensUsed);
       const match = text.match(/\{[\s\S]*\}/);
       const data = match ? JSON.parse(match[0]) : {};
@@ -82,6 +91,7 @@ Respond ONLY with a JSON object with any of: xpPerLevel, gachaCost, streakShield
       return {};
     }
   } finally {
+    if (_dcTimeout != null) clearTimeout(_dcTimeout);
     _dcInFlight = false;
   }
 }

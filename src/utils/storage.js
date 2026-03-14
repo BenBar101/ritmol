@@ -1,5 +1,6 @@
-// Temporary compatibility layer: re-export everything from the new db.js
-// so legacy imports from ./storage keep working during the migration.
+// Compatibility re-export layer: all symbols live in db.js.
+// Existing imports from ./storage continue to work via this file.
+// Safe to remove once all callers have been updated to import from ./db directly.
 export {
   LS,
   storageKey,
