@@ -318,8 +318,16 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
   }, []);
 
   const connectDropbox = useCallback(() => {
-    startOAuthFlow();
-  }, []);
+    try {
+      startOAuthFlow();
+    } catch (e) {
+      if (e?.message === "DROPBOX_NOT_CONFIGURED") {
+        showBanner("Dropbox App Key is not configured. See .env.example and rebuild.", "alert");
+        return;
+      }
+      showBanner("Could not start Dropbox connection.", "alert");
+    }
+  }, [showBanner]);
 
   const dropboxErrorMsgs = {
     DROPBOX_AUTH_REQUIRED: "Connect Dropbox in Profile → Settings to sync.",

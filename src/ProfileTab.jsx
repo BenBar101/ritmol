@@ -101,11 +101,9 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
     buyShieldSkipReasonRef.current = null;
     let appliedCost = 0;
     setState((s) => {
-      // NOTE: lastShieldBuyDate is tracked in UTC rather than local time. This means
-      // hunters near the UTC date boundary (UTC+12–UTC+14) may appear to get two
-      // purchases within a single local calendar day when buying just before and
-      // just after UTC midnight, but the economic impact is limited and keeps
-      // streak logic consistent with other UTC-based checks.
+      // NOTE: lastShieldBuyDate is tracked in LOCAL calendar date (localDateFromUTC()),
+      // consistent with other daily gates (missions, habit log). The date is read inside
+      // the updater from live s to prevent DevTools closure inspection.
       const t = localDateFromUTC();
       if (s.lastShieldBuyDate === t) {
         // Mark as skipped — mutex will be released after setState commits
@@ -148,17 +146,19 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       if (!snapshotForApi) return;
       const _displayCost = snapshotForApi?.xp !== undefined ? ((state.xp ?? 0) - (snapshotForApi.xp ?? 0)) : appliedCost;
       showBanner(`Streak shield purchased. Cost: ${_displayCost > 0 ? _displayCost : appliedCost} XP. Next cost may change.`, "success");
-      updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_buy", trackTokens)
-        .then((costs) => {
-          if (costs && Object.keys(costs).length) {
-            setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-          }
-        })
-        .catch((err) => {
-          if (import.meta.env.DEV) {
-            console.warn("[ProfileTab] updateDynamicCosts failed:", err?.message || err);
-          }
-        });
+      if (typeof navigator === "undefined" || navigator.onLine !== false) {
+        updateDynamicCosts(getGeminiApiKey(), snapshotForApi, "streak_shield_buy", trackTokens)
+          .then((costs) => {
+            if (costs && Object.keys(costs).length) {
+              setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+            }
+          })
+          .catch((err) => {
+            if (import.meta.env.DEV) {
+              console.warn("[ProfileTab] updateDynamicCosts failed:", err?.message || err);
+            }
+          });
+      }
     });
 
   }
@@ -444,7 +444,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
             style={{ flex: 2, background: "#111", border: "1px solid #222", color: "#aaa", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", outline: "none" }}
           />
         </div>
-        <button onClick={addEvent} style={primaryBtn}>ADD EVENT</button>
+        <button type="button" onClick={addEvent} style={primaryBtn}>ADD EVENT</button>
       </div>
 
       {/* Events list */}
@@ -680,15 +680,17 @@ Respond ONLY with JSON:
 
       const currentState = latestStateRef?.current ?? state;
       const costsSnapshot = snapshotForCosts ?? currentState;
-      updateDynamicCosts(getGeminiApiKey(), costsSnapshot, "gacha_pull", trackTokens).then((costs) => {
-        if (costs && Object.keys(costs).length && mountedRef.current) {
-          setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-        }
-      }).catch((err) => {
-        if (import.meta.env.DEV) {
-          console.warn("[ProfileTab] updateDynamicCosts failed:", err?.message || err);
-        }
-      });
+      if (typeof navigator === "undefined" || navigator.onLine !== false) {
+        updateDynamicCosts(getGeminiApiKey(), costsSnapshot, "gacha_pull", trackTokens).then((costs) => {
+          if (costs && Object.keys(costs).length && mountedRef.current) {
+            setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+          }
+        }).catch((err) => {
+          if (import.meta.env.DEV) {
+            console.warn("[ProfileTab] updateDynamicCosts failed:", err?.message || err);
+          }
+        });
+      }
 
       setCollectionPage(0);
       if (mountedRef.current) {
@@ -728,6 +730,7 @@ Respond ONLY with JSON:
           {canAfford ? `${gachaCost} XP per pull` : `Need ${gachaCost - state.xp} more XP`}
         </div>
         <button
+          type="button"
           onClick={doPull}
           disabled={!canAfford || pulling}
           style={{
@@ -1163,7 +1166,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
                 >
                   PULL ↓
                 </button>
-                <button onClick={onForgetSyncFile} style={{
+                <button type="button" onClick={onForgetSyncFile} style={{
                   padding: "10px", border: "1px solid #333",
                   background: confirmForgetSync ? "#3a1111" : "transparent",
                   color: confirmForgetSync ? "#c44" : "#555",
@@ -1249,7 +1252,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
         SAVE CLIENT ID
       </button>
 
-      <button onClick={resetAll} style={{
+      <button type="button" onClick={resetAll} style={{
         marginTop: "8px", padding: "10px",
         border: `1px solid ${confirmReset ? "#c44" : "#333"}`,
         background: confirmReset ? "#3a1111" : "transparent",

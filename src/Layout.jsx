@@ -5,7 +5,7 @@ import { getLevelProgress } from "./utils/xp";
 // TOP BAR
 // ═══════════════════════════════════════════════════════════════
 // eslint-disable-next-line no-unused-vars
-export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatus, lastSynced, onPush, onPull, syncFileConnected }) {
+export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatus, lastSynced, onPush, onPull, syncFileConnected, isReloading = false }) {
   const progress = getLevelProgress(xp, xpPerLevel);
   const pct = xpPerLevel > 0
     ? Math.min(100, Math.max(0, (progress / xpPerLevel) * 100))
@@ -47,12 +47,12 @@ export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatu
             <button
               type="button"
               onClick={onPull}
-              disabled={syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false)}
+              disabled={syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading}
               title={`Pull from Syncthing file · ${syncTitle}`}
               style={{
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "12px",
                 color: syncColor, background: "none", border: "none", padding: "2px 4px",
-                cursor: syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                cursor: syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading ? "default" : "pointer",
                 opacity: syncStatus === "syncing" ? 0.4 : 1,
               }}
             >
@@ -61,13 +61,13 @@ export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatu
             <button
               type="button"
               onClick={onPush}
-              disabled={syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false)}
+              disabled={syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading}
               title={`Push to Syncthing file · ${syncTitle}`}
               style={{
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "12px",
                 color: syncStatus === "syncing" ? "#aaa" : syncColor, background: "none", border: "none", padding: "2px 4px",
                 animation: syncStatus === "syncing" ? "spin 1s linear infinite" : "none",
-                cursor: syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                cursor: syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading ? "default" : "pointer",
               }}
             >
               {syncStatus === "syncing" ? "↻" : "↑"}

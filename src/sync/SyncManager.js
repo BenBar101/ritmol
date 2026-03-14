@@ -13,7 +13,7 @@
 //     incoming (prevents crafted sync from resetting once-per-day shield limit).
 // ═══════════════════════════════════════════════════════════════
 
-import { LS, storageKey, setGeminiApiKey, getGeminiApiKey, IS_DEV, DEV_PREFIX } from "../utils/storage";
+import { LS, storageKey, setGeminiApiKey, getGeminiApiKey, getMaxDateSeen, IS_DEV, DEV_PREFIX } from "../utils/storage";
 import { idbGet, idbSet, store } from "../utils/db";
 import { SyncPayloadSchema } from "../utils/schemas.js";
 import { SYNC_SCHEMA_VERSION } from "../constants";
@@ -266,16 +266,27 @@ function applyPayload(payload) {
       // Anti-cheat: streak cannot exceed the number of days elapsed since
       // the app epoch (2024-01-01). A crafted payload setting streak to the
       // Zod maximum (1095) without corresponding login history is rejected.
+      // Use the anti-cheat watermark as a floor for the reference time so
+      // importing a crafted payload while the clock is temporarily rewound
+      // cannot inflate maxPlausibleStreak below its true value.
       if (typeof val === "number" && val > 0) {
         const APP_EPOCH_MS = Date.parse("2024-01-01");
         const lastLoginVal = payload["jv_last_login"];
         const loginMs = typeof lastLoginVal === "string" && /^\d{4}-\d{2}-\d{2}$/.test(lastLoginVal)
           ? Date.parse(lastLoginVal)
           : Date.now();
-        const maxPlausibleStreak = Math.ceil((loginMs - APP_EPOCH_MS) / 86_400_000) + 1;
+        const watermark = getMaxDateSeen();
+        const watermarkMs = watermark ? Date.parse(watermark) : 0;
+        const refMs = Math.max(loginMs, Date.now(), watermarkMs);
+        const maxPlausibleStreak = Math.ceil((refMs - APP_EPOCH_MS) / 86_400_000) + 1;
         if (val > maxPlausibleStreak) {
           val = Math.min(val, maxPlausibleStreak);
         }
+      }
+    }
+    if (key === "jv_shields") {
+      if (typeof val === "number") {
+        val = Math.min(Math.max(0, Math.floor(val)), 50);
       }
     }
     if (key === "jv_chat") {

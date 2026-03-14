@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { todayUTC, localDateFromUTC } from './db'
-import { SYNC_SCHEMA_VERSION } from '../constants'
+import { SYNC_SCHEMA_VERSION, MAX_HABITS_TOTAL } from '../constants'
 
 // ── Primitives ─────────────────────────────────────────────────
 const dateStr       = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -157,7 +157,10 @@ export const LogObjSchema = z.record(
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   LogEntryValue
 ).refine(v => Object.keys(v).length <= 800, { message: 'Too many log entries' })
- .refine(v => !Object.keys(v).some(k => k > localDateFromUTC()), { message: 'Future log dates not allowed' })
+ .refine(v => {
+   const ceiling = todayUTC() > localDateFromUTC() ? todayUTC() : localDateFromUTC();
+   return !Object.keys(v).some(k => k > ceiling);
+ }, { message: 'Future log dates not allowed' })
 
 export const MissionSchema = z.object({
   id:     z.string().max(40),
@@ -199,7 +202,7 @@ export const SyncPayloadSchema = z.object({
   jv_streak:              z.number().min(0).max(1095).optional(),
   jv_shields:             z.number().int().min(0).max(50).optional(),
   jv_last_login:          nullOrDate.optional(),
-  jv_habits:              z.array(HabitSchema).max(500).optional(),
+  jv_habits:              z.array(HabitSchema).max(MAX_HABITS_TOTAL).optional(),
   jv_habit_log:           LogObjSchema.optional(),
   jv_tasks:               z.array(TaskSchema).max(5000).optional(),
   jv_goals:               z.array(GoalSchema).max(1000).optional(),

@@ -178,6 +178,12 @@ export const updateMaxDateSeen = (dateStr) => {
 //   - Quota errors are surfaced via the persister's onError callback
 let _persister = null
 
+// Set to true after bootDb() completes _persister.load(). Used by idbGet to
+// detect pre-boot reads that would silently return default values instead of
+// stored data. Never throws — emits a single console.warn per session.
+let _idbBootComplete = false
+let _idbBootWarnedOnce = false
+
 export async function bootDb() {
   _persister = createIndexedDbPersister(store, DB_NAME, {
     onError: (e) => {
@@ -191,6 +197,9 @@ export async function bootDb() {
   })
   // Load existing data from IDB into the store before the app renders.
   await _persister.load()
+  // Mark boot complete BEFORE startAutoSave so idbGet calls triggered by
+  // auto-save listeners do not emit spurious pre-boot warnings.
+  _idbBootComplete = true
   // Auto-save every store change to IDB. Fire-and-forget per TinyBase design.
   await _persister.startAutoSave()
   // Run one-shot migration from old localStorage data if needed.
@@ -259,6 +268,15 @@ export const useValue  = (key) => _useValue(store, key)
 // ── IDB shims (delegate to TinyBase store; replace legacy idb.js) ──
 // NOTE: 0 and false are valid stored values and pass the !== null check correctly.
 export function idbGet(key, def = null) {
+  if (!_idbBootComplete && !_idbBootWarnedOnce) {
+    _idbBootWarnedOnce = true
+    console.warn(
+      '[RITMOL] idbGet called before bootDb() completed. ' +
+      'All reads will return defaults. ' +
+      'Ensure bootDb() is awaited before mounting React. ' +
+      'First offending key: ' + String(key)
+    )
+  }
   const v = store.getValue(key)
   return (v !== undefined && v !== null) ? v : def
 }

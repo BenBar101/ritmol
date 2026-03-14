@@ -28,6 +28,7 @@ function SyncOnboardingStep({ connectDropbox, onSkip }) {
         use everywhere.
       </div>
       <button
+        type="button"
         onClick={connectDropbox}
         style={{
           width: "100%", padding: "14px", border: "2px solid #fff", background: "#fff", color: "#000",
@@ -42,6 +43,7 @@ function SyncOnboardingStep({ connectDropbox, onSkip }) {
         No account? You can skip this and sync manually later in Profile → Settings.
       </div>
       <button
+        type="button"
         onClick={onSkip}
         style={{
           width: "100%", padding: "10px", border: "1px solid #444", background: "transparent", color: "#888",
@@ -79,6 +81,7 @@ export function GeminiKeySetupScreen({ onSave }) {
         value={key}
         onChange={(e) => setKey(e.target.value)}
         placeholder="AIza..."
+        maxLength={60}
         style={{
           width: "100%", padding: "12px", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
           color: "#e8e8e8", fontSize: "14px", fontFamily: "'Share Tech Mono', monospace", outline: "none",
@@ -86,6 +89,7 @@ export function GeminiKeySetupScreen({ onSave }) {
       />
       {error && <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {error}</div>}
       <button
+        type="button"
         onClick={handleSave}
         style={{
           width: "100%", padding: "14px", border: "2px solid #fff", background: "#fff", color: "#000",
@@ -109,30 +113,35 @@ export default function Onboarding({ onComplete, showGeminiKeySetup, onGeminiKey
       subtitle: "Hunter identification required.",
       field: "name", label: "YOUR NAME", placeholder: "Enter designation...", type: "text",
       style: "ascii",
+      maxLen: 60,
     },
     {
       title: "FIELD OF STUDY",
       subtitle: "Specialization determines mission parameters.",
       field: "major", label: "MAJOR / FIELD", placeholder: "e.g. Computer Science, Physics...", type: "text",
       style: "geometric",
+      maxLen: 80,
     },
     {
       title: "KNOWLEDGE BASE",
       subtitle: "Books and authors you read. This shapes your quotes and lore cards.",
       field: "books", label: "FAVORITE BOOKS / AUTHORS", placeholder: "e.g. Richard Feynman, Brandon Sanderson, Dune...", type: "textarea",
       style: "dots",
+      maxLen: 200,
     },
     {
       title: "INTEREST MAPPING",
       subtitle: "Hobbies and subjects outside study. Used to personalize observations.",
       field: "interests", label: "INTERESTS", placeholder: "e.g. Chess, weightlifting, philosophy...", type: "textarea",
       style: "typewriter",
+      maxLen: 200,
     },
     {
       title: "SEMESTER OBJECTIVE",
       subtitle: "State your primary goal for this semester.",
       field: "semesterGoal", label: "SEMESTER GOAL", placeholder: "e.g. Finish with >90 GPA, land internship...", type: "textarea",
       style: "geometric",
+      maxLen: 300,
     },
     {
       title: "SYNC SETUP",
@@ -141,6 +150,7 @@ export default function Onboarding({ onComplete, showGeminiKeySetup, onGeminiKey
       style: "ascii",
       isSyncStep: true,
       optional: true,
+      maxLen: 0,
     },
   ];
 
@@ -269,6 +279,7 @@ export default function Onboarding({ onComplete, showGeminiKeySetup, onGeminiKey
                 onChange={(e) => setForm((f) => ({ ...f, [current.field]: e.target.value }))}
                 placeholder={current.placeholder}
                 rows={3}
+                maxLength={current.maxLen}
                 style={inputStyle(s)}
               />
             ) : (
@@ -277,6 +288,7 @@ export default function Onboarding({ onComplete, showGeminiKeySetup, onGeminiKey
                 value={form[current.field]}
                 onChange={(e) => setForm((f) => ({ ...f, [current.field]: e.target.value }))}
                 placeholder={current.placeholder}
+                maxLength={current.maxLen}
                 style={inputStyle(s)}
               />
             )}
@@ -290,7 +302,7 @@ export default function Onboarding({ onComplete, showGeminiKeySetup, onGeminiKey
           {" "}(UTC{-(new Date().getTimezoneOffset()) >= 0 ? "+" : ""}{(-(new Date().getTimezoneOffset()) / 60).toFixed(0)})
         </div>
 
-        <button onClick={handleNext} style={{ ...primaryBtn, marginTop: "16px" }}>
+        <button type="button" onClick={handleNext} style={{ ...primaryBtn, marginTop: "16px" }}>
           {step === steps.length - 1 ? "INITIALIZE RITMOL" : current.optional ? "NEXT › (or skip)" : "NEXT ›"}
         </button>
       </div>

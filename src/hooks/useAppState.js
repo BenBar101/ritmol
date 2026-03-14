@@ -90,64 +90,51 @@ export function useAppState() {
   useEffect(() => {
     let cancelled = false;
     async function boot() {
+      if (cancelled) return;
       try {
-        // Store is already populated by bootDb() in main.jsx — initState() is safe
-        if (!cancelled) {
-          const fresh = initState();
-          latestStateRef.current = fresh;
-          _setState(fresh);
-          setIdbReady(true);
-        }
+        const fresh = initState();
+        latestStateRef.current = fresh;
+        _setState(fresh);
+        setIdbReady(true);
       } catch (e) {
-        console.error("[useAppState] Boot failed:", e);
-        // Last-resort: try initState() anyway. If THAT also fails, fall back to a
-        // minimal empty state so the app can surface an error instead of hanging
-        // forever on the INITIALISING screen.
+        console.error("[useAppState] Boot failed — using emergency state:", e);
         if (!cancelled) {
-          try {
-            const fresh = initState();
-            latestStateRef.current = fresh;
-            _setState(fresh);
-            setIdbReady(true);
-          } catch (innerE) {
-            console.error("[useAppState] initState failed in fallback:", innerE);
-            const emergency = {
-              profile: null,
-              xp: 0,
-              streak: 0,
-              streakShields: 0,
-              habits: [],
-              habitLog: {},
-              tasks: [],
-              goals: [],
-              sessions: [],
-              achievements: [],
-              gachaCollection: [],
-              calendarEvents: [],
-              chatHistory: [],
-              dailyGoal: null,
-              sleepLog: {},
-              screenTimeLog: {},
-              dailyMissions: null,
-              lastMissionDate: null,
-              chronicles: [],
-              tokenUsage: null,
-              activeTimers: [],
-              pendingHabitSuggestions: [],
-              gCalConnected: false,
-              habitsInitialized: false,
-              dynamicCosts: {
-                xpPerLevel: DEFAULT_XP_PER_LEVEL,
-                gachaCost: DEFAULT_GACHA_COST,
-                streakShieldCost: DEFAULT_STREAK_SHIELD_COST,
-              },
-              lastShieldUseDate: null,
-              lastShieldBuyDate: null,
-            };
-            latestStateRef.current = emergency;
-            _setState(emergency);
-            setIdbReady(true);
-          }
+          const emergency = {
+            profile: null,
+            xp: 0,
+            streak: 0,
+            streakShields: 0,
+            habits: [],
+            habitLog: {},
+            tasks: [],
+            goals: [],
+            sessions: [],
+            achievements: [],
+            gachaCollection: [],
+            calendarEvents: [],
+            chatHistory: [],
+            dailyGoal: null,
+            sleepLog: {},
+            screenTimeLog: {},
+            dailyMissions: null,
+            lastMissionDate: null,
+            chronicles: [],
+            tokenUsage: null,
+            activeTimers: [],
+            pendingHabitSuggestions: [],
+            gCalConnected: false,
+            habitsInitialized: false,
+            dynamicCosts: {
+              xpPerLevel: DEFAULT_XP_PER_LEVEL,
+              gachaCost: DEFAULT_GACHA_COST,
+              streakShieldCost: DEFAULT_STREAK_SHIELD_COST,
+            },
+            lastShieldUseDate: null,
+            lastShieldBuyDate: null,
+          };
+          latestStateRef.current = emergency;
+          _setState(emergency);
+          setIdbReady(true);
         }
       }
     }

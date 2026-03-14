@@ -122,7 +122,7 @@ export function buildSystemPrompt(state, profile) {
       // "[RITMOL]" adjacent to the join separator.
       const safe = sanitizeForPrompt(m.content, 300)
         .replace(/\s{2,}/g, " ")
-        .replace(/\b(HUNTER|RITMOL|RECENT_CTX|HUNTER_CTX|SYSTEM|HUNTER_DATA|RECENT_CONTEXT|INSTRUCTION|PROMPT|OVERRIDE|IGNORE)\b/gi, "")
+        .replace(/\b(HUNTER|RITMOL|RECENT_CTX|HUNTER_CTX|SYSTEM|HUNTER_DATA|RECENT_CONTEXT|INSTRUCTION|PROMPT|OVERRIDE|IGNORE|CONTEXT|BOUNDARY|DELIMITER|SEPARATOR|END_OF|START_OF)\b/gi, "")
         .replace(/\[HUNTER\]|\[RITMOL\]/g, "")
         .trim();
       const role = m.role === "user" ? "[HUNTER]" : "[RITMOL]";

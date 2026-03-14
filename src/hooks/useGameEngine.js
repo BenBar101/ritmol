@@ -25,7 +25,7 @@ import { getLevel, getRank, getXpPerLevel } from "../utils/xp";
 import { getGeminiApiKey } from "../utils/storage";
 import { updateDynamicCosts } from "../api/dynamicCosts";
 import { sanitizeForPrompt } from "../api/systemPrompt";
-import { DAILY_TOKEN_LIMIT, DAILY_AI_XP_LIMIT } from "../constants";
+import { DAILY_TOKEN_LIMIT, DAILY_AI_XP_LIMIT, MAX_HABITS_TOTAL } from "../constants";
 
 const TOKEN_WARN_THRESHOLDS = [0.5, 0.8, 0.99];
 const MAX_XP_PER_CMD        = 500;
@@ -34,7 +34,6 @@ const MAX_STR_LEN           = 300;
 const MAX_TASKS_PER_RUN     = 10;
 const MAX_TASKS_TOTAL       = 500;
 const MAX_GOALS_TOTAL       = 200;
-const MAX_HABITS_TOTAL      = 100;
 const MAX_COMMANDS_PER_RUN  = 20;
 
 const VALID_CMDS = new Set([
@@ -172,17 +171,19 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
             if (prev && prev.level >= newLevel) return prev;
             return { level: newLevel, rank: getRank(newLevel) };
           });
-          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokensRef.current)
-            .then((costs) => {
-              if (costs && Object.keys(costs).length && _engineMountedRef.current) {
-                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-              }
-            })
-            .catch((err) => {
-              if (import.meta.env.DEV) {
-                console.warn("[useGameEngine] updateDynamicCosts (level_up) failed:", err?.message || err);
-              }
-            });
+          if (typeof navigator === "undefined" || navigator.onLine !== false) {
+            updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokensRef.current)
+              .then((costs) => {
+                if (costs && Object.keys(costs).length && _engineMountedRef.current) {
+                  setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+                }
+              })
+              .catch((err) => {
+                if (import.meta.env.DEV) {
+                  console.warn("[useGameEngine] updateDynamicCosts (level_up) failed:", err?.message || err);
+                }
+              });
+          }
         }, 300);
       }
       return { ...s, xp: newXP };
@@ -255,17 +256,19 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
             if (prev && prev.level >= level) return prev;
             return { level, rank };
           });
-          updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokensRef.current)
-            .then((costs) => {
-              if (costs && Object.keys(costs).length && _engineMountedRef.current) {
-                setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
-              }
-            })
-            .catch((err) => {
-              if (import.meta.env.DEV) {
-                console.warn("[useGameEngine] updateDynamicCosts (mission level_up) failed:", err?.message || err);
-              }
-            });
+          if (typeof navigator === "undefined" || navigator.onLine !== false) {
+            updateDynamicCosts(getGeminiApiKey(), snapshot, "level_up", trackTokensRef.current)
+              .then((costs) => {
+                if (costs && Object.keys(costs).length && _engineMountedRef.current) {
+                  setState((prev) => ({ ...prev, dynamicCosts: { ...prev.dynamicCosts, ...costs } }));
+                }
+              })
+              .catch((err) => {
+                if (import.meta.env.DEV) {
+                  console.warn("[useGameEngine] updateDynamicCosts (mission level_up) failed:", err?.message || err);
+                }
+              });
+          }
         }, 300);
       }
     });
@@ -290,7 +293,6 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
     actionLocksRef.current.add(habitId);
     setTimeout(() => actionLocksRef.current.delete(habitId), 500);
 
-    const t = localDateFromUTC();
     // pendingRef is a plain object (not useRef) intentionally — it is local to each
     // logHabit invocation. In React Strict Mode the updater runs twice:
     //   - 1st run: log does NOT include habitId → sets didLog=true, xp=h.xp
@@ -299,6 +301,9 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
     const pendingRef = { didLog: false, xp: 0 };
 
     setState((s) => {
+      // Read localDateFromUTC() inside the updater so the log key always matches
+      // the calendar date at commit time, not at call time.
+      const t = localDateFromUTC();
       const log = s.habitLog[t] || [];
       if (log.includes(habitId)) return s;
       const h = s.habits.find((h) => h.id === habitId);

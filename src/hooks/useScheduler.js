@@ -25,11 +25,11 @@ export function useScheduler({ state, profile, showBanner, setModal }) {
   const sleepModalShownRef = useRef(null);
   const screenModalShownRef = useRef({});
   const scheduledStateRef = useRef({
-    sleepLog:       state?.sleepLog,
-    screenTimeLog:  state?.screenTimeLog,
-    calendarEvents: state?.calendarEvents,
-    habitLog:       state?.habitLog,
-    streak:         state?.streak,
+    sleepLog:       null,
+    screenTimeLog:  null,
+    calendarEvents: null,
+    habitLog:       null,
+    streak:         0,
   });
   useEffect(() => {
     if (!state) return;

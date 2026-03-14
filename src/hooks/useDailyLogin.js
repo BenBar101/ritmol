@@ -46,8 +46,8 @@ export function useDailyLogin({ profile, setState, setModal, setLevelUpData, sho
       queueMicrotask(() => {
         if (cancelled) return;
         setModal({ type: "daily_login", xp: 0, streak: 0 });
+        loginInProgressRef.current = false;
       });
-      loginInProgressRef.current = false;
       return;
     }
     updateMaxDateSeen(effectiveDate);

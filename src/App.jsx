@@ -99,7 +99,14 @@ function KeysConfigGate({ resetPullMutex }) {
       }, 250);
     } catch (e) {
       setSyncStatus("error");
-      const msgs = { NO_HANDLE: "No sync file linked yet.", CORRUPT_FILE: "Sync file is corrupt or not valid JSON.", SYNC_SCHEMA_OUTDATED: "Sync file was written by an older version of RITMOL.", SYNC_FILE_TOO_LARGE: "Sync file exceeds 10 MB. Check the file.", SYNC_BUSY: "Sync already in progress. Please wait." };
+      const msgs = {
+        NO_HANDLE:            "No sync file linked yet.",
+        CORRUPT_FILE:         "Sync file is corrupt or not valid JSON.",
+        SYNC_SCHEMA_OUTDATED: "Sync file was written by an older version of RITMOL.",
+        SYNC_FILE_TOO_LARGE:  "Sync file exceeds 10 MB. Check the file.",
+        SYNC_BUSY:            "Sync already in progress. Please wait.",
+        IDB_NOT_READY:        "Still loading, try again in a moment.",
+      };
       setSyncError(msgs[e.message] ?? "Pull failed. Check your sync file and try again.");
     }
   }
@@ -314,21 +321,23 @@ export default function App() {
   if (!apiKey) return <ErrorBoundary><KeysConfigGate resetPullMutex={resetPullMutex} /></ErrorBoundary>;
   if (showOnboarding) {
     return (
-      <Onboarding
-        onComplete={(profile) => {
-          setState((s) => ({ ...s, profile }));
-          setShowOnboarding(false);
-        }}
-        showGeminiKeySetup={showGeminiKeySetup}
-        onGeminiKeySaved={async (key, profile) => {
-          setGeminiApiKey(key);
-          if (profile) setState((s) => ({ ...s, profile }));
-          await syncPush();
-          setShowGeminiKeySetup(false);
-          setShowOnboarding(false);
-        }}
-        connectDropbox={connectDropbox}
-      />
+      <ErrorBoundary>
+        <Onboarding
+          onComplete={(profile) => {
+            setState((s) => ({ ...s, profile }));
+            setShowOnboarding(false);
+          }}
+          showGeminiKeySetup={showGeminiKeySetup}
+          onGeminiKeySaved={async (key, profile) => {
+            setGeminiApiKey(key);
+            if (profile) setState((s) => ({ ...s, profile }));
+            await syncPush();
+            setShowGeminiKeySetup(false);
+            setShowOnboarding(false);
+          }}
+          connectDropbox={connectDropbox}
+        />
+      </ErrorBoundary>
     );
   }
   if (!profile && !showOnboarding) {
@@ -389,7 +398,7 @@ export default function App() {
             DEV MODE — separate localStorage (ritmol_dev_*)
           </div>
         )}
-        <TopBar xp={state.xp} xpPerLevel={xpPerLevel} level={level} rank={rank} streak={state.streak} profile={profile} syncStatus={syncStatus} lastSynced={lastSynced} onPush={syncPush} onPull={syncPull} syncFileConnected={syncFileConnected} />
+        <TopBar xp={state.xp} xpPerLevel={xpPerLevel} level={level} rank={rank} streak={state.streak} profile={profile} syncStatus={syncStatus} lastSynced={lastSynced} onPush={syncPush} onPull={syncPull} syncFileConnected={syncFileConnected} isReloading={isReloading} />
         <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: "70px", paddingTop: "56px" }}>
           {tab === "home"    && <ErrorBoundary key="home"><HomeTab /></ErrorBoundary>}
           {tab === "habits"  && <ErrorBoundary key="habits"><HabitsTab /></ErrorBoundary>}

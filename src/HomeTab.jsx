@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
-import { todayUTC, nowHour, sanitizeForDisplay } from "./utils/storage";
+import { localDateFromUTC, todayUTC, nowHour, sanitizeForDisplay } from "./utils/storage";
 import { DAILY_TOKEN_LIMIT } from "./constants";
 
 export default function HomeTab() {
   const { state, setState, rank, dailyQuote, logHabit, showBanner, setTab, profile } = useAppContext();
-  const todayLog = state.habitLog[todayUTC()] || [];
+  const todayLog = state.habitLog[localDateFromUTC()] || [];
   const totalHabits = state.habits.length;
   const doneHabits = todayLog.length;
 

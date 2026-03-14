@@ -35,8 +35,17 @@ export default defineConfig({
   ],
   build: {
     outDir: 'dist',
+    // Never ship sourcemaps to production. Sourcemaps expose the full
+    // original source including security comments, sessionStorage key names,
+    // sanitization logic, and internal function names.
+    sourcemap: false,
+    // Inline all assets under 10 kB so the app works from a single HTML file
+    // when loaded from a local Syncthing folder (file:// protocol).
+    assetsInlineLimit: 10240,
     rollupOptions: {
-      output: { manualChunks: undefined }
-    }
-  }
+      // Single output chunk — prevents split chunks from requiring a second
+      // network fetch when the app is served from GitHub Pages or used offline.
+      output: { manualChunks: undefined },
+    },
+  },
 });

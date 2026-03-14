@@ -31,6 +31,20 @@
 
 const DROPBOX_CLIENT_ID = import.meta.env.VITE_DROPBOX_APP_KEY;
 
+// Guard: if VITE_DROPBOX_APP_KEY was not set at build time, all Dropbox functions
+// will fail with cryptic errors. Throw immediately so the misconfiguration is
+// surfaced clearly in the console on first load, not buried in an OAuth callback.
+if (!DROPBOX_CLIENT_ID || DROPBOX_CLIENT_ID === "undefined") {
+  // Use console.warn not console.error so it doesn't trip error-monitoring alerts
+  // on intentional builds where Dropbox is not used.
+  console.warn(
+    "[RITMOL] VITE_DROPBOX_APP_KEY is not set. " +
+    "Dropbox sync will not work. " +
+    "Add VITE_DROPBOX_APP_KEY to your .env file and rebuild. " +
+    "See .env.example for instructions."
+  );
+}
+
 // Redact the App Key from any string before it reaches a log or thrown message.
 // The key is compile-time inlined; this prevents it appearing in console output.
 // eslint-disable-next-line no-unused-vars -- kept for defensive use when adding debug logging
@@ -161,6 +175,9 @@ export function isAuthenticated() {
 }
 
 export function startOAuthFlow() {
+  if (!DROPBOX_CLIENT_ID || DROPBOX_CLIENT_ID === "undefined") {
+    throw new Error("DROPBOX_NOT_CONFIGURED");
+  }
   const verifier = generateCodeVerifier();
   sessionStorage.setItem(SS_CODE_VERIFIER, verifier);
 
