@@ -389,9 +389,13 @@ export default function App() {
     return () => window.removeEventListener("ls-quota-exceeded", handler);
   }, [showBanner]);
 
-  // Initialize onboarding flag once IDB-backed state is ready.
+  // Initialize onboarding flag once — only fires when IDB is first ready.
+  // Using a ref guard prevents a subsequent setState() call (e.g. after a sync
+  // pull) from re-triggering onboarding if profile is momentarily absent.
+  const onboardingInitedRef = useRef(false);
   useEffect(() => {
-    if (!idbReady || !state) return;
+    if (!idbReady || !state || onboardingInitedRef.current) return;
+    onboardingInitedRef.current = true;
     setShowOnboarding(!state.profile);
   }, [idbReady, state]);
 
