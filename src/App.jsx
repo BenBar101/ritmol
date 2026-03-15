@@ -426,9 +426,14 @@ export default function App() {
     return (
       <ErrorBoundary>
         <Onboarding
-          onComplete={(profile) => {
+          onComplete={async (profile) => {
             setState((s) => ({ ...s, profile }));
             setShowOnboarding(false);
+            // Push immediately so the Gemini key (in sessionStorage) and the
+            // new profile are written to Dropbox in one shot. Without this,
+            // a fresh tab after onboarding shows MissingKeyGate because the
+            // key never made it into the sync file.
+            try { await syncPush(); } catch { /* non-fatal — user can push manually */ }
           }}
           onGeminiKeySaved={async (key, profile) => {
             setGeminiApiKey(key);

@@ -419,13 +419,22 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
     return sanitizeForPrompt(str ?? "", maxLen);
   }
 
+  // sanitizeForPrompt strips ALL control chars (code <= 31), including newlines.
+  // For textarea fields where users press Enter to separate items, normalise
+  // newlines into ", " first so entries don't get jammed together.
+  function sanitizeMultilineField(str, maxLen = 300) {
+    const normalized = (str ?? "").replace(/[
+]+/g, ", ").replace(/,\s*,+/g, ",").trim();
+    return sanitizeForPrompt(normalized, maxLen);
+  }
+
   function sanitizeForm(f) {
     return {
       name: sanitizeField(f.name, 60),
       major: sanitizeField(f.major, 80),
-      books: sanitizeField(f.books, 200),
-      interests: sanitizeField(f.interests, 200),
-      semesterGoal: sanitizeField(f.semesterGoal, 300),
+      books: sanitizeMultilineField(f.books, 200),
+      interests: sanitizeMultilineField(f.interests, 200),
+      semesterGoal: sanitizeMultilineField(f.semesterGoal, 300),
       // Persist the Client ID entered during onboarding so the profile has it immediately.
       // Validate format before saving — same rule as ProfileTab's saveClientId().
       ...(f.gcalClientId && /^[\w.-]+\.apps\.googleusercontent\.com$/.test(f.gcalClientId.trim())
