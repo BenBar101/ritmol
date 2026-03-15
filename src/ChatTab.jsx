@@ -228,9 +228,9 @@ export default function ChatTab() {
       {/* Data disclosure (one-time) */}
       {!disclosureDismissed && (
         <div style={{
-          padding: "10px 16px", background: "#1a1a1a", borderBottom: "1px solid #222",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#888",
-          display: "flex", alignItems: "flex-start", gap: "8px",
+          padding: "16px", background: "#000", borderBottom: "3px solid #fff",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff",
+          display: "flex", alignItems: "flex-start", gap: "12px", lineHeight: "1.6",
         }}>
           <span style={{ flex: 1 }}>
             RITMOL sends your habits, tasks, goals, sleep, and calendar summary to Google&apos;s Gemini API to personalize responses. No data is stored by us beyond your chat history.
@@ -238,9 +238,9 @@ export default function ChatTab() {
           <button
             type="button"
             onClick={() => { LS.set(storageKey(DATA_DISCLOSURE_SEEN_KEY), "1"); setDisclosureDismissed(true); }}
-            style={{ padding: "2px 8px", border: "1px solid #444", background: "transparent", color: "#666", cursor: "pointer", flexShrink: 0 }}
+            style={{ padding: "10px 16px", border: "2px solid #fff", background: "transparent", color: "#fff", cursor: "pointer", flexShrink: 0, minHeight: "48px", fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", fontWeight: "bold" }}
           >
-            Got it
+            GOT IT
           </button>
         </div>
       )}
@@ -248,9 +248,9 @@ export default function ChatTab() {
       <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
         {messages.length === 0 && (
           <div style={{ textAlign: "center", padding: "40px 20px", fontFamily: "'Share Tech Mono', monospace" }}>
-            <div style={{ fontSize: "32px", marginBottom: "12px" }}>◈</div>
-            <div style={{ fontSize: "14px", marginBottom: "6px" }}>RITMOL ONLINE</div>
-            <div style={{ fontSize: "11px", color: "#555" }}>System ready. Awaiting Hunter input.</div>
+            <div style={{ fontSize: "48px", marginBottom: "16px" }}>◈</div>
+            <div style={{ fontSize: "20px", marginBottom: "8px", fontWeight: "bold" }}>RITMOL ONLINE</div>
+            <div style={{ fontSize: "15px", color: "#ccc" }}>System ready. Awaiting Hunter input.</div>
           </div>
         )}
         {messages.map((msg, i) => {
@@ -261,13 +261,13 @@ export default function ChatTab() {
           return <ChatMessage key={key} msg={msg} />;
         })}
         {loading && (
-          <div style={{ display: "flex", gap: "6px", padding: "8px 0" }}>
-            {[0, 1, 2].map((i) => (
-              <div key={i} style={{
-                width: "6px", height: "6px", background: "#555",
-                animation: `pulse 1s ${i * 0.2}s infinite`,
-              }} />
-            ))}
+          <div style={{
+            border: "2px solid #fff", padding: "14px 20px",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+            color: "#fff", fontWeight: "bold", display: "inline-block",
+            alignSelf: "flex-start",
+          }}>
+            PROCESSING...
           </div>
         )}
         <div ref={chatEndRef} />
@@ -275,13 +275,14 @@ export default function ChatTab() {
 
       {/* Suggestion chips */}
       {messages.length < 3 && (
-        <div style={{ padding: "0 16px 8px", display: "flex", gap: "6px", overflowX: "auto", opacity: loading ? 0.4 : 1, pointerEvents: loading ? "none" : "auto" }}>
+        <div style={{ padding: "0 16px 12px", display: "flex", gap: "8px", overflowX: "auto", pointerEvents: loading ? "none" : "auto" }}>
           {chips.map((c) => (
             <button type="button" key={c} disabled={loading} onClick={() => sendMessage(c)} style={{
-              padding: "6px 12px", border: "1px solid #333",
-              background: "transparent", color: "#777",
-              fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
-              whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0,
+              padding: "10px 16px", border: loading ? "2px solid #444" : "2px solid #fff",
+              background: "transparent", color: loading ? "#555" : "#fff",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "13px",
+              whiteSpace: "nowrap", cursor: loading ? "default" : "pointer", flexShrink: 0,
+              minHeight: "48px",
             }}>
               {c}
             </button>
@@ -290,7 +291,7 @@ export default function ChatTab() {
       )}
 
       {/* Input */}
-      <div style={{ padding: "12px 16px", borderTop: "1px solid #1a1a1a", display: "flex", gap: "8px", alignItems: "flex-end" }}>
+      <div style={{ padding: "12px 16px", borderTop: "3px solid #fff", display: "flex", gap: "8px", alignItems: "flex-end" }}>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value.slice(0, MAX_INPUT_LENGTH))}
@@ -299,26 +300,27 @@ export default function ChatTab() {
           placeholder="Message RITMOL..."
           rows={2}
           style={{
-            flex: 1, background: "#111", border: "1px solid #222",
-            color: "#e8e8e8", padding: "10px",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "13px",
+            flex: 1, background: "#000", border: "2px solid #fff",
+            color: "#fff", padding: "12px",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
             outline: "none", resize: "none", borderRadius: "0",
+            lineHeight: "1.6",
           }}
         />
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
           <button type="button" onClick={toggleVoice} style={{
-            width: "40px", height: "40px", border: `1px solid ${isListening ? "#fff" : "#333"}`,
+            width: "48px", height: "48px", border: "2px solid #fff",
             background: isListening ? "#fff" : "transparent",
-            color: isListening ? "#000" : "#666",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "14px",
+            color: isListening ? "#000" : "#fff",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "18px",
           }}>
             {isListening ? "■" : "◎"}
           </button>
           <button type="button" onClick={() => sendMessage(input)} disabled={loading} style={{
-            width: "40px", height: "40px", border: "1px solid #555",
-            background: loading ? "#111" : "#fff",
-            color: loading ? "#333" : "#000",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "14px",
+            width: "48px", height: "48px", border: "2px solid #fff",
+            background: loading ? "#000" : "#fff",
+            color: loading ? "#555" : "#000",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "20px",
           }}>
             ›
           </button>
@@ -347,16 +349,16 @@ function ChatMessage({ msg }) {
       gap: "3px",
     }}>
       {isRitmol && (
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#444", letterSpacing: "2px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>
           RITMOL ◈
         </div>
       )}
       <div style={{
-        maxWidth: "85%", padding: "10px 12px",
-        background: isRitmol ? "#0d0d0d" : "#1a1a1a",
-        border: isRitmol ? "1px solid #222" : "1px solid #333",
-        fontFamily: isRitmol ? "'Share Tech Mono', monospace" : "'Share Tech Mono', monospace",
-        fontSize: "13px", lineHeight: "1.5", color: "#e8e8e8",
+        maxWidth: "88%", padding: "14px 16px",
+        background: isRitmol ? "#000" : "#fff",
+        border: isRitmol ? "2px solid #fff" : "2px solid #000",
+        fontFamily: "'Share Tech Mono', monospace",
+        fontSize: "16px", lineHeight: "1.6", color: isRitmol ? "#fff" : "#000",
       }}>
         {safeContent}
       </div>

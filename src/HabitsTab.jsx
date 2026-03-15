@@ -147,31 +147,32 @@ Respond ONLY with JSON array:
 
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "20px" }}>
-      <div style={{ fontFamily: "'Share Tech Mono', monospace" }}>
-        <div style={{ fontSize: "10px", color: "#555", letterSpacing: "3px" }}>PROTOCOL LOG</div>
-        <div style={{ fontSize: "20px", fontWeight: "bold", marginTop: "2px" }}>HABITS</div>
-        <div style={{ fontSize: "11px", color: "#555", marginTop: "2px" }}>
+      <div style={{ fontFamily: "'Share Tech Mono', monospace", borderBottom: "3px solid #fff", paddingBottom: "16px" }}>
+        <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>PROTOCOL LOG</div>
+        <div style={{ fontSize: "28px", fontWeight: "bold", marginTop: "4px" }}>HABITS</div>
+        <div style={{ fontSize: "15px", color: "#fff", marginTop: "4px" }}>
           {todayLog.length}/{state.habits.length} completed today
         </div>
       </div>
 
       {initializing && (
         <div style={{
-          border: "1px solid #333", padding: "14px", fontFamily: "'Share Tech Mono', monospace",
-          fontSize: "11px", color: "#666", textAlign: "center",
-          background: "repeating-linear-gradient(0deg, transparent, transparent 19px, #111 19px, #111 20px)",
+          border: "3px solid #fff", padding: "20px", fontFamily: "'Share Tech Mono', monospace",
+          fontSize: "16px", color: "#fff", textAlign: "center",
+          background: "#000",
         }}>
-          <div style={{ marginBottom: "6px" }}>◈ RITMOL ANALYZING HUNTER PROFILE...</div>
-          <div style={{ fontSize: "10px", color: "#444" }}>Generating personalized protocol stack</div>
+          <div style={{ marginBottom: "8px", fontWeight: "bold" }}>◈ RITMOL ANALYZING HUNTER PROFILE...</div>
+          <div style={{ fontSize: "14px", color: "#ccc" }}>LOADING — PLEASE WAIT</div>
         </div>
       )}
 
       {/* Streak bonus indicator */}
       {state.streak >= 3 && (
         <div style={{
-          border: "1px solid #555", padding: "8px 12px",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-          display: "flex", justifyContent: "space-between",
+          border: "3px solid #fff", padding: "14px 16px",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+          display: "flex", justifyContent: "space-between", fontWeight: "bold",
+          background: "#000",
         }}>
           <span>STREAK BONUS ACTIVE</span>
           <span>{state.streak >= 7 ? "+50% XP" : "+25% XP"}</span>
@@ -183,8 +184,8 @@ Respond ONLY with JSON array:
         if (!catHabits.length) return null;
         return (
           <div key={cat}>
-            <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#555", letterSpacing: "3px", marginBottom: "8px", textTransform: "uppercase" }}>
-              ── {cat} ──────────────
+            <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff", letterSpacing: "3px", marginBottom: "12px", textTransform: "uppercase", borderBottom: "2px solid #fff", paddingBottom: "6px", fontWeight: "bold" }}>
+              {cat.toUpperCase()}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {catHabits.map((habit) => {
@@ -192,9 +193,9 @@ Respond ONLY with JSON array:
                 const s = STYLE_CSS[habit.style] || STYLE_CSS.ascii;
                 return (
                   <div key={habit.id} style={{
-                    border: done ? "1px solid #fff" : s.border,
-                    background: done ? "#fff" : s.background,
-                    padding: "12px",
+                    border: "2px solid #fff",
+                    background: done ? "#fff" : "#000",
+                    padding: "16px",
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     position: "relative", overflow: "hidden",
                   }}>
@@ -212,10 +213,10 @@ Respond ONLY with JSON array:
                     >
                       <span style={{ fontSize: "20px", width: "24px", textAlign: "center" }}>{done ? "✓" : habit.icon}</span>
                       <div>
-                        <div style={{ fontSize: "13px", fontWeight: done ? "bold" : "normal", textDecoration: done ? "line-through" : "none" }}>
+                        <div style={{ fontSize: "17px", fontWeight: "bold", textDecoration: done ? "line-through" : "none", color: done ? "#000" : "#fff" }}>
                           {habit.label}
                         </div>
-                        <div style={{ fontSize: "10px", color: done ? "#666" : "#555", marginTop: "1px" }}>
+                        <div style={{ fontSize: "13px", color: done ? "#555" : "#ccc", marginTop: "4px", lineHeight: "1.5" }}>
                           +{habit.xp} XP {habit.addedBy === "ritmol" ? "· RITMOL" : ""}
                           {habit.desc && !done ? ` · ${habit.desc}` : ""}
                         </div>
@@ -224,7 +225,7 @@ Respond ONLY with JSON array:
                     <button
                       type="button"
                       onClick={() => deleteHabit(habit.id)}
-                      style={{ color: done ? "#666" : "#444", fontSize: "14px", padding: "4px", background: "none", border: "none" }}
+                      style={{ color: done ? "#555" : "#fff", fontSize: "22px", padding: "8px", background: "none", border: "none", minHeight: "48px", minWidth: "48px" }}
                     >
                       ×
                     </button>

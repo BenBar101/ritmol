@@ -15,8 +15,8 @@ export const primaryBtn = {
 
 export function inputStyle(s) {
   return {
-    width: "100%", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
-    color: "#e8e8e8", padding: "12px", fontSize: "15px",
+    width: "100%", background: "#000", border: "2px solid #fff",
+    color: "#fff", padding: "14px", fontSize: "16px",
     fontFamily: s.fontFamily, outline: "none", resize: "none",
     borderRadius: "0",
   };
@@ -81,12 +81,12 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "16px", alignItems: "center", padding: "8px 0" }}>
         <div style={{
-          width: "48px", height: "48px", borderRadius: "50%",
-          border: "2px solid #4caf50", display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: "24px", color: "#4caf50",
+          width: "64px", height: "64px", borderRadius: "0",
+          border: "3px solid #fff", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "32px", color: "#fff",
         }}>✓</div>
-        <div style={{ fontSize: "13px", color: "#4caf50", letterSpacing: "1px" }}>DROPBOX CONNECTED</div>
-        <div style={{ fontSize: "10px", color: "#555", textAlign: "center" }}>
+        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "1px", fontWeight: "bold" }}>DROPBOX CONNECTED</div>
+        <div style={{ fontSize: "14px", color: "#ccc", textAlign: "center" }}>
           Continuing to next step…
         </div>
       </div>
@@ -95,7 +95,7 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8" }}>
+      <div style={{ fontSize: "15px", color: "#fff", lineHeight: "1.7" }}>
         Connect Dropbox to sync your data across devices and back it up automatically.
         Your Gemini API key will be stored securely in your Dropbox — configure once,
         use everywhere.
@@ -110,7 +110,6 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
           color: connecting ? "#888" : "#000",
           fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
           cursor: connecting ? "not-allowed" : "pointer",
-          transition: "all 0.2s",
         }}
       >
         {connecting ? "OPENING DROPBOX…" : "CONNECT DROPBOX"}
@@ -118,8 +117,8 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
       {connectError && (
         <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {connectError}</div>
       )}
-      <div style={{ height: "1px", background: "#333" }} />
-      <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.6" }}>
+      <div style={{ height: "2px", background: "#fff" }} />
+      <div style={{ fontSize: "14px", color: "#ccc", lineHeight: "1.6" }}>
         Already have a save file? Connecting Dropbox will pull it automatically.
         No account? You can skip this and sync manually later in Profile → Settings.
       </div>
@@ -127,8 +126,8 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
         type="button"
         onClick={onSkip}
         style={{
-          width: "100%", padding: "10px", border: "1px solid #444", background: "transparent", color: "#888",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+          width: "100%", padding: "12px", border: "2px solid #fff", background: "transparent", color: "#fff",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "1px", cursor: "pointer",
         }}
       >
         SKIP FOR NOW
@@ -198,21 +197,21 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
           fontSize: "24px", color: "#4caf50",
         }}>✓</div>
         <div style={{ fontSize: "13px", color: "#4caf50", letterSpacing: "1px" }}>GOOGLE CALENDAR CONNECTED</div>
-        <div style={{ fontSize: "10px", color: "#555", textAlign: "center" }}>Continuing…</div>
+        <div style={{ fontSize: "14px", color: "#ccc", textAlign: "center" }}>Continuing…</div>
       </div>
     );
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8" }}>
+      <div style={{ fontSize: "15px", color: "#fff", lineHeight: "1.7" }}>
         Connect Google Calendar to automatically import lectures, exams, and deadlines.
         RITMOL will adapt your study plan around your schedule.
       </div>
 
       {needsClientId && (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <label style={{ fontSize: "11px", color: "#aaa", letterSpacing: "2px" }}>
+          <label style={{ fontSize: "14px", color: "#ccc", letterSpacing: "2px" }}>
             GOOGLE CLIENT ID
           </label>
           <input
@@ -226,7 +225,7 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
               fontFamily: "'Share Tech Mono', monospace", outline: "none",
             }}
           />
-          <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.6" }}>
+          <div style={{ fontSize: "14px", color: "#ccc", lineHeight: "1.6" }}>
             Get one at console.cloud.google.com → APIs &amp; Services → Credentials.
           </div>
         </div>
@@ -256,8 +255,8 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
         type="button"
         onClick={onSkip}
         style={{
-          width: "100%", padding: "10px", border: "1px solid #444", background: "transparent", color: "#888",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+          width: "100%", padding: "12px", border: "2px solid #fff", background: "transparent", color: "#fff",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "1px", cursor: "pointer",
         }}
       >
         SKIP FOR NOW
@@ -283,7 +282,7 @@ export function GeminiKeySetupScreen({ onSave }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8" }}>
+      <div style={{ fontSize: "15px", color: "#fff", lineHeight: "1.7" }}>
         Enter your Gemini API key to enable RITMOL&apos;s AI features.
         Get one free at aistudio.google.com/apikey
       </div>
@@ -498,7 +497,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
             <div key={i} style={{ flex: 1, height: "2px", background: i <= step ? "#fff" : "#333" }} />
           ))}
         </div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#666", textAlign: "right" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#ccc", textAlign: "right" }}>
           {step + 1}/{steps.length}
         </div>
       </div>
@@ -510,7 +509,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
         fontFamily: s.fontFamily,
       }}>
         <GeometricCorners style={current.style} />
-        <div style={{ fontSize: "11px", color: "#888", letterSpacing: "3px", marginBottom: "8px" }}>
+        <div style={{ fontSize: "14px", color: "#fff", letterSpacing: "3px", marginBottom: "8px", fontWeight: "bold" }}>
           PROTOCOL {step + 1}
         </div>
         <div style={{ fontSize: "22px", fontWeight: "bold", marginBottom: "6px", letterSpacing: "1px" }}>
@@ -549,7 +548,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
 
         {current.type !== "_dropbox" && current.type !== "_gemini" && current.type !== "_gcal" && (
           <>
-            <label style={{ fontSize: "11px", color: "#aaa", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0" }}>
+            <label style={{ fontSize: "14px", color: "#ccc", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0" }}>
               {current.label}
             </label>
             {current.type === "textarea" ? (
@@ -574,7 +573,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
 
             {error && <div style={{ color: "#ccc", fontSize: "12px", marginTop: "8px" }}>⚠ {error}</div>}
 
-            <div style={{ fontSize: "11px", color: "#555", fontFamily: "'Share Tech Mono', monospace", marginTop: "8px" }}>
+            <div style={{ fontSize: "14px", color: "#ccc", fontFamily: "'Share Tech Mono', monospace", marginTop: "8px" }}>
               DETECTED TIMEZONE: {Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Unknown"}
               {" "}(UTC{-(new Date().getTimezoneOffset()) >= 0 ? "+" : ""}{(-(new Date().getTimezoneOffset()) / 60).toFixed(0)})
             </div>
@@ -586,7 +585,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
         )}
       </div>
 
-      <div style={{ marginTop: "16px", marginBottom: "32px", fontSize: "10px", color: "#444", fontFamily: "'Share Tech Mono', monospace" }}>
+      <div style={{ marginTop: "16px", marginBottom: "32px", fontSize: "14px", color: "#ccc", fontFamily: "'Share Tech Mono', monospace" }}>
         RITMOL v1.0 // LOCAL STORAGE ONLY // ZERO TELEMETRY
       </div>
     </div>

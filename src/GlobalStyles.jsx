@@ -7,34 +7,27 @@ import { useEffect } from "react";
 // not at module parse time (which would throw in SSR or test environments).
 // ═══════════════════════════════════════════════════════════════
 const GLOBAL_CSS = `
-  /* ── Animations ───────────────────────────────────────────── */
-  @keyframes slideDown { from { transform: translateY(-20px); opacity:0; } to { transform: translateY(0); opacity:1; } }
-  @keyframes slideUp   { from { transform: translateY(20px);  opacity:0; } to { transform: translateY(0); opacity:1; } }
-  @keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes pulse     { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-  @keyframes spin      { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  /* ── Animations: unconditionally disabled for E-ink ───────── */
+  /* All keyframe names kept as no-ops so references don't break */
+  @keyframes slideDown { from { opacity:1; } to { opacity:1; } }
+  @keyframes slideUp   { from { opacity:1; } to { opacity:1; } }
+  @keyframes fadeIn    { from { opacity:1; } to { opacity:1; } }
+  @keyframes pulse     { 0%, 100% { opacity:1; } 50% { opacity:1; } }
+  @keyframes spin      { from { transform: rotate(0deg); } to { transform: rotate(0deg); } }
 
-  /* ── E-ink / reduced-motion: kill all animation & transition ─ */
-  @media (prefers-reduced-motion: reduce), (update: slow) {
-    *, *::before, *::after {
-      animation-duration: 0.001ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.001ms !important;
-      transition: none !important;
-    }
+  /* Kill every animation and transition globally — E-ink cannot render motion */
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition: none !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
 
-  /* ── E-ink: strip gradients, shadows, opacity layers ─────── */
-  @media (update: slow) {
-    * {
-      background-image: none !important;
-      box-shadow: none !important;
-      text-shadow: none !important;
-      opacity: 1 !important;
-    }
-    /* Force solid borders so decorative chars survive ghosting */
-    [data-eink-border] { border: 2px solid #000 !important; }
-  }
+  /* ── E-ink: solid border data attribute ──────────────────── */
+  [data-eink-border] { border: 3px solid #000 !important; }
 
   /* ── Base reset ──────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; }
@@ -66,11 +59,11 @@ const GLOBAL_CSS = `
     touch-action: manipulation;
   }
 
-  /* ── Scrollbars: thin, dark ─────────────────────────────── */
-  ::-webkit-scrollbar { width: 3px; height: 3px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #333; border-radius: 0; }
-  * { scrollbar-width: thin; scrollbar-color: #333 transparent; }
+  /* ── Scrollbars: high-contrast for E-ink ────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #000; }
+  ::-webkit-scrollbar-thumb { background: #fff; border-radius: 0; }
+  * { scrollbar-width: thin; scrollbar-color: #fff #000; }
 
   /* ── Inputs ─────────────────────────────────────────────── */
   input, textarea, select {
@@ -87,14 +80,14 @@ const GLOBAL_CSS = `
 
   /* ── Buttons: large enough touch targets ────────────────── */
   button {
-    min-height: 44px;           /* Apple HIG minimum */
-    min-width:  44px;
+    min-height: 48px;           /* E-ink safe touch target */
+    min-width:  48px;
     cursor: pointer;
     border-radius: 0;
   }
 
   /* ── Focus: visible ring for keyboard/e-ink nav ─────────── */
-  :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   :focus:not(:focus-visible) { outline: none; }
 
   /* ── Prevent content overflow on narrow screens ─────────── */
@@ -160,20 +153,20 @@ export class ErrorBoundary extends React.Component {
       return (
         <div style={{
           minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          background: "#0a0a0a", color: "#e8e8e8", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
+          background: "#000", color: "#fff", fontFamily: "'Share Tech Mono', monospace", padding: "24px", textAlign: "center",
         }}>
-          <div style={{ fontSize: "11px", color: "#666", letterSpacing: "2px", marginBottom: "16px" }}>RITMOL — ERROR</div>
-          <div style={{ fontSize: "12px", color: "#aaa", maxWidth: "360px", lineHeight: "1.6", marginBottom: "24px" }}>
+          <div style={{ fontSize: "15px", color: "#ccc", letterSpacing: "2px", marginBottom: "20px", fontWeight: "bold" }}>RITMOL — ERROR</div>
+          <div style={{ fontSize: "16px", color: "#fff", maxWidth: "380px", lineHeight: "1.6", marginBottom: "28px" }}>
             Something went wrong. Reload the page to continue.
           </div>
           {/* Show redacted error details only in dev builds — stack traces reveal internal structure in prod. */}
           {(typeof import.meta !== "undefined" && import.meta.env?.DEV) && (
-          <details style={{ marginBottom: "16px", maxWidth: "400px", textAlign: "left" }}>
-            <summary style={{ fontSize: "10px", color: "#555", cursor: "pointer", marginBottom: "6px" }}>▶ Error details</summary>
+          <details style={{ marginBottom: "20px", maxWidth: "420px", textAlign: "left" }}>
+            <summary style={{ fontSize: "14px", color: "#ccc", cursor: "pointer", marginBottom: "10px" }}>▶ Error details</summary>
             <pre style={{
-              fontSize: "9px", color: "#666", background: "#111", padding: "8px",
+              fontSize: "13px", color: "#fff", background: "#000", padding: "14px",
               overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
-              border: "1px solid #222", lineHeight: "1.5",
+              border: "2px solid #fff", lineHeight: "1.6",
             }}>
               {redact(this.state.error?.message ?? String(this.state.error))}
               {"\n\n"}
@@ -184,8 +177,9 @@ export class ErrorBoundary extends React.Component {
           <button
             onClick={() => window.location.reload()}
             style={{
-              padding: "12px 24px", border: "1px solid #555", background: "transparent", color: "#ccc",
-              fontFamily: "inherit", fontSize: "12px", letterSpacing: "1px", cursor: "pointer",
+              padding: "16px 32px", border: "3px solid #fff", background: "#fff", color: "#000",
+              fontFamily: "inherit", fontSize: "16px", letterSpacing: "2px", cursor: "pointer",
+              fontWeight: "bold", minHeight: "56px",
             }}
           >
             RELOAD

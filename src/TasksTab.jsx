@@ -124,20 +124,20 @@ export default function TasksTab() {
 
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div style={{ fontFamily: "'Share Tech Mono', monospace" }}>
-        <div style={{ fontSize: "10px", color: "#555", letterSpacing: "3px" }}>MISSION CONTROL</div>
-        <div style={{ fontSize: "20px", fontWeight: "bold", marginTop: "2px" }}>TASKS & GOALS</div>
+      <div style={{ fontFamily: "'Share Tech Mono', monospace", borderBottom: "3px solid #fff", paddingBottom: "16px" }}>
+        <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>MISSION CONTROL</div>
+        <div style={{ fontSize: "28px", fontWeight: "bold", marginTop: "4px" }}>TASKS & GOALS</div>
       </div>
 
       {/* Section toggle */}
-      <div style={{ display: "flex", gap: "0", border: "1px solid #333" }}>
+      <div style={{ display: "flex", gap: "0", border: "2px solid #fff" }}>
         {["tasks", "goals"].map((s) => (
           <button type="button" key={s} onClick={() => setActiveSection(s)} style={{
-            flex: 1, padding: "8px",
+            flex: 1, padding: "12px",
             background: activeSection === s ? "#fff" : "transparent",
-            color: activeSection === s ? "#000" : "#666",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
-            border: "none", cursor: "pointer",
+            color: activeSection === s ? "#000" : "#ccc",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", letterSpacing: "2px", fontWeight: "bold",
+            border: "none", cursor: "pointer", minHeight: "48px",
           }}>
             {s.toUpperCase()}
           </button>
@@ -154,44 +154,44 @@ export default function TasksTab() {
               onKeyDown={(e) => e.key === "Enter" && addTask()}
               placeholder="New task..."
               maxLength={500}
-              style={{ flex: 1, background: "#111", border: "1px solid #333", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
+              style={{ flex: 1, background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
             />
             <select
               value={newPriority}
               onChange={(e) => setNewPriority(e.target.value)}
-              style={{ background: "#111", border: "1px solid #333", color: "#aaa", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", outline: "none" }}
+              style={{ background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", outline: "none" }}
             >
               <option value="low">LOW</option>
               <option value="medium">MED</option>
               <option value="high">HIGH</option>
             </select>
-            <button type="button" onClick={addTask} style={{ padding: "8px 14px", background: "#fff", color: "#000", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", border: "none" }}>+</button>
+            <button type="button" onClick={addTask} style={{ padding: "12px 18px", background: "#fff", color: "#000", fontFamily: "'Share Tech Mono', monospace", fontSize: "18px", border: "none", minHeight: "48px", minWidth: "48px", fontWeight: "bold" }}>+</button>
           </div>
 
           {/* Active tasks */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {activeTasks.length === 0 && (
-              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#444", padding: "12px", border: "1px dashed #222", textAlign: "center" }}>
+              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", color: "#ccc", padding: "20px", border: "2px solid #fff", textAlign: "center" }}>
                 No active tasks. RITMOL will assign missions.
               </div>
             )}
             {activeTasks.map((task) => (
               <div key={task.id} style={{
-                border: "1px solid #222", padding: "10px 12px",
+                border: "2px solid #fff", padding: "14px 16px",
                 fontFamily: "'Share Tech Mono', monospace",
-                display: "flex", alignItems: "center", gap: "10px",
-                background: "#0d0d0d",
+                display: "flex", alignItems: "center", gap: "12px",
+                background: "#000",
               }}>
-                <button type="button" onClick={(e) => completeTask(task.id, e)} style={{ color: "#555", fontSize: "16px", background: "none", border: "1px solid #333", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <button type="button" onClick={(e) => completeTask(task.id, e)} style={{ color: "#fff", fontSize: "20px", background: "none", border: "2px solid #fff", width: "48px", height: "48px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   ○
                 </button>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "13px", color: "#e8e8e8" }}>{task.text}</div>
-                  <div style={{ fontSize: "9px", color: "#444", marginTop: "2px" }}>
+                  <div style={{ fontSize: "17px", color: "#fff", lineHeight: "1.5" }}>{task.text}</div>
+                  <div style={{ fontSize: "13px", color: "#ccc", marginTop: "4px" }}>
                     {priorityLabel[task.priority]} {task.priority?.toUpperCase()} {task.due ? `· due ${task.due}` : ""} {task.addedBy === "ritmol" ? "· RITMOL" : ""}
                   </div>
                 </div>
-                <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#333", fontSize: "14px", background: "none", border: "none" }}>×</button>
+                <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#fff", fontSize: "22px", background: "none", border: "none", minHeight: "48px", minWidth: "48px" }}>×</button>
               </div>
             ))}
           </div>
@@ -199,28 +199,29 @@ export default function TasksTab() {
           {/* Done tasks */}
           {doneTasks.length > 0 && (
             <div>
-              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#333", letterSpacing: "2px", marginBottom: "6px" }}>COMPLETED</div>
+              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#ccc", letterSpacing: "2px", marginBottom: "10px", borderTop: "2px solid #fff", paddingTop: "12px" }}>COMPLETED</div>
               <button
                 type="button"
                 onClick={() => setState((s) => ({ ...s, tasks: (s.tasks || []).filter((t) => !t.done) }))}
                 style={{
-                  marginBottom: "8px",
-                  padding: "6px 10px",
-                  border: "1px solid #333",
+                  marginBottom: "12px",
+                  padding: "12px 16px",
+                  border: "2px solid #fff",
                   background: "transparent",
-                  color: "#666",
+                  color: "#fff",
                   fontFamily: "'Share Tech Mono', monospace",
-                  fontSize: "9px",
+                  fontSize: "14px",
                   letterSpacing: "1px",
                   cursor: "pointer",
+                  minHeight: "48px",
                 }}
               >
                 CLEAR ALL COMPLETED ({doneTasks.length})
               </button>
               {doneTasks.slice(-5).map((task) => (
-                <div key={task.id} style={{ padding: "8px 0", borderBottom: "1px solid #111", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#444", display: "flex", justifyContent: "space-between" }}>
+                <div key={task.id} style={{ padding: "12px 0", borderBottom: "2px solid #333", fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#888", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ textDecoration: "line-through" }}>✓ {task.text}</span>
-                  <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#333", background: "none", border: "none", fontSize: "12px" }}>×</button>
+                  <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#ccc", background: "none", border: "none", fontSize: "20px", minHeight: "48px", minWidth: "48px" }}>×</button>
                 </div>
               ))}
             </div>
@@ -230,31 +231,31 @@ export default function TasksTab() {
 
       {activeSection === "goals" && (
         <>
-          <button type="button" onClick={() => setShowGoalForm(!showGoalForm)} style={{ padding: "10px", border: "1px solid #333", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px" }}>
+          <button type="button" onClick={() => setShowGoalForm(!showGoalForm)} style={{ padding: "12px 16px", border: "2px solid #fff", background: "transparent", color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "1px", minHeight: "48px" }}>
             {showGoalForm ? "CANCEL" : "+ ADD GOAL / HOMEWORK"}
           </button>
 
           {showGoalForm && (
-            <div style={{ border: "1px solid #333", padding: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ border: "2px solid #fff", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
               <input
                 value={goalForm.title}
                 onChange={(e) => setGoalForm((f) => ({ ...f, title: e.target.value }))}
                 placeholder="Assignment / goal title..."
                 maxLength={200}
-                style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
+                style={{ background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
               />
               <input
                 value={goalForm.course}
                 onChange={(e) => setGoalForm((f) => ({ ...f, course: e.target.value }))}
                 placeholder="Course name..."
                 maxLength={100}
-                style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
+                style={{ background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
               />
               <input
                 type="date"
                 value={goalForm.due}
                 onChange={(e) => setGoalForm((f) => ({ ...f, due: e.target.value }))}
-                style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", outline: "none" }}
+                style={{ background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
               />
               <button type="button" onClick={addGoal} style={primaryBtn}>ADD GOAL</button>
             </div>
@@ -262,7 +263,7 @@ export default function TasksTab() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {activeGoals.length === 0 && (
-              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#444", padding: "12px", border: "1px dashed #222", textAlign: "center" }}>
+              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", color: "#ccc", padding: "20px", border: "2px solid #fff", textAlign: "center" }}>
                 No active goals. Tell RITMOL about your homework.
               </div>
             )}
@@ -270,24 +271,24 @@ export default function TasksTab() {
               const daysLeft = goal.due ? Math.ceil((new Date(goal.due) - Date.now()) / 86400000) : null;
               return (
                 <div key={goal.id} style={{
-                  border: "1px solid #333", padding: "12px",
+                  border: "2px solid #fff", padding: "14px",
                   fontFamily: "'Share Tech Mono', monospace",
-                  background: "#0d0d0d",
+                  background: "#000",
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "13px", marginBottom: "2px" }}>{goal.title}</div>
-                      <div style={{ fontSize: "10px", color: "#555" }}>
+                      <div style={{ fontSize: "17px", marginBottom: "4px", fontWeight: "bold" }}>{goal.title}</div>
+                      <div style={{ fontSize: "13px", color: "#ccc" }}>
                         {goal.course && `${goal.course} · `}
                         {daysLeft !== null && (daysLeft <= 0 ? "OVERDUE" : `${daysLeft}d left`)}
                       </div>
                       {goal.submissionCount > 0 && (
-                        <div style={{ fontSize: "9px", color: "#444", marginTop: "2px" }}>
+                        <div style={{ fontSize: "13px", color: "#888", marginTop: "4px" }}>
                           Submissions: {goal.submissionCount} {goal.submissionCount >= 2 ? "· TA visit recommended" : ""}
                         </div>
                       )}
                     </div>
-                    <button type="button" onClick={() => submitGoal(goal.id)} style={{ padding: "4px 8px", border: "1px solid #555", background: "transparent", color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px" }}>
+                    <button type="button" onClick={() => submitGoal(goal.id)} style={{ padding: "12px 16px", border: "2px solid #fff", background: "transparent", color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", minHeight: "48px", fontWeight: "bold" }}>
                       SUBMIT
                     </button>
                   </div>

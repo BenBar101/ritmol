@@ -28,12 +28,12 @@ export default function HomeTab() {
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
 
       {/* Greeting */}
-      <div style={{ borderBottom: "1px solid #222", paddingBottom: "12px" }}>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#555", letterSpacing: "3px" }}>{greeting}</div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "22px", fontWeight: "bold", marginTop: "2px" }}>
+      <div style={{ borderBottom: "3px solid #fff", paddingBottom: "16px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>{greeting}</div>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "28px", fontWeight: "bold", marginTop: "4px" }}>
           {profile?.name || "Hunter"}
         </div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#666", marginTop: "2px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", color: "#fff", marginTop: "4px" }}>
           {rank.badge} {rank.decor} {rank.title}
         </div>
       </div>
@@ -41,13 +41,13 @@ export default function HomeTab() {
       {/* Daily quote */}
       {dailyQuote && (
         <div style={{
-          background: "radial-gradient(circle, #1a1a1a 1px, transparent 1px) 0 0 / 12px 12px",
-          border: "1px solid #333", padding: "16px",
+          background: "#000",
+          border: "2px solid #fff", padding: "20px",
         }}>
-          <div style={{ fontFamily: "'IM Fell English', serif", fontSize: "13px", fontStyle: "italic", color: "#ccc", lineHeight: "1.6" }}>
+          <div style={{ fontFamily: "'IM Fell English', serif", fontSize: "18px", fontStyle: "italic", color: "#fff", lineHeight: "1.7" }}>
             &ldquo;{sanitizeForDisplay(dailyQuote.quote ?? "", 500)}&rdquo;
           </div>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#555", marginTop: "8px" }}>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#ccc", marginTop: "12px" }}>
             — {sanitizeForDisplay(dailyQuote.author ?? "", 100)}
           </div>
         </div>
@@ -61,13 +61,13 @@ export default function HomeTab() {
         const safeTitle = sanitizeForDisplay(exam.title ?? "", 200);
         return (
           <div key={exam.id} style={{
-            border: "2px solid #fff", padding: "12px",
+            border: "2px solid #fff", padding: "14px",
             fontFamily: "'Share Tech Mono', monospace",
-            background: "#0d0d0d",
+            background: "#000",
           }}>
-            <div style={{ fontSize: "9px", color: "#888", letterSpacing: "2px" }}>EXAM WARNING</div>
-            <div style={{ fontSize: "14px", marginTop: "4px" }}>⚠ {safeTitle}</div>
-            <div style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>T-{days} days. Prepare accordingly.</div>
+            <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "2px", marginBottom: "4px" }}>EXAM WARNING</div>
+            <div style={{ fontSize: "18px", marginTop: "4px", fontWeight: "bold" }}>⚠ {safeTitle}</div>
+            <div style={{ fontSize: "14px", color: "#fff", marginTop: "4px" }}>T-{days} days. Prepare accordingly.</div>
           </div>
         );
       })}
@@ -81,11 +81,11 @@ export default function HomeTab() {
           { label: "ACHIEV", value: totalAchievements },
         ].map((s) => (
           <div key={s.label} style={{
-            border: "1px solid #222", padding: "8px", textAlign: "center",
+            border: "2px solid #fff", padding: "12px", textAlign: "center",
             fontFamily: "'Share Tech Mono', monospace",
           }}>
-            <div style={{ fontSize: "18px", fontWeight: "bold" }}>{s.value}</div>
-            <div style={{ fontSize: "8px", color: "#555", letterSpacing: "1px" }}>{s.label}</div>
+            <div style={{ fontSize: "22px", fontWeight: "bold" }}>{s.value}</div>
+            <div style={{ fontSize: "12px", color: "#ccc", letterSpacing: "1px", marginTop: "4px" }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -94,20 +94,20 @@ export default function HomeTab() {
       <TokenUsageBar usage={state.tokenUsage} />
 
       {/* Habit ring */}
-      <div style={{ display: "flex", alignItems: "center", gap: "16px", border: "1px solid #1a1a1a", padding: "12px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "16px", border: "2px solid #fff", padding: "16px" }}>
         <HabitRing done={doneHabits} total={totalHabits} />
         <div style={{ fontFamily: "'Share Tech Mono', monospace" }}>
-          <div style={{ fontSize: "11px", color: "#888" }}>TODAY&apos;S PROTOCOLS</div>
-          <div style={{ fontSize: "20px", fontWeight: "bold" }}>{doneHabits} / {totalHabits}</div>
-          <div style={{ fontSize: "10px", color: "#555" }}>{totalHabits - doneHabits} remaining</div>
+          <div style={{ fontSize: "13px", color: "#ccc" }}>TODAY&apos;S PROTOCOLS</div>
+          <div style={{ fontSize: "26px", fontWeight: "bold" }}>{doneHabits} / {totalHabits}</div>
+          <div style={{ fontSize: "14px", color: "#fff" }}>{totalHabits - doneHabits} remaining</div>
         </div>
       </div>
 
       {/* Daily goal */}
       {state.dailyGoal && (
-        <div style={{ border: "1px solid #333", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
-          <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px" }}>DAILY OBJECTIVE</div>
-          <div style={{ fontSize: "13px", marginTop: "4px" }}>
+        <div style={{ border: "2px solid #fff", padding: "16px", fontFamily: "'Share Tech Mono', monospace" }}>
+          <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "2px", marginBottom: "6px" }}>DAILY OBJECTIVE</div>
+          <div style={{ fontSize: "17px", marginTop: "4px", lineHeight: "1.6" }}>
             {sanitizeForDisplay(state.dailyGoal ?? "", 200)}
           </div>
         </div>
@@ -115,20 +115,20 @@ export default function HomeTab() {
 
       {/* Daily missions */}
       {state.dailyMissions && (
-        <div style={{ border: "1px solid #1a1a1a", padding: "12px" }}>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#666", letterSpacing: "2px", marginBottom: "10px" }}>
+        <div style={{ border: "2px solid #fff", padding: "12px" }}>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff", letterSpacing: "2px", marginBottom: "12px", fontWeight: "bold" }}>
             DAILY MISSIONS
           </div>
           {state.dailyMissions.map((m) => (
             <div key={m.id} style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "6px 0", borderBottom: "1px solid #111",
-              fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-              color: m.done ? "#444" : "#ccc",
+              padding: "10px 0", borderBottom: "2px solid #333",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "15px",
+              color: m.done ? "#888" : "#fff",
               textDecoration: m.done ? "line-through" : "none",
             }}>
               <span>{m.done ? "✓" : "○"} {m.desc}</span>
-              <span style={{ color: "#666" }}>+{m.xp}</span>
+              <span style={{ color: m.done ? "#888" : "#fff", fontWeight: "bold" }}>+{m.xp}</span>
             </div>
           ))}
         </div>
@@ -136,7 +136,7 @@ export default function HomeTab() {
 
       {/* Quick habits */}
       <div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#555", letterSpacing: "2px", marginBottom: "10px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff", letterSpacing: "2px", marginBottom: "12px", fontWeight: "bold" }}>
           QUICK PROTOCOLS
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
@@ -147,16 +147,16 @@ export default function HomeTab() {
                 key={h.id}
                 onClick={(e) => !done && logHabit(h.id, e)}
                 style={{
-                  padding: "10px 4px", border: `1px solid ${done ? "#fff" : "#333"}`,
-                  background: done ? "#fff" : "transparent",
-                  color: done ? "#000" : "#ccc",
-                  fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
+                  padding: "14px 4px", border: "2px solid #fff",
+                  background: done ? "#fff" : "#000",
+                  color: done ? "#000" : "#fff",
+                  fontFamily: "'Share Tech Mono', monospace", fontSize: "12px",
                   textAlign: "center", cursor: done ? "default" : "pointer",
-                  transition: "all 0.2s",
+                  minHeight: "72px",
                 }}
               >
-                <div style={{ fontSize: "16px" }}>{h.icon}</div>
-                <div style={{ fontSize: "8px", marginTop: "2px" }}>{h.label.split(" ").slice(0, 2).join(" ")}</div>
+                <div style={{ fontSize: "22px" }}>{h.icon}</div>
+                <div style={{ fontSize: "11px", marginTop: "4px", fontWeight: "bold" }}>{h.label.split(" ").slice(0, 2).join(" ")}</div>
               </button>
             );
           })}
@@ -165,8 +165,8 @@ export default function HomeTab() {
 
       {/* Active timers */}
       {(state.activeTimers || []).filter((t) => typeof t.endsAt === "number" && t.endsAt > Date.now() + 1000).length > 0 && (
-        <div style={{ border: "1px solid #1a1a1a", padding: "12px" }}>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#555", letterSpacing: "2px", marginBottom: "8px" }}>
+        <div style={{ border: "2px solid #fff", padding: "12px" }}>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff", letterSpacing: "2px", marginBottom: "12px", fontWeight: "bold" }}>
             ACTIVE TIMERS
           </div>
           {(state.activeTimers || []).filter((t) => typeof t.endsAt === "number" && t.endsAt > Date.now() + 1000).map((timer) => (
@@ -191,10 +191,10 @@ export default function HomeTab() {
           { label: "◉ HABITS", action: () => setTab("habits") },
         ].map((c) => (
           <button type="button" key={c.label} onClick={c.action} style={{
-            padding: "6px 14px", border: "1px solid #333",
-            background: "transparent", color: "#888",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
-            letterSpacing: "1px", cursor: "pointer",
+            padding: "12px 18px", border: "2px solid #fff",
+            background: "transparent", color: "#fff",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "14px",
+            letterSpacing: "1px", cursor: "pointer", minHeight: "48px",
           }}>
             {c.label}
           </button>
@@ -207,30 +207,27 @@ export default function HomeTab() {
 function TokenUsageBar({ usage }) {
   if (!usage) return null;
   if (typeof usage.date !== "string") return null;
-  // Fix: use DAILY_TOKEN_LIMIT (the actual enforcement ceiling) so the bar fills to 100%
-  // when AI features are disabled — not 5% (50k/1M). Showing "% of 1M" while blocking at
-  // 50k meant the bar never appeared to reach critical even when the budget was exhausted.
   const DISPLAY_LIMIT = DAILY_TOKEN_LIMIT;
   const isToday = usage?.date === todayUTC();
   const tokens = isToday ? (usage?.tokens || 0) : 0;
   const pct = Math.min(100, (tokens / DISPLAY_LIMIT) * 100);
   const pctDisplay = pct < 0.1 ? "<0.1" : pct.toFixed(1);
-  const color = pct > 80 ? "#fff" : pct > 50 ? "#aaa" : "#555";
+  const barColor = "#fff";
 
   return (
-    <div style={{ border: "1px solid #1a1a1a", padding: "8px 12px", fontFamily: "'Share Tech Mono', monospace" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: "#444", marginBottom: "4px" }}>
+    <div style={{ border: "2px solid #fff", padding: "12px 16px", fontFamily: "'Share Tech Mono', monospace" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: "#fff", marginBottom: "8px", fontWeight: "bold" }}>
         <span>NEURAL ENERGY TODAY</span>
-        <span style={{ color }}>~{pctDisplay}% of {(DISPLAY_LIMIT / 1000).toFixed(0)}k</span>
+        <span>~{pctDisplay}% of {(DISPLAY_LIMIT / 1000).toFixed(0)}k</span>
       </div>
-      <div style={{ height: "2px", background: "#1a1a1a" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.5s" }} />
+      <div style={{ height: "6px", background: "#333" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: barColor }} />
       </div>
-      <div style={{ fontSize: "8px", color: "#333", marginTop: "3px" }}>
+      <div style={{ fontSize: "12px", color: "#ccc", marginTop: "6px" }}>
         ~{tokens.toLocaleString()} tokens used · resets midnight
       </div>
       {!isToday && (
-        <div style={{ fontSize: "8px", color: "#2a4a2a", marginTop: "3px" }}>
+        <div style={{ fontSize: "12px", color: "#fff", marginTop: "4px", fontWeight: "bold" }}>
           ↺ Budget reset for today
         </div>
       )}
@@ -243,15 +240,14 @@ function HabitRing({ done, total }) {
   const circ = 2 * Math.PI * r;
   const pct = total ? done / total : 0;
   return (
-    <svg width="72" height="72" style={{ flexShrink: 0 }}>
-      <circle cx="36" cy="36" r={r} fill="none" stroke="#1a1a1a" strokeWidth="4" />
-      <circle cx="36" cy="36" r={r} fill="none" stroke="#fff" strokeWidth="4"
+    <svg width="80" height="80" style={{ flexShrink: 0 }}>
+      <circle cx="40" cy="40" r={r} fill="none" stroke="#444" strokeWidth="5" />
+      <circle cx="40" cy="40" r={r} fill="none" stroke="#fff" strokeWidth="5"
         strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
-        strokeLinecap="butt" transform="rotate(-90 36 36)"
-        style={{ transition: "stroke-dashoffset 0.5s" }}
+        strokeLinecap="butt" transform="rotate(-90 40 40)"
       />
-      <text x="36" y="40" textAnchor="middle" fill="#fff"
-        style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px" }}>
+      <text x="40" y="45" textAnchor="middle" fill="#fff"
+        style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", fontWeight: "bold" }}>
         {Math.round(pct * 100)}%
       </text>
     </svg>
@@ -289,9 +285,9 @@ function CountdownTimer({ timer, onExpire }) {
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
   return (
-    <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", padding: "4px 0", display: "flex", justifyContent: "space-between" }}>
+    <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", padding: "10px 0", display: "flex", justifyContent: "space-between", borderBottom: "2px solid #333" }}>
       <span>{sanitizeForDisplay(timer.emoji ?? "", 2)} {sanitizeForDisplay(timer.label ?? "", 200)}</span>
-      <span style={{ color: remaining < 60000 ? "#fff" : "#888" }}>{mins}:{secs.toString().padStart(2, "0")}</span>
+      <span style={{ color: "#fff", fontWeight: "bold" }}>{mins}:{secs.toString().padStart(2, "0")}</span>
     </div>
   );
 }
