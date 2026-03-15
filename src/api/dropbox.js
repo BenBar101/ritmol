@@ -129,16 +129,34 @@ export function getTokens() {
     const accessToken = sessionStorage.getItem(SS_ACCESS_TOKEN);
     const refreshToken = localStorage.getItem(LS_REFRESH_TOKEN);
     const expiresAt = localStorage.getItem(LS_EXPIRES_AT);
-    // We need at minimum a refresh token to be considered authenticated.
-    // An expired (or missing) access token can be refreshed using the refresh token.
-    if (!refreshToken || refreshToken.length === 0) return null;
+    // All three must be present for a usable token set.
+    // After a browser close/reopen, accessToken will be absent — callers must
+    // run ensureFreshToken() first to re-hydrate the access token from the
+    // refresh token before calling API functions that need Bearer auth.
+    if (!accessToken || !refreshToken || !expiresAt) return null;
+    if (refreshToken.length === 0) return null;
     return {
-      accessToken: accessToken || null,
+      accessToken,
       refreshToken,
-      expiresAt: expiresAt ? Number(expiresAt) : 0,
+      expiresAt: Number(expiresAt),
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Returns true if a refresh token is stored, meaning the user has previously
+ * authenticated and a new access token can be obtained without re-doing OAuth.
+ * Use this for "are we connected?" checks. Use getTokens() only when you need
+ * the actual access token for an API call (i.e. after ensureFreshToken()).
+ */
+export function hasRefreshToken() {
+  try {
+    const refreshToken = localStorage.getItem(LS_REFRESH_TOKEN);
+    return typeof refreshToken === "string" && refreshToken.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -178,7 +196,10 @@ export function clearTokens() {
 }
 
 export function isAuthenticated() {
-  return getTokens() !== null;
+  // True if we have a refresh token — meaning we can get a fresh access token
+  // without re-doing OAuth. The access token itself may be absent after a
+  // browser close (sessionStorage cleared); ensureFreshToken() handles that.
+  return hasRefreshToken();
 }
 
 export function startOAuthFlow() {
@@ -280,8 +301,12 @@ export async function handleOAuthCallback(code) {
 }
 
 export async function refreshAccessToken() {
-  const tokens = getTokens();
-  if (!tokens?.refreshToken) throw new Error("DROPBOX_TOKEN_EXPIRED");
+  // Read the refresh token directly from localStorage — getTokens() would return null
+  // when the access token is absent (new session), but we still need the refresh token.
+  const refreshToken = (() => {
+    try { return localStorage.getItem(LS_REFRESH_TOKEN); } catch { return null; }
+  })();
+  if (!refreshToken) throw new Error("DROPBOX_TOKEN_EXPIRED");
 
   // PKCE public-client flow: client_id goes in the request body.
   // Do NOT send an Authorization: Basic header — Dropbox rejects it with 400
@@ -326,11 +351,13 @@ export async function refreshAccessToken() {
 }
 
 export async function ensureFreshToken() {
+  // No refresh token → nothing to do (not authenticated).
+  if (!hasRefreshToken()) return;
   const tokens = getTokens();
-  if (!tokens) return;
   const bufferMs = 5 * 60 * 1000;
-  // Refresh if: access token is missing (new browser session) OR it's about to expire.
-  if (!tokens.accessToken || tokens.expiresAt - bufferMs <= Date.now()) {
+  // Refresh if: access token is absent (new browser session, sessionStorage was cleared)
+  // OR the stored token is about to expire.
+  if (!tokens || tokens.expiresAt - bufferMs <= Date.now()) {
     await refreshAccessToken();
   }
 }
