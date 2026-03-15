@@ -63,6 +63,49 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
     }
   }, []);
 
+  // ── Auto-pull on mount for returning users ────────────────
+  // When Dropbox is connected but the Gemini key is absent from sessionStorage
+  // (cleared on browser close), silently pull so the key + latest data are
+  // restored without forcing the user through MissingKeyGate.
+  // Guard: only fires once per mount (ref), only when online, only when
+  // Dropbox auth tokens exist, and only when the key is genuinely missing.
+  const autoPullAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (autoPullAttemptedRef.current) return;
+    if (!isAuthenticated()) return;
+    if (getGeminiApiKey()) return; // key already present — nothing to do
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    autoPullAttemptedRef.current = true;
+    setSyncStatus("syncing");
+    isPullingRef.current = true;
+    (async () => {
+      try {
+        await SyncManager.pull();
+        await rehydrate();
+        LS.set(storageKey("jv_last_synced"), String(Date.now()));
+        setLastSynced(Date.now());
+        setSyncStatus("synced");
+        // Full reload so all components re-initialise with the pulled data.
+        setIsReloading(true);
+        reloadTimerRef.current = setTimeout(() => {
+          try { window.location.reload(); } catch { isPullingRef.current = false; }
+        }, 400);
+      } catch (e) {
+        // Token expired: clear auth so the user sees a clean reconnect prompt.
+        if (e.message === "DROPBOX_TOKEN_EXPIRED") {
+          clearTokens();
+          setDropboxConnected(false);
+          setSyncFileConnected(false);
+          setTransport("download");
+        }
+        // Any failure falls through to normal app load with MissingKeyGate.
+        setSyncStatus("idle");
+        isPullingRef.current = false;
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only effect
+  }, []);
+
   // ── Auto-push on tab hide / page hide ──
   useEffect(() => {
     const schedulePush = () => {

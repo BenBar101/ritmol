@@ -310,7 +310,7 @@ export default function App() {
         onNeedsGeminiKey: () => { if (!showOnboarding) setShowGeminiKeySetup(true); },
       });
     }
-  }, [handleDropboxCallback, showBanner, showOnboarding]);
+  }, [handleDropboxCallback, showBanner]);
 
   useDailyLogin({ profile, setState, setModal, setLevelUpData, showBanner, trackTokens, lastLevelUpXpRef });
   useScheduler({ state, profile, showBanner, setModal });
@@ -477,6 +477,23 @@ export default function App() {
     );
   }
   if (!apiKey) {
+    // While the auto-pull on mount is in flight (Dropbox connected, pulling key),
+    // show a loading screen instead of MissingKeyGate so the user never sees a
+    // jarring "setup required" flash on a normal returning-user open.
+    if (syncStatus === "syncing" || isReloading) {
+      return (
+        <ErrorBoundary>
+          <div style={{
+            minHeight: "100vh", display: "flex", alignItems: "center",
+            justifyContent: "center", background: "#0a0a0a",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
+            color: "#333", letterSpacing: "2px",
+          }}>
+            SYNCING...
+          </div>
+        </ErrorBoundary>
+      );
+    }
     return (
       <ErrorBoundary>
         <MissingKeyGate
