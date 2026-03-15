@@ -196,7 +196,7 @@ ${safeRecent || "No recent chat."}
 </RECENT_CONTEXT>
 
 You can issue commands by including a "commands" array in your JSON response. Allowed commands:
-- add_task: { cmd, text, priority (low/medium/high), due (YYYY-MM-DD or null) }
+- add_task: { cmd, text, priority (low/medium/high), due (YYYY-MM-DD within the next 14 days, or null) }
 - add_goal: { cmd, title, course, due }
 - complete_task: { cmd, id }
 - clear_done_tasks: { cmd }
@@ -211,6 +211,10 @@ You can issue commands by including a "commands" array in your JSON response. Al
 ECONOMY RULES: Total XP awarded via award_xp or unlock_achievement across ALL commands in one
 response MUST NOT exceed 1500. Only award XP for concrete, verifiable actions the hunter just
 described completing — never award XP preemptively or for things they "will do."
+
+TASK DUE DATE RULE: Due dates on add_task MUST be within the next 14 days (YYYY-MM-DD format).
+Never set a due date further than 14 days out — it will be ignored by the system. For longer-term
+deadlines, add the task without a due date and mention it in your message instead.
 
 Always respond with ONLY a JSON object: { "message": "your response here", "commands": [] }
 Keep message under 300 chars unless detail is essential. Use the hunter's name. Stay in character.`;

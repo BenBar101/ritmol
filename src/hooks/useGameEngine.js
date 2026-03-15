@@ -354,6 +354,16 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
           const safeText = sanitizeStr(cmd.text, 500);
           if (!safeText.trim()) break;
           tasksAdded++;
+          // Clamp due date to a max of 14 days from today. Tasks further out
+          // than two weeks are set to null — the AI can suggest them but the
+          // user must schedule them manually via the Tasks tab.
+          let clampedDue = null;
+          if (typeof cmd.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(cmd.due)) {
+            const maxDue = new Date();
+            maxDue.setDate(maxDue.getDate() + 14);
+            const maxDueStr = maxDue.toISOString().slice(0, 10);
+            clampedDue = cmd.due <= maxDueStr ? cmd.due : null;
+          }
           setState((s) => {
             if ((s.tasks || []).length >= MAX_TASKS_TOTAL) return s;
             return {
@@ -362,7 +372,7 @@ export function useGameEngine({ setState, latestStateRef, showBanner, showToast,
                 id:       `t_${crypto.randomUUID()}`,
                 text:     safeText,
                 priority: ["low","medium","high"].includes(cmd.priority) ? cmd.priority : "medium",
-                due:      typeof cmd.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(cmd.due) ? cmd.due : null,
+                due:      clampedDue,
                 done:     false,
                 addedBy:  "ritmol",
               }],
