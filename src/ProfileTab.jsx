@@ -1039,6 +1039,32 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
   const [importLoading, setImportLoading] = useState(false);
   const [clientIdInput, setClientIdInput] = useState(profile?.googleClientId || "");
 
+  // ── PWA install prompt ────────────────────────────────────────
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installDone, setInstallDone] = useState(false);
+  const isStandalone =
+    typeof window !== "undefined" &&
+    (window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true);
+
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  async function doInstall() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === "accepted") { setInstallDone(true); setInstallPrompt(null); }
+  }
+
+  const isIOS =
+    typeof navigator !== "undefined" &&
+    /iphone|ipad|ipod/i.test(navigator.userAgent) &&
+    !window.MSStream;
+
   useEffect(() => {
     setClientIdInput(profile?.googleClientId || "");
   }, [profile?.googleClientId]);
@@ -1200,6 +1226,56 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
       </div>
 
       <div style={{ height: "1px", background: "#333", margin: "8px 0" }} />
+
+      {/* ── INSTALL APP ── */}
+      {!isStandalone && (
+        <>
+          <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>[ INSTALL APP ]</div>
+          {installDone ? (
+            <div style={{ fontSize: "16px", color: "#fff", border: "2px solid #fff", padding: "12px" }}>
+              ✓ APP INSTALLED SUCCESSFULLY
+            </div>
+          ) : installPrompt ? (
+            /* Chrome / Android — native install prompt available */
+            <>
+              <div style={{ fontSize: "14px", color: "#fff", lineHeight: "1.7", opacity: 0.7 }}>
+                Install RITMOL as an app for offline access and a full-screen experience.
+              </div>
+              <button
+                type="button"
+                onClick={doInstall}
+                style={{
+                  width: "100%", padding: "14px", background: "#fff", color: "#000",
+                  fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+                  letterSpacing: "2px", border: "none", cursor: "pointer", minHeight: "56px",
+                }}
+              >
+                ⬇ INSTALL APP
+              </button>
+            </>
+          ) : isIOS ? (
+            /* iOS Safari — no beforeinstallprompt, show manual steps */
+            <>
+              <div style={{ fontSize: "14px", color: "#fff", lineHeight: "1.7", opacity: 0.7 }}>
+                Install RITMOL on your iPhone or iPad:
+              </div>
+              <div style={{ border: "2px solid #fff", padding: "14px", fontSize: "15px", color: "#fff", lineHeight: "2", fontFamily: "'Share Tech Mono', monospace" }}>
+                1. Tap the <strong>Share</strong> button <span style={{ fontSize: "18px" }}>⎋</span> in Safari<br />
+                2. Scroll down and tap <strong>"Add to Home Screen"</strong><br />
+                3. Tap <strong>Add</strong>
+              </div>
+            </>
+          ) : (
+            /* Already installed or browser doesn't support install */
+            <div style={{ fontSize: "14px", color: "#fff", lineHeight: "1.7", opacity: 0.6 }}>
+              Open this page in Chrome or Edge on Android to install it as an app.
+              On iPhone, use Safari → Share → Add to Home Screen.
+            </div>
+          )}
+          <div style={{ height: "1px", background: "#333", margin: "8px 0" }} />
+        </>
+      )}
+
       {/* ── SYNC ── */}
       <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>[ SYNC ]</div>
 
