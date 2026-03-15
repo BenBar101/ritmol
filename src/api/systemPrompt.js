@@ -110,6 +110,32 @@ export function buildSystemPrompt(state, profile) {
   const safeGoal = sanitizeForPrompt(profile?.semesterGoal ?? "", 300);
   const safeDailyGoal = sanitizeForPrompt(state.dailyGoal ?? "", 200);
 
+  // Build upcoming calendar events summary (next 14 days, up to 10 events).
+  // All user-controlled fields (title) are sanitized before embedding.
+  // Event dates come from gcal.js which already validates them via safeDate(),
+  // but we re-validate here defensively before passing to new Date().
+  const now = Date.now();
+  const calSummary = (state.calendarEvents || [])
+    .filter((e) => {
+      if (!e.start) return false;
+      const ms = new Date(e.start).getTime();
+      return !isNaN(ms) && ms >= now;
+    })
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    .slice(0, 10)
+    .map((e) => {
+      const safeTitle = sanitizeForPrompt(e.title ?? "Event", 80);
+      const safeType  = sanitizeForPrompt(e.type  ?? "other", 20);
+      // Format as "YYYY-MM-DD HH:MM" (local time) for brevity.
+      const d = new Date(e.start);
+      const datePart = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+      const timePart = e.start.includes("T")
+        ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+        : "all-day";
+      return `${datePart} ${timePart} - ${safeTitle} (${safeType})`;
+    })
+    .join("; ") || "No upcoming events.";
+
   // Recent chat history re-sanitized at replay time to prevent stored
   // injection from breaking out of the HUNTER_DATA boundary. Wrap each
   // turn with an explicit role sigil and hard separator to make it harder
@@ -162,6 +188,7 @@ Daily Objective: ${safeDailyGoal}
 Habits today: ${todayHabits}/${totalHabits} completed
 Pending Tasks: ${pendingTasks}
 Active Goals: ${activeGoals}
+Upcoming Calendar Events: ${calSummary}
 </HUNTER_DATA>
 
 <RECENT_CONTEXT>
