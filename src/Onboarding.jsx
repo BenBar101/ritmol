@@ -318,10 +318,12 @@ const APP_ICON_URL = `${BASE_URL}/icon-192.png`;
 
 // ── Main onboarding ───────────────────────────────────────────
 export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbox }) {
-  // Snapshot API state once on mount so the step list stays stable
-  // throughout the flow even if session storage changes mid-flow.
+  // needsDropbox is snapshotted once — Dropbox auth navigates away and back,
+  // so by the time we're here the auth state is already final.
   const needsDropbox = useMemo(() => !isAuthenticated(), []);
-  const needsGemini  = useMemo(() => !getGeminiApiKey(),  []);
+  // needsGemini is reactive state so it updates when Dropbox connects and
+  // pulls the Gemini key into sessionStorage during the onboarding flow.
+  const [needsGemini, setNeedsGemini] = useState(() => !getGeminiApiKey());
 
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({ name: "", major: "", books: "", interests: "", semesterGoal: "", gcalClientId: "" });
@@ -436,7 +438,16 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
 
   function advance() {
     setError("");
-    if (step < steps.length - 1) {
+    // Re-check whether we still need the Gemini step — Dropbox may have
+    // pulled the key into sessionStorage while the user was on that step.
+    // setNeedsGemini(false) will cause steps to rebuild (shorter list) on
+    // the next render, so we read the key first before calling setStep.
+    const keyNowPresent = !!getGeminiApiKey();
+    if (keyNowPresent) setNeedsGemini(false);
+    // Calculate next step against the list length that will exist after the
+    // rebuild: if the Gemini step is being dropped, the list shrinks by 1.
+    const nextListLength = steps.length - (keyNowPresent && needsGemini ? 1 : 0);
+    if (step < nextListLength - 1) {
       setStep(step + 1);
     } else {
       onComplete(sanitizeForm(form));
