@@ -132,7 +132,7 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
       justifyContent: "flex-start", padding: "32px 24px", background: "#000",
       color: "#fff", ...mono,
     }}>
-      <img src={APP_ICON_URL} alt="" style={{ width: 44, height: 44, marginBottom: "20px", marginTop: "24px" }} />
+      <img src={APP_ICON_URL} alt="" style={{ width: 44, height: 44, marginBottom: "20px", marginTop: "24px" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
       <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", marginBottom: "6px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ RITMOL ]</div>
       <div style={{ fontSize: "20px", fontWeight: "bold", letterSpacing: "1px", marginBottom: "6px" }}>
         {mode === "gemini" ? "GEMINI API KEY" : mode === "syncthing" ? "LOAD FROM FILE" : "SETUP REQUIRED"}
@@ -408,12 +408,11 @@ export default function App() {
       })
       .catch(() => {
         // Network error after fetch was attempted (connectivity was present but
-        // request failed). Show the static fallback — do not reset the ref so
-        // we do not hammer a flaky network on every render.
-        setDailyQuote({
-          quote: "The secret of getting ahead is getting started.",
-          author: "Mark Twain",
-        });
+        // request failed). Reset the ref so the next mount can retry — the
+        // static EMERGENCY_FALLBACK is already returned by fetchDailyQuote itself
+        // on persistent failure; we don't duplicate it here to avoid always
+        // showing Mark Twain when the API is briefly unavailable.
+        quoteFetchedRef.current = false;
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!profile]);

@@ -21,7 +21,7 @@ export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatu
       display: "flex", alignItems: "center", justifyContent: "space-between",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <img src={APP_ICON_URL} alt="" style={{ width: 28, height: 28, display: "block" }} />
+        <img src={APP_ICON_URL} alt="" style={{ width: 28, height: 28, display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
         <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "3px", color: "#fff" }}>
           RITMOL
         </span>

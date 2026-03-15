@@ -52,7 +52,11 @@ export const nowMin  = () => new Date().getMinutes()
 // ── Dev/prod isolation ─────────────────────────────────────────
 export const IS_DEV     = import.meta.env.DEV === true
 export const DEV_PREFIX = 'ritmol_dev_'
-export const APP_ICON_URL = `${(import.meta.env.BASE_URL || '/').replace(/\/$/, '')}/icon-192.png`
+export const APP_ICON_URL = (() => {
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+  // Avoid double-slash when base is empty or just '/'.
+  return base ? `${base}/icon-192.png` : '/icon-192.png';
+})()
 
 // The IDB database name is isolated between dev and prod.
 // Use a separate namespace from idb.js ('ritmol' / 'ritmol_dev') to avoid schema conflict.

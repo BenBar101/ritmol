@@ -39,10 +39,10 @@ async function _wait429(res) {
 function _extractAuthorTokens(booksStr) {
   if (!booksStr || typeof booksStr !== "string") return [];
   return booksStr
-    .split(/[,;|/\n]+/)
-    .map(s => s.trim().split(/\s+/).pop()) // last word of each segment
-    .filter(t => t && t.length >= 4)
-    .slice(0, 5); // cap: no more than 5 attempts
+    .split(/[,;|\n]+/)
+    .map(s => s.trim())
+    .filter(t => t && t.length >= 3)
+    .slice(0, 6); // cap: no more than 6 attempts
 }
 
 // eslint-disable-next-line no-unused-vars
@@ -103,7 +103,10 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
         const authors = searchData.results || [];
         if (!authors.length) continue;
 
-        const match = authors.find(a => a.slug && a.slug.toLowerCase().includes(token.toLowerCase())) || authors[0];
+        // Match: any word from the full token appears in the slug, or fall back to first result
+        const tokenWords = token.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+        const match = authors.find(a => a.slug && tokenWords.some(w => a.slug.toLowerCase().includes(w)))
+          || authors[0];
         if (!match?.slug) continue;
 
         const quoteUrl = `https://api.quotable.kameswari.in/quotes/random?author=${encodeURIComponent(match.slug)}&maxLength=250&limit=1`;

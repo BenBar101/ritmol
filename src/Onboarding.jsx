@@ -315,7 +315,7 @@ export function GeminiKeySetupScreen({ onSave }) {
 }
 
 const BASE_URL = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") || "";
-const APP_ICON_URL = `${BASE_URL}/icon-192.png`;
+const APP_ICON_URL = BASE_URL ? `${BASE_URL}/icon-192.png` : "/icon-192.png";
 
 // ── Main onboarding ───────────────────────────────────────────
 export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbox }) {

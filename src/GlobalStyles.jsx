@@ -67,6 +67,98 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar-thumb { background: #fff; border-radius: 0; }
   * { scrollbar-width: thin; scrollbar-color: #fff #000; }
 
+  /* ── Light theme ─────────────────────────────────────────── */
+  html[data-theme="light"],
+  html[data-theme="light"] body,
+  html[data-theme="light"] #root {
+    background: #f0f0f0 !important;
+    color: #000 !important;
+  }
+  /* Flip all backgrounds and text colors */
+  html[data-theme="light"] div,
+  html[data-theme="light"] span,
+  html[data-theme="light"] section,
+  html[data-theme="light"] article,
+  html[data-theme="light"] header,
+  html[data-theme="light"] footer,
+  html[data-theme="light"] nav,
+  html[data-theme="light"] aside,
+  html[data-theme="light"] main,
+  html[data-theme="light"] p,
+  html[data-theme="light"] h1,
+  html[data-theme="light"] h2,
+  html[data-theme="light"] h3,
+  html[data-theme="light"] h4,
+  html[data-theme="light"] label,
+  html[data-theme="light"] li,
+  html[data-theme="light"] ul,
+  html[data-theme="light"] details,
+  html[data-theme="light"] summary,
+  html[data-theme="light"] pre {
+    background-color: #f0f0f0 !important;
+    color: #000 !important;
+    border-color: #000 !important;
+  }
+  /* Buttons: default ghost style */
+  html[data-theme="light"] button {
+    background-color: #f0f0f0 !important;
+    color: #000 !important;
+    border-color: #000 !important;
+  }
+  /* Primary/filled buttons: invert (was white bg + black text) */
+  html[data-theme="light"] button[style*="background: rgb(255, 255, 255)"],
+  html[data-theme="light"] button[style*="background: #fff"],
+  html[data-theme="light"] button[style*="background: white"],
+  html[data-theme="light"] button[style*="background:#fff"] {
+    background-color: #000 !important;
+    color: #fff !important;
+    border-color: #000 !important;
+  }
+  /* Active bottom nav tab */
+  html[data-theme="light"] button[style*="background: rgb(255, 255, 255)"] span,
+  html[data-theme="light"] button[style*="background: #fff"] span {
+    color: #fff !important;
+  }
+  /* Dim/mid text elements */
+  html[data-theme="light"] [style*="color: rgb(170"],
+  html[data-theme="light"] [style*="color: #aaa"],
+  html[data-theme="light"] [style*="color: #888"],
+  html[data-theme="light"] [style*="color: #666"],
+  html[data-theme="light"] [style*="color: #555"],
+  html[data-theme="light"] [style*="color: #444"],
+  html[data-theme="light"] [style*="color: #ccc"] { color: #444 !important; }
+  /* Dark track backgrounds */
+  html[data-theme="light"] [style*="background: #333"],
+  html[data-theme="light"] [style*="background:#333"],
+  html[data-theme="light"] [style*="background: rgb(51"] { background-color: #bbb !important; }
+  html[data-theme="light"] [style*="background: #111"],
+  html[data-theme="light"] [style*="background:#111"],
+  html[data-theme="light"] [style*="background: rgb(17"] { background-color: #ddd !important; }
+  html[data-theme="light"] [style*="background: #222"],
+  html[data-theme="light"] [style*="background:#222"] { background-color: #ccc !important; }
+  /* Inputs */
+  html[data-theme="light"] input,
+  html[data-theme="light"] textarea,
+  html[data-theme="light"] select {
+    background: #fff !important;
+    color: #000 !important;
+    border-color: #000 !important;
+  }
+  html[data-theme="light"] select option { background: #fff !important; color: #000 !important; }
+  /* Range input */
+  html[data-theme="light"] input[type=range] { background: #bbb !important; }
+  html[data-theme="light"] input[type=range]::-webkit-slider-thumb { background: #000 !important; border-color: #fff !important; }
+  html[data-theme="light"] input[type=range]::-moz-range-thumb { background: #000 !important; border-color: #fff !important; }
+  /* Calendar picker: undo the dark-mode invert */
+  html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+  html[data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: none !important; }
+  /* Scrollbars */
+  html[data-theme="light"] * { scrollbar-color: #000 #f0f0f0 !important; }
+  html[data-theme="light"] ::-webkit-scrollbar-track { background: #f0f0f0 !important; }
+  html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #000 !important; }
+  /* Focus ring */
+  html[data-theme="light"] :focus-visible { outline-color: #000 !important; }
+
   /* ── Inputs ─────────────────────────────────────────────── */
   input, textarea, select {
     /* prevent iOS Safari zoom on focus (font-size must be ≥16px or use this) */
