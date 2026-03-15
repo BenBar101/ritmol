@@ -310,7 +310,7 @@ export default function App() {
         onNeedsGeminiKey: () => { if (!showOnboarding) setShowGeminiKeySetup(true); },
       });
     }
-  }, [handleDropboxCallback, showBanner]);
+  }, [handleDropboxCallback, showBanner, showOnboarding]);
 
   useDailyLogin({ profile, setState, setModal, setLevelUpData, showBanner, trackTokens, lastLevelUpXpRef });
   useScheduler({ state, profile, showBanner, setModal });

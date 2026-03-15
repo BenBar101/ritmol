@@ -423,8 +423,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
   // For textarea fields where users press Enter to separate items, normalise
   // newlines into ", " first so entries don't get jammed together.
   function sanitizeMultilineField(str, maxLen = 300) {
-    const normalized = (str ?? "").replace(/[
-]+/g, ", ").replace(/,\s*,+/g, ",").trim();
+    const normalized = (str ?? "").replace(/[\n\r]+/g, ", ").replace(/,\s*,+/g, ",").trim();
     return sanitizeForPrompt(normalized, maxLen);
   }
 

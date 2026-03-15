@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { readFileSync, writeFileSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 
 // ── Security note: environment variable inlining ──────────────────────────────
@@ -38,6 +38,7 @@ export default defineConfig({
         const outPath = resolve(__dirname, 'dist', 'sw.js');
         const content = readFileSync(swPath, 'utf-8')
           .replace(/self\.__RITMOL_CACHE_VERSION__\s*\|\|\s*"v__BUILD_HASH__"/, JSON.stringify(CACHE_VERSION));
+        mkdirSync(resolve(__dirname, 'dist'), { recursive: true });
         writeFileSync(outPath, content);
       },
     },
