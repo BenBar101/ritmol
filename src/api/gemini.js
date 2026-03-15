@@ -9,6 +9,8 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
   if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
     throw new Error("Gemini API key is missing or empty.");
   }
+  // Always work with the trimmed key so whitespace from paste/storage never causes 403.
+  apiKey = apiKey.trim();
   const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
@@ -76,7 +78,7 @@ export async function callGemini(apiKey, messages, systemPrompt, jsonMode = fals
         // NOTE: The API key is visible in the browser's DevTools Network tab.
         // This is unavoidable for a purely client-side app; warn users in the README
         // not to share screenshots of request headers or HAR files.
-        "x-goog-api-key": apiKey,
+        "x-goog-api-key": apiKey.trim(),
       },
       body: JSON.stringify(body),
       signal: effectiveSignal,

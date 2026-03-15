@@ -222,6 +222,201 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
 }
 
 // ─────────────────────────────────────────────────────────────
+// SYNCING SCREEN — Solo Leveling style
+// ─────────────────────────────────────────────────────────────
+function SyncingScreen() {
+  const [frame, setFrame] = React.useState(0);
+  const [dotsFrame, setDotsFrame] = React.useState(0);
+  const [glitchActive, setGlitchActive] = React.useState(false);
+
+  // Animate scan line frame
+  React.useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % 60), 50);
+    return () => clearInterval(id);
+  }, []);
+
+  // Animate dots
+  React.useEffect(() => {
+    const id = setInterval(() => setDotsFrame((f) => (f + 1) % 4), 400);
+    return () => clearInterval(id);
+  }, []);
+
+  // Occasional glitch flash
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      setGlitchActive(true);
+      setTimeout(() => setGlitchActive(false), 120);
+    }, 2800);
+    return () => clearInterval(id);
+  }, []);
+
+  const dots = ".".repeat(dotsFrame);
+  const scanY = (frame / 59) * 100;
+
+  const hexChars = "0123456789ABCDEF";
+  // Deterministic hex rows seeded by frame so they shift each tick
+  const hexRows = Array.from({ length: 6 }, (_, row) =>
+    Array.from({ length: 14 }, (_, col) =>
+      hexChars[(row * 14 + col + frame) % 16]
+    ).join(" ")
+  );
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      background: "#000", overflow: "hidden", position: "relative",
+      fontFamily: "'Share Tech Mono', monospace",
+    }}>
+      {/* Animated hex grid background */}
+      <div style={{
+        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        justifyContent: "center", gap: "10px", padding: "40px",
+        opacity: 0.06, pointerEvents: "none", userSelect: "none",
+        fontSize: "11px", color: "#fff", letterSpacing: "2px",
+        overflow: "hidden",
+      }}>
+        {hexRows.map((row, i) => (
+          <div key={i}>{row}</div>
+        ))}
+      </div>
+
+      {/* Scan line sweep */}
+      <div style={{
+        position: "absolute", left: 0, right: 0,
+        top: `${scanY}%`,
+        height: "2px",
+        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)",
+        pointerEvents: "none",
+      }} />
+
+      {/* Corner brackets */}
+      {[
+        { top: 24, left: 24, borderTop: "1px solid #fff", borderLeft: "1px solid #fff" },
+        { top: 24, right: 24, borderTop: "1px solid #fff", borderRight: "1px solid #fff" },
+        { bottom: 24, left: 24, borderBottom: "1px solid #fff", borderLeft: "1px solid #fff" },
+        { bottom: 24, right: 24, borderBottom: "1px solid #fff", borderRight: "1px solid #fff" },
+      ].map((s, i) => (
+        <div key={i} style={{ position: "absolute", width: 20, height: 20, opacity: 0.4, ...s }} />
+      ))}
+
+      {/* Main content */}
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: "28px",
+        position: "relative", zIndex: 1,
+      }}>
+        {/* Gate portal ring */}
+        <div style={{ position: "relative", width: 96, height: 96 }}>
+          {/* Outer ring */}
+          <div style={{
+            position: "absolute", inset: 0, borderRadius: "50%",
+            border: "1px solid rgba(255,255,255,0.15)",
+          }} />
+          {/* Spinning arc */}
+          <div style={{
+            position: "absolute", inset: 4, borderRadius: "50%",
+            border: "2px solid transparent",
+            borderTopColor: "#fff",
+            borderRightColor: "rgba(255,255,255,0.3)",
+            animation: "ritmol-spin 1.1s linear infinite",
+          }} />
+          {/* Counter-spin inner arc */}
+          <div style={{
+            position: "absolute", inset: 14, borderRadius: "50%",
+            border: "1px solid transparent",
+            borderBottomColor: "rgba(255,255,255,0.5)",
+            animation: "ritmol-spin-rev 1.8s linear infinite",
+          }} />
+          {/* Center dot */}
+          <div style={{
+            position: "absolute", inset: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: glitchActive ? "#fff" : "rgba(255,255,255,0.7)",
+              boxShadow: glitchActive ? "0 0 12px #fff, 0 0 24px rgba(255,255,255,0.4)" : "0 0 6px rgba(255,255,255,0.4)",
+              transition: "box-shadow 0.05s",
+            }} />
+          </div>
+        </div>
+
+        {/* Title block */}
+        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{
+            fontSize: "9px", letterSpacing: "5px", color: "rgba(255,255,255,0.35)",
+            textTransform: "uppercase",
+          }}>
+            SYSTEM INTERFACE
+          </div>
+          <div style={{
+            fontSize: "20px", fontWeight: "bold", letterSpacing: "4px",
+            color: glitchActive ? "rgba(255,255,255,0.6)" : "#fff",
+            textShadow: glitchActive ? "2px 0 rgba(255,255,255,0.3), -2px 0 rgba(255,255,255,0.3)" : "none",
+            transition: "color 0.05s",
+          }}>
+            SYNCHRONISING
+          </div>
+          <div style={{
+            fontSize: "11px", letterSpacing: "3px",
+            color: "rgba(255,255,255,0.4)",
+          }}>
+            LOADING HUNTER DATA{dots}
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ width: 220, display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{
+            height: "2px", background: "rgba(255,255,255,0.08)",
+            position: "relative", overflow: "hidden",
+          }}>
+            <div style={{
+              position: "absolute", left: 0, top: 0, bottom: 0,
+              width: "40%",
+              background: "rgba(255,255,255,0.7)",
+              animation: "ritmol-slide 1.4s ease-in-out infinite",
+            }} />
+          </div>
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            fontSize: "9px", color: "rgba(255,255,255,0.2)", letterSpacing: "2px",
+          }}>
+            <span>DROPBOX</span>
+            <span>DECRYPTING</span>
+          </div>
+        </div>
+
+        {/* Status rows */}
+        <div style={{
+          display: "flex", flexDirection: "column", gap: "6px",
+          fontSize: "9px", color: "rgba(255,255,255,0.25)", letterSpacing: "2px",
+          textAlign: "center",
+        }}>
+          <div>[ ESTABLISHING SECURE CHANNEL ]</div>
+          <div style={{ color: "rgba(255,255,255,0.12)" }}>
+            {hexChars[(frame * 3) % 16]}{hexChars[(frame * 7) % 16]}{hexChars[(frame * 5) % 16]}
+            {hexChars[(frame * 11) % 16]} — GATE AUTHENTICATION
+          </div>
+        </div>
+      </div>
+
+      {/* CSS keyframes injected once */}
+      <style>{`
+        @keyframes ritmol-spin { to { transform: rotate(360deg); } }
+        @keyframes ritmol-spin-rev { to { transform: rotate(-360deg); } }
+        @keyframes ritmol-slide {
+          0%   { transform: translateX(-100%); opacity: 1; }
+          50%  { transform: translateX(150%); opacity: 1; }
+          51%  { opacity: 0; transform: translateX(-100%); }
+          100% { transform: translateX(-100%); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
 export default function App() {
@@ -405,14 +600,7 @@ export default function App() {
   if (!idbReady || state === null) {
     return (
       <ErrorBoundary>
-        <div style={{
-          minHeight: "100vh", display: "flex", alignItems: "center",
-          justifyContent: "center", background: "#0a0a0a",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-          color: "#333", letterSpacing: "2px",
-        }}>
-          INITIALISING...
-        </div>
+        <SyncingScreen />
       </ErrorBoundary>
     );
   }
@@ -483,14 +671,7 @@ export default function App() {
     if (syncStatus === "syncing" || isReloading) {
       return (
         <ErrorBoundary>
-          <div style={{
-            minHeight: "100vh", display: "flex", alignItems: "center",
-            justifyContent: "center", background: "#0a0a0a",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-            color: "#333", letterSpacing: "2px",
-          }}>
-            SYNCING...
-          </div>
+          <SyncingScreen />
         </ErrorBoundary>
       );
     }
@@ -513,14 +694,7 @@ export default function App() {
   if (!profile && !showOnboarding) {
     return (
       <ErrorBoundary>
-        <div style={{
-          minHeight: "100vh", display: "flex", alignItems: "center",
-          justifyContent: "center", background: "#0a0a0a",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-          color: "#333", letterSpacing: "2px",
-        }}>
-          INITIALISING...
-        </div>
+        <SyncingScreen />
       </ErrorBoundary>
     );
   }
