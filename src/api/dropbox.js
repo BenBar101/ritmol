@@ -74,6 +74,29 @@ const SS_LAST_REV = `${PREFIX}dbx_last_rev`;
 // does not materially weaken the security model beyond the access token itself.
 const LS_REFRESH_TOKEN = `${PREFIX}dbx_refresh_token`;
 const LS_EXPIRES_AT = `${PREFIX}dbx_expires_at`;
+// Last-seen file revision — persisted in localStorage so it survives browser close.
+// Previously stored in sessionStorage; migration below handles existing values.
+const LS_LAST_REV = `${PREFIX}dbx_last_rev`;
+
+// ── One-time migration: move tokens from sessionStorage → localStorage ──────
+// Old code stored refresh_token and expires_at in sessionStorage, which cleared
+// on browser close. This runs once at module load and migrates any existing
+// values so returning users don't have to re-authenticate.
+;(() => {
+  try {
+    // Old sessionStorage keys (same names, different storage)
+    const oldRefresh  = sessionStorage.getItem(LS_REFRESH_TOKEN);
+    const oldExpires  = sessionStorage.getItem(LS_EXPIRES_AT);
+    const oldRev      = sessionStorage.getItem(SS_LAST_REV);
+    if (oldRefresh && !localStorage.getItem(LS_REFRESH_TOKEN)) {
+      localStorage.setItem(LS_REFRESH_TOKEN, oldRefresh);
+      if (oldExpires) localStorage.setItem(LS_EXPIRES_AT, oldExpires);
+    }
+    if (oldRev && !localStorage.getItem(LS_LAST_REV)) {
+      localStorage.setItem(LS_LAST_REV, oldRev);
+    }
+  } catch { /* ignore — storage may be unavailable */ }
+})();
 
 async function _fetchWithTimeout(url, options = {}, ms = 20_000) {
   let timeoutSignal;
@@ -187,7 +210,7 @@ export function clearTokens() {
     sessionStorage.removeItem(SS_ACCESS_TOKEN);
     sessionStorage.removeItem(SS_CODE_VERIFIER);
     sessionStorage.removeItem(SS_OAUTH_STATE);
-    sessionStorage.removeItem(SS_LAST_REV);
+    localStorage.removeItem(LS_LAST_REV);
     localStorage.removeItem(LS_REFRESH_TOKEN);
     localStorage.removeItem(LS_EXPIRES_AT);
   } catch {
@@ -419,7 +442,7 @@ export async function downloadFile() {
     ? (() => { try { return JSON.parse(res.headers.get("Dropbox-API-Result")).rev; } catch { return null; } })()
     : null;
   if (rev) {
-    try { sessionStorage.setItem(SS_LAST_REV, rev); } catch { /* ignore */ }
+    try { localStorage.setItem(LS_LAST_REV, rev); } catch { /* ignore */ }
   }
   const text = await res.text();
   return { text, rev };
@@ -435,7 +458,7 @@ export async function uploadFile(text) {
   const tokens = getTokens();
   if (!tokens) throw new Error("DROPBOX_AUTH_REQUIRED");
 
-  const storedRev = sessionStorage.getItem(SS_LAST_REV);
+  const storedRev = localStorage.getItem(LS_LAST_REV);
 
   // Choose upload mode:
   //   - If we have a stored rev from a previous pull/push, use "update" mode
@@ -476,7 +499,7 @@ export async function uploadFile(text) {
 
     const data = await res.json().catch(() => ({}));
     if (data.rev) {
-      try { sessionStorage.setItem(SS_LAST_REV, data.rev); } catch { /* ignore */ }
+      try { localStorage.setItem(LS_LAST_REV, data.rev); } catch { /* ignore */ }
     }
   } catch (e) {
     if (e?.name === "AbortError" || e?.name === "TimeoutError") {

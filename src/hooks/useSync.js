@@ -187,6 +187,8 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
         showBanner("Push skipped: sync file was just modified externally. Pull first or retry in a moment.", "info");
         return;
       }
+      // Log the full error so unexpected failures are visible in the console.
+      console.error("[useSync] Push failed:", e);
       setSyncStatus("error");
       const msgs = {
         NO_HANDLE:           "No sync file selected. Pick one in Profile → Settings.",
