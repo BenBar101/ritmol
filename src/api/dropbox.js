@@ -527,12 +527,17 @@ export async function ensureFolderExists() {
   });
 
   if (res.ok) return;
-  if (res.status === 401 || res.status === 400) throw new Error("DROPBOX_TOKEN_EXPIRED");
-  if (res.status === 409) {
+  // Both 400 and 409 can signal a folder-conflict (folder already exists).
+  // Parse the body first before deciding whether this is an auth error.
+  if (res.status === 409 || res.status === 400) {
     const err = await res.json().catch(() => ({}));
     const conflictTag = err?.error?.path?.conflict?.[".tag"];
+    // "folder" conflict or generic "path" error both mean the folder exists — not a real error.
     if (conflictTag === "folder" || err?.error?.[".tag"] === "path") return;
+    // Genuine bad-request (invalid token etc.) on 400.
+    if (res.status === 400) throw new Error("DROPBOX_TOKEN_EXPIRED");
   }
+  if (res.status === 401) throw new Error("DROPBOX_TOKEN_EXPIRED");
   throw new Error("DROPBOX_AUTH_REQUIRED");
   } catch (e) {
     if (e?.name === "AbortError" || e?.name === "TimeoutError") {
