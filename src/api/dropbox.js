@@ -527,6 +527,7 @@ export async function ensureFolderExists() {
   });
 
   if (res.ok) return;
+  if (res.status === 401 || res.status === 400) throw new Error("DROPBOX_TOKEN_EXPIRED");
   if (res.status === 409) {
     const err = await res.json().catch(() => ({}));
     const conflictTag = err?.error?.path?.conflict?.[".tag"];
