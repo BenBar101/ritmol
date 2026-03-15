@@ -111,7 +111,11 @@ const GLOBAL_CSS = `
     color: #fff !important;
     border-color: #000 !important;
   }
-  html[data-theme="light"] button[data-active="true"] span {
+  /* All descendants of inverted buttons must inherit black bg, not be overridden to #f0f0f0 */
+  html[data-theme="light"] button[data-active="true"] *,
+  html[data-theme="light"] button[data-active="true"] span,
+  html[data-theme="light"] button[data-active="true"] div {
+    background-color: transparent !important;
     color: #fff !important;
   }
   /* Completed protocol button — uses data-done attribute for reliable targeting */
@@ -120,7 +124,10 @@ const GLOBAL_CSS = `
     color: #fff !important;
     border-color: #000 !important;
   }
+  html[data-theme="light"] button[data-done="true"] *,
+  html[data-theme="light"] button[data-done="true"] span,
   html[data-theme="light"] button[data-done="true"] div {
+    background-color: transparent !important;
     color: #fff !important;
   }
   /* Primary/filled buttons: invert (was white bg + black text).
