@@ -105,19 +105,33 @@ const GLOBAL_CSS = `
     color: #000 !important;
     border-color: #000 !important;
   }
-  /* Primary/filled buttons: invert (was white bg + black text) */
-  html[data-theme="light"] button[style*="background: rgb(255, 255, 255)"],
-  html[data-theme="light"] button[style*="background: #fff"],
-  html[data-theme="light"] button[style*="background: white"],
-  html[data-theme="light"] button[style*="background:#fff"] {
+  /* Active bottom nav tab — uses data-active attribute for reliable targeting */
+  html[data-theme="light"] button[data-active="true"] {
     background-color: #000 !important;
     color: #fff !important;
     border-color: #000 !important;
   }
-  /* Active bottom nav tab */
-  html[data-theme="light"] button[style*="background: rgb(255, 255, 255)"] span,
-  html[data-theme="light"] button[style*="background: #fff"] span {
+  html[data-theme="light"] button[data-active="true"] span {
     color: #fff !important;
+  }
+  /* Completed protocol button — uses data-done attribute for reliable targeting */
+  html[data-theme="light"] button[data-done="true"] {
+    background-color: #000 !important;
+    color: #fff !important;
+    border-color: #000 !important;
+  }
+  html[data-theme="light"] button[data-done="true"] div {
+    color: #fff !important;
+  }
+  /* Primary/filled buttons: invert (was white bg + black text).
+     Exclude nav buttons (handled above) to avoid double-invert. */
+  html[data-theme="light"] button:not([data-active])[style*="background: rgb(255, 255, 255)"],
+  html[data-theme="light"] button:not([data-active])[style*="background: #fff"],
+  html[data-theme="light"] button:not([data-active])[style*="background: white"],
+  html[data-theme="light"] button:not([data-active])[style*="background:#fff"] {
+    background-color: #000 !important;
+    color: #fff !important;
+    border-color: #000 !important;
   }
   /* Dim/mid text elements */
   html[data-theme="light"] [style*="color: rgb(170"],

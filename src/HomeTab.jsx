@@ -4,7 +4,7 @@ import { localDateFromUTC, todayUTC, nowHour, sanitizeForDisplay } from "./utils
 import { DAILY_TOKEN_LIMIT } from "./constants";
 
 export default function HomeTab() {
-  const { state, setState, rank, dailyQuote, logHabit, showBanner, setTab, profile } = useAppContext();
+  const { state, setState, rank, dailyQuote, logHabit, showBanner, setTab, profile, theme } = useAppContext();
   const todayLog = state.habitLog[localDateFromUTC()] || [];
   const totalHabits = state.habits.length;
   const doneHabits = todayLog.length;
@@ -95,7 +95,7 @@ export default function HomeTab() {
 
       {/* Habit ring */}
       <div style={{ display: "flex", alignItems: "center", gap: "16px", border: "2px solid #fff", padding: "16px" }}>
-        <HabitRing done={doneHabits} total={totalHabits} />
+        <HabitRing done={doneHabits} total={totalHabits} theme={theme} />
         <div style={{ fontFamily: "'Share Tech Mono', monospace" }}>
           <div style={{ fontSize: "16px", color: "#fff", fontWeight: "bold" }}>[ TODAY&apos;S PROTOCOLS ]</div>
           <div style={{ fontSize: "26px", fontWeight: "bold" }}>{doneHabits} / {totalHabits}</div>
@@ -146,6 +146,7 @@ export default function HomeTab() {
               <button
                 key={h.id}
                 onClick={(e) => !done && logHabit(h.id, e)}
+                data-done={done ? "true" : undefined}
                 style={{
                   padding: "14px 4px", border: done ? "3px solid #fff" : "2px solid #fff",
                   background: done ? "#fff" : "#000",
@@ -236,18 +237,23 @@ function TokenUsageBar({ usage }) {
   );
 }
 
-function HabitRing({ done, total }) {
+function HabitRing({ done, total, theme }) {
   const r = 28;
   const circ = 2 * Math.PI * r;
   const pct = total ? done / total : 0;
+  const isLight = theme === "light";
+  const trackColor  = isLight ? "#bbb" : "#555";
+  const fillColor   = isLight ? "#000" : "#fff";
+  const textColor   = isLight ? "#000" : "#fff";
+  const bgFill      = isLight ? "#f0f0f0" : "#000";
   return (
     <svg width="80" height="80" style={{ flexShrink: 0 }}>
-      <circle cx="40" cy="40" r={r} fill="none" stroke="#555" strokeWidth="6" />
-      <circle cx="40" cy="40" r={r} fill="none" stroke="#fff" strokeWidth="6"
+      <circle cx="40" cy="40" r={r} fill="none" stroke={trackColor} strokeWidth="6" />
+      <circle cx="40" cy="40" r={r} fill="none" stroke={fillColor} strokeWidth="6"
         strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
         strokeLinecap="butt" transform="rotate(-90 40 40)"
       />
-      <text x="40" y="46" textAnchor="middle" fill="#fff"
+      <text x="40" y="46" textAnchor="middle" fill={textColor}
         style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "18px", fontWeight: "bold" }}>
         {Math.round(pct * 100)}%
       </text>

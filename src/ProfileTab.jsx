@@ -625,6 +625,9 @@ function GachaSection({ state, setState, profile, apiKey, gachaCost, showBanner,
       : null,
   }));
   const canAfford = state.xp >= gachaCost;
+  // Check if daily token budget is depleted
+  const tokenUsage = state.tokenUsage;
+  const tokensExhausted = !!(tokenUsage && tokenUsage.date === todayUTC() && tokenUsage.tokens >= DAILY_TOKEN_LIMIT);
   // Abort controller so unmounting mid-pull cancels the Gemini request and prevents
   // trackTokens / setState firing against an unmounted component.
   const gachaAbortRef = useRef(null);
@@ -858,21 +861,34 @@ Respond ONLY with JSON:
         <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ CHRONICLE ENGINE ]</div>
         <div style={{ fontSize: "40px", margin: "16px 0" }}>◈</div>
         <div style={{ fontSize: "16px", color: "#fff", marginBottom: "16px", fontFamily: "'Share Tech Mono', monospace" }}>
-          {canAfford ? `${gachaCost} XP per pull` : `Need ${gachaCost - state.xp} more XP`}
+          {tokensExhausted
+            ? "NEURAL ENERGY DEPLETED"
+            : canAfford ? `${gachaCost} XP per pull` : `Need ${gachaCost - state.xp} more XP`}
         </div>
+        {tokensExhausted && (
+          <div style={{
+            border: "2px solid #fff", padding: "10px 14px", marginBottom: "12px",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff",
+            letterSpacing: "1px", lineHeight: "1.5",
+          }}>
+            ⚡ DAILY TOKEN BUDGET EXHAUSTED<br />
+            AI functions disabled until midnight reset.
+          </div>
+        )}
         <button
           type="button"
           onClick={doPull}
-          disabled={!canAfford || pulling}
+          disabled={!canAfford || pulling || tokensExhausted}
           style={{
             width: "100%", padding: "14px",
-            background: canAfford && !pulling ? "#fff" : "#1a1a1a",
-            color: canAfford && !pulling ? "#000" : "#fff",
+            background: canAfford && !pulling && !tokensExhausted ? "#fff" : "#1a1a1a",
+            color: canAfford && !pulling && !tokensExhausted ? "#000" : "#fff",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "2px",
-            border: "none", cursor: canAfford && !pulling ? "pointer" : "default",
+            border: "none", cursor: canAfford && !pulling && !tokensExhausted ? "pointer" : "default",
+            opacity: tokensExhausted ? 0.5 : 1,
           }}
         >
-          {pulling ? "PULLING..." : `PULL — ${gachaCost} XP`}
+          {pulling ? "PULLING..." : tokensExhausted ? "NO NEURAL ENERGY" : `PULL — ${gachaCost} XP`}
         </button>
         <div style={{ fontSize: "16px", color: "#fff", marginTop: "8px", fontFamily: "'Share Tech Mono', monospace" }}>
           {collection.length} cards collected

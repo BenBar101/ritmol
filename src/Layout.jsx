@@ -108,6 +108,7 @@ export function BottomNav({ tab, setTab }) {
         <button
           key={t.id}
           onClick={() => setTab(t.id)}
+          data-active={tab === t.id ? "true" : undefined}
           style={{
             flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
             justifyContent: "center", gap: "4px",
