@@ -28,7 +28,7 @@ export default function ChatTab() {
   const latestHistoryRef = useRef(messages);
   useEffect(() => { latestHistoryRef.current = messages; }, [messages]);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "instant" }); }, [messages]);
 
   const userMsgCount = useMemo(
     () => messages.filter((m) => m.role === "user").length,
@@ -248,9 +248,9 @@ export default function ChatTab() {
       <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
         {messages.length === 0 && (
           <div style={{ textAlign: "center", padding: "40px 20px", fontFamily: "'Share Tech Mono', monospace" }}>
-            <div style={{ fontSize: "48px", marginBottom: "16px" }}>◈</div>
-            <div style={{ fontSize: "20px", marginBottom: "8px", fontWeight: "bold" }}>RITMOL ONLINE</div>
-            <div style={{ fontSize: "15px", color: "#ccc" }}>System ready. Awaiting Hunter input.</div>
+            <div style={{ fontSize: "64px", marginBottom: "16px" }}>◈</div>
+            <div style={{ fontSize: "28px", marginBottom: "8px", fontWeight: "bold", letterSpacing: "3px" }}>[ RITMOL ONLINE ]</div>
+            <div style={{ fontSize: "18px", color: "#fff" }}>SYSTEM READY. AWAITING HUNTER INPUT.</div>
           </div>
         )}
         {messages.map((msg, i) => {
@@ -279,8 +279,8 @@ export default function ChatTab() {
           {chips.map((c) => (
             <button type="button" key={c} disabled={loading} onClick={() => sendMessage(c)} style={{
               padding: "10px 16px", border: loading ? "2px solid #444" : "2px solid #fff",
-              background: "transparent", color: loading ? "#555" : "#fff",
-              fontFamily: "'Share Tech Mono', monospace", fontSize: "13px",
+              background: "transparent", color: "#fff",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
               whiteSpace: "nowrap", cursor: loading ? "default" : "pointer", flexShrink: 0,
               minHeight: "48px",
             }}>
@@ -317,9 +317,9 @@ export default function ChatTab() {
             {isListening ? "■" : "◎"}
           </button>
           <button type="button" onClick={() => sendMessage(input)} disabled={loading} style={{
-            width: "48px", height: "48px", border: "2px solid #fff",
+            width: "48px", height: "48px", border: loading ? "2px solid #444" : "2px solid #fff",
             background: loading ? "#000" : "#fff",
-            color: loading ? "#555" : "#000",
+            color: loading ? "#fff" : "#000",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "20px",
           }}>
             ›

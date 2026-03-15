@@ -9,7 +9,7 @@ import GeometricCorners from "./GeometricCorners";
 export const primaryBtn = {
   width: "100%", marginTop: "20px", padding: "14px",
   background: "#fff", color: "#000",
-  fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "2px",
+  fontFamily: "'Share Tech Mono', monospace", fontSize: "18px", letterSpacing: "2px",
   border: "none", cursor: "pointer",
 };
 
@@ -85,9 +85,9 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
           border: "3px solid #fff", display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: "32px", color: "#fff",
         }}>✓</div>
-        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "1px", fontWeight: "bold" }}>DROPBOX CONNECTED</div>
-        <div style={{ fontSize: "14px", color: "#ccc", textAlign: "center" }}>
-          Continuing to next step…
+        <div style={{ fontSize: "18px", color: "#fff", letterSpacing: "2px", fontWeight: "bold", fontFamily: "'Share Tech Mono', monospace" }}>[ DROPBOX CONNECTED ]</div>
+        <div style={{ fontSize: "16px", color: "#fff", textAlign: "center", fontFamily: "'Share Tech Mono', monospace" }}>
+          CONTINUING TO NEXT STEP...
         </div>
       </div>
     );
@@ -107,7 +107,7 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
         style={{
           width: "100%", padding: "14px", border: "2px solid #fff",
           background: connecting ? "transparent" : "#fff",
-          color: connecting ? "#888" : "#000",
+          color: connecting ? "#fff" : "#000",
           fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
           cursor: connecting ? "not-allowed" : "pointer",
         }}
@@ -115,10 +115,10 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
         {connecting ? "OPENING DROPBOX…" : "CONNECT DROPBOX"}
       </button>
       {connectError && (
-        <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {connectError}</div>
+        <div style={{ color: "#fff", fontSize: "16px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ ERR ] {connectError}</div>
       )}
       <div style={{ height: "2px", background: "#fff" }} />
-      <div style={{ fontSize: "14px", color: "#ccc", lineHeight: "1.6" }}>
+      <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.6", fontFamily: "'Share Tech Mono', monospace" }}>
         Already have a save file? Connecting Dropbox will pull it automatically.
         No account? You can skip this and sync manually later in Profile → Settings.
       </div>
@@ -127,7 +127,8 @@ function DropboxOnboardingStep({ connectDropbox, onSkip, onAdvance }) {
         onClick={onSkip}
         style={{
           width: "100%", padding: "12px", border: "2px solid #fff", background: "transparent", color: "#fff",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "1px", cursor: "pointer",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "1px", cursor: "pointer",
+          minHeight: "56px",
         }}
       >
         SKIP FOR NOW
@@ -192,12 +193,12 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "16px", alignItems: "center", padding: "8px 0" }}>
         <div style={{
-          width: "48px", height: "48px", borderRadius: "50%",
-          border: "2px solid #4caf50", display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: "24px", color: "#4caf50",
+          width: "64px", height: "64px", borderRadius: "0",
+          border: "3px solid #fff", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: "32px", color: "#fff",
         }}>✓</div>
-        <div style={{ fontSize: "13px", color: "#4caf50", letterSpacing: "1px" }}>GOOGLE CALENDAR CONNECTED</div>
-        <div style={{ fontSize: "14px", color: "#ccc", textAlign: "center" }}>Continuing…</div>
+        <div style={{ fontSize: "18px", color: "#fff", letterSpacing: "2px", fontWeight: "bold", fontFamily: "'Share Tech Mono', monospace" }}>[ GCAL CONNECTED ]</div>
+        <div style={{ fontSize: "16px", color: "#fff", textAlign: "center", fontFamily: "'Share Tech Mono', monospace" }}>CONTINUING TO NEXT STEP...</div>
       </div>
     );
   }
@@ -211,7 +212,7 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
 
       {needsClientId && (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <label style={{ fontSize: "14px", color: "#ccc", letterSpacing: "2px" }}>
+          <label style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>
             GOOGLE CLIENT ID
           </label>
           <input
@@ -220,12 +221,12 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
             onChange={(e) => handleClientIdChange(e.target.value)}
             placeholder="xxxx.apps.googleusercontent.com"
             style={{
-              width: "100%", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
-              color: "#e8e8e8", padding: "10px", fontSize: "12px",
+              width: "100%", background: "#000", border: "2px solid #fff",
+              color: "#fff", padding: "12px", fontSize: "16px",
               fontFamily: "'Share Tech Mono', monospace", outline: "none",
             }}
           />
-          <div style={{ fontSize: "14px", color: "#ccc", lineHeight: "1.6" }}>
+          <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.6", fontFamily: "'Share Tech Mono', monospace" }}>
             Get one at console.cloud.google.com → APIs &amp; Services → Credentials.
           </div>
         </div>
@@ -237,26 +238,27 @@ function GCalOnboardingStep({ onSkip, onAdvance, profile, onClientIdChange }) {
         disabled={status === "connecting"}
         style={{
           width: "100%", padding: "14px", border: "2px solid #fff",
-          background: status === "connecting" ? "transparent" : "#fff",
-          color: status === "connecting" ? "#888" : "#000",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px",
+          background: status === "connecting" ? "#000" : "#fff",
+          color: status === "connecting" ? "#fff" : "#000",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "2px",
           cursor: status === "connecting" ? "not-allowed" : "pointer",
-          transition: "all 0.2s",
+          transition: "none",
         }}
       >
         {status === "connecting" ? "OPENING GOOGLE…" : "CONNECT GOOGLE CALENDAR"}
       </button>
 
-      {error && <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {error}</div>}
+      {error && <div style={{ color: "#fff", fontSize: "16px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ ERR ] {error}</div>}
 
-      <div style={{ height: "1px", background: "#333" }} />
+      <div style={{ height: "2px", background: "#fff" }} />
 
       <button
         type="button"
         onClick={onSkip}
         style={{
           width: "100%", padding: "12px", border: "2px solid #fff", background: "transparent", color: "#fff",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "1px", cursor: "pointer",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "1px", cursor: "pointer",
+          minHeight: "56px",
         }}
       >
         SKIP FOR NOW
@@ -293,17 +295,17 @@ export function GeminiKeySetupScreen({ onSave }) {
         placeholder="AIza..."
         maxLength={60}
         style={{
-          width: "100%", padding: "12px", background: "rgba(0,0,0,0.6)", border: "1px solid #444",
-          color: "#e8e8e8", fontSize: "14px", fontFamily: "'Share Tech Mono', monospace", outline: "none",
+          width: "100%", padding: "14px", background: "#000", border: "2px solid #fff",
+          color: "#fff", fontSize: "18px", fontFamily: "'Share Tech Mono', monospace", outline: "none",
         }}
       />
-      {error && <div style={{ color: "#c44", fontSize: "10px" }}>⚠ {error}</div>}
+      {error && <div style={{ color: "#fff", fontSize: "16px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ ERR ] {error}</div>}
       <button
         type="button"
         onClick={handleSave}
         style={{
           width: "100%", padding: "14px", border: "2px solid #fff", background: "#fff", color: "#000",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px", cursor: "pointer",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "2px", cursor: "pointer",
         }}
       >
         SAVE &amp; CONTINUE
@@ -481,7 +483,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
   return (
     <div style={{
       height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "flex-start", padding: "24px", background: "#0a0a0a",
+      justifyContent: "flex-start", padding: "24px", background: "#000",
     }}>
       {/* App icon */}
       <img
@@ -494,10 +496,10 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
       <div style={{ width: "100%", maxWidth: "380px", marginBottom: "24px", marginTop: "16px" }}>
         <div style={{ display: "flex", gap: "4px", marginBottom: "8px" }}>
           {steps.map((_, i) => (
-            <div key={i} style={{ flex: 1, height: "2px", background: i <= step ? "#fff" : "#333" }} />
+            <div key={i} style={{ flex: 1, height: "4px", background: i <= step ? "#fff" : "#555" }} />
           ))}
         </div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#ccc", textAlign: "right" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", textAlign: "right", fontWeight: "bold" }}>
           {step + 1}/{steps.length}
         </div>
       </div>
@@ -515,7 +517,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
         <div style={{ fontSize: "22px", fontWeight: "bold", marginBottom: "6px", letterSpacing: "1px" }}>
           {current.title}
         </div>
-        <div style={{ fontSize: "13px", color: "#999", marginBottom: "18px", fontStyle: current.style === "dots" ? "italic" : "normal" }}>
+        <div style={{ fontSize: "16px", color: "#fff", marginBottom: "18px", fontStyle: current.style === "dots" ? "italic" : "normal", fontFamily: "'Share Tech Mono', monospace" }}>
           {current.subtitle}
         </div>
 
@@ -548,7 +550,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
 
         {current.type !== "_dropbox" && current.type !== "_gemini" && current.type !== "_gcal" && (
           <>
-            <label style={{ fontSize: "14px", color: "#ccc", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0" }}>
+            <label style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", display: "block", marginBottom: "6px", marginTop: "0", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>
               {current.label}
             </label>
             {current.type === "textarea" ? (
@@ -571,9 +573,9 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
               />
             )}
 
-            {error && <div style={{ color: "#ccc", fontSize: "12px", marginTop: "8px" }}>⚠ {error}</div>}
+            {error && <div style={{ color: "#fff", fontSize: "16px", marginTop: "8px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ ERR ] {error}</div>}
 
-            <div style={{ fontSize: "14px", color: "#ccc", fontFamily: "'Share Tech Mono', monospace", marginTop: "8px" }}>
+            <div style={{ fontSize: "16px", color: "#fff", fontFamily: "'Share Tech Mono', monospace", marginTop: "8px" }}>
               DETECTED TIMEZONE: {Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Unknown"}
               {" "}(UTC{-(new Date().getTimezoneOffset()) >= 0 ? "+" : ""}{(-(new Date().getTimezoneOffset()) / 60).toFixed(0)})
             </div>
@@ -585,7 +587,7 @@ export default function Onboarding({ onComplete, onGeminiKeySaved, connectDropbo
         )}
       </div>
 
-      <div style={{ marginTop: "16px", marginBottom: "32px", fontSize: "14px", color: "#ccc", fontFamily: "'Share Tech Mono', monospace" }}>
+      <div style={{ marginTop: "16px", marginBottom: "32px", fontSize: "16px", color: "#fff", fontFamily: "'Share Tech Mono', monospace" }}>
         RITMOL v1.0 // LOCAL STORAGE ONLY // ZERO TELEMETRY
       </div>
     </div>

@@ -148,7 +148,7 @@ Respond ONLY with JSON array:
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ fontFamily: "'Share Tech Mono', monospace", borderBottom: "3px solid #fff", paddingBottom: "16px" }}>
-        <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>PROTOCOL LOG</div>
+        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", fontWeight: "bold" }}>[ PROTOCOL LOG ]</div>
         <div style={{ fontSize: "28px", fontWeight: "bold", marginTop: "4px" }}>HABITS</div>
         <div style={{ fontSize: "15px", color: "#fff", marginTop: "4px" }}>
           {todayLog.length}/{state.habits.length} completed today
@@ -162,7 +162,7 @@ Respond ONLY with JSON array:
           background: "#000",
         }}>
           <div style={{ marginBottom: "8px", fontWeight: "bold" }}>◈ RITMOL ANALYZING HUNTER PROFILE...</div>
-          <div style={{ fontSize: "14px", color: "#ccc" }}>LOADING — PLEASE WAIT</div>
+          <div style={{ fontSize: "18px", color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold", letterSpacing: "2px" }}>[ SYSTEM LOADING... ]</div>
         </div>
       )}
 
@@ -216,7 +216,7 @@ Respond ONLY with JSON array:
                         <div style={{ fontSize: "17px", fontWeight: "bold", textDecoration: done ? "line-through" : "none", color: done ? "#000" : "#fff" }}>
                           {habit.label}
                         </div>
-                        <div style={{ fontSize: "13px", color: done ? "#555" : "#ccc", marginTop: "4px", lineHeight: "1.5" }}>
+                        <div style={{ fontSize: "16px", color: "#fff", marginTop: "4px", lineHeight: "1.6", textDecoration: done ? "line-through" : "none" }}>
                           +{habit.xp} XP {habit.addedBy === "ritmol" ? "· RITMOL" : ""}
                           {habit.desc && !done ? ` · ${habit.desc}` : ""}
                         </div>
@@ -225,7 +225,7 @@ Respond ONLY with JSON array:
                     <button
                       type="button"
                       onClick={() => deleteHabit(habit.id)}
-                      style={{ color: done ? "#555" : "#fff", fontSize: "22px", padding: "8px", background: "none", border: "none", minHeight: "48px", minWidth: "48px" }}
+                      style={{ color: done ? "#000" : "#fff", fontSize: "22px", padding: "8px", background: done ? "#fff" : "none", border: done ? "2px solid #fff" : "none", minHeight: "48px", minWidth: "48px" }}
                     >
                       ×
                     </button>

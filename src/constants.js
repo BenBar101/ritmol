@@ -83,17 +83,17 @@ export const DEFAULT_HABITS = [
 
 // CSS style presets for ASCII / geometric aesthetics.
 export const STYLE_CSS = {
-  ascii: { border: "1px solid #444", background: "#050505" },
-  dots: { border: "1px dotted #444", background: "#050505" },
-  geometric: { border: "1px solid #777", background: "#0b0b0b" },
-  typewriter: { border: "1px solid #333", background: "#050505" },
+  ascii: { border: "2px solid #fff", background: "#000" },
+  dots: { border: "2px dotted #fff", background: "#000" },
+  geometric: { border: "2px solid #fff", background: "#000" },
+  typewriter: { border: "2px solid #fff", background: "#000" },
 };
 
 // Achievement rarities — keyed by id so UI can do ACHIEVEMENT_RARITIES[ach.rarity].
 export const ACHIEVEMENT_RARITIES = {
-  common:    { label: "COMMON",    glow: "#888" },
-  rare:      { label: "RARE",      glow: "#bbb" },
-  epic:      { label: "EPIC",      glow: "#ddd" },
-  legendary: { label: "LEGENDARY", glow: "#fff" },
+  common:    { label: "[ COMMON ]",    glow: "#fff" },
+  rare:      { label: "[ RARE ]",      glow: "#fff" },
+  epic:      { label: "[ EPIC ]",      glow: "#fff" },
+  legendary: { label: "[ LEGENDARY ]", glow: "#fff" },
 };
 

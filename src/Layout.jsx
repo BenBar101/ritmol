@@ -25,15 +25,15 @@ export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatu
         <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "3px", color: "#fff" }}>
           RITMOL
         </span>
-        <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", color: "#ccc" }}>
+        <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", letterSpacing: "2px" }}>
           {rank.decor}
         </span>
       </div>
 
       <div style={{ flex: 1, margin: "0 12px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#fff", marginBottom: "2px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>
-          <span>LV.{level} {rank.title}</span>
-          <span>{getLevelProgress(xp, xpPerLevel)}/{xpPerLevel}</span>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", color: "#fff", marginBottom: "2px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold", letterSpacing: "1px" }}>
+          <span>[ LV.{level} ] {rank.title}</span>
+          <span>{getLevelProgress(xp, xpPerLevel)} / {xpPerLevel} XP</span>
         </div>
         <div style={{ height: "5px", background: "#333", position: "relative" }}>
           <div style={{ width: `${pct}%`, height: "100%", background: "#fff" }} />
@@ -50,8 +50,8 @@ export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatu
               title={`Pull from Syncthing file · ${syncTitle}`}
               style={{
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
-                color: (syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading) ? "#555" : "#fff",
-                background: "none", border: "1px solid #555", padding: "6px 10px",
+                color: "#fff",
+                background: "none", border: (syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading) ? "2px solid #444" : "2px solid #fff",
                 cursor: (syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading) ? "default" : "pointer",
                 minHeight: "48px", minWidth: "48px",
               }}
@@ -65,8 +65,8 @@ export function TopBar({ xp, xpPerLevel, level, rank, streak, profile, syncStatu
               title={`Push to Syncthing file · ${syncTitle}`}
               style={{
                 fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
-                color: (syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading) ? "#555" : "#fff",
-                background: "none", border: "1px solid #555", padding: "6px 10px",
+                color: "#fff",
+                background: "none", border: (syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading) ? "2px solid #444" : "2px solid #fff",
                 cursor: (syncStatus === "syncing" || (typeof navigator !== "undefined" && navigator.onLine === false) || isReloading) ? "default" : "pointer",
                 minHeight: "48px", minWidth: "48px",
               }}
@@ -111,14 +111,14 @@ export function BottomNav({ tab, setTab }) {
           style={{
             flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
             justifyContent: "center", gap: "4px",
-            background: tab === t.id ? "#fff" : "none", border: "none",
-            borderTop: tab === t.id ? "3px solid #fff" : "3px solid #444",
-            color: tab === t.id ? "#000" : "#ccc",
+            background: tab === t.id ? "#fff" : "#000", border: "none",
+            borderTop: "3px solid #fff",
+            color: tab === t.id ? "#000" : "#fff",
             fontFamily: "'Share Tech Mono', monospace",
           }}
         >
-          <span style={{ fontSize: "22px" }}>{t.icon}</span>
-          <span style={{ fontSize: "12px", letterSpacing: "1px", fontWeight: "bold" }}>{t.label}</span>
+          <span style={{ fontSize: "26px" }}>{t.icon}</span>
+          <span style={{ fontSize: "14px", letterSpacing: "2px", fontWeight: "bold" }}>{t.label}</span>
         </button>
       ))}
     </div>
@@ -129,7 +129,7 @@ export function BottomNav({ tab, setTab }) {
 // BANNER
 // ═══════════════════════════════════════════════════════════════
 export function Banner({ banner, onClose }) {
-  const bgColors = { info: "#222", warning: "#444", success: "#000", alert: "#000" };
+  const bgColors = { info: "#000", warning: "#000", success: "#000", alert: "#000" };
   const safeBannerText = (typeof banner.text === "string")
     // eslint-disable-next-line no-control-regex
     ? banner.text.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "").slice(0, 300)
@@ -142,7 +142,7 @@ export function Banner({ banner, onClose }) {
       alignItems: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", fontWeight: "bold",
     }}>
       <span style={{ color: "#fff", flex: 1 }}>{safeBannerText}</span>
-      <button onClick={onClose} style={{ color: "#fff", fontSize: "20px", minHeight: "48px", minWidth: "48px", background: "none", border: "none" }}>×</button>
+      <button onClick={onClose} style={{ color: "#fff", fontSize: "24px", minHeight: "48px", minWidth: "48px", background: "none", border: "none" }}>×</button>
     </div>
   );
 }

@@ -67,8 +67,9 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
 
   const mono = { fontFamily: "'Share Tech Mono', monospace" };
   const btnPrimary = {
-    width: "100%", padding: "13px", border: "2px solid #fff", background: "#fff", color: "#000",
-    ...mono, fontSize: "11px", letterSpacing: "2px", cursor: "pointer", marginBottom: "10px",
+    width: "100%", padding: "16px", border: "2px solid #fff", background: "#fff", color: "#000",
+    ...mono, fontSize: "16px", letterSpacing: "2px", cursor: "pointer", marginBottom: "10px",
+    minHeight: "56px",
   };
   const btnSecondary = {
     width: "100%", padding: "13px", border: "2px solid #fff", background: "transparent", color: "#fff",
@@ -128,15 +129,15 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
   return (
     <div style={{
       minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "flex-start", padding: "32px 24px", background: "#0a0a0a",
-      color: "#e8e8e8", ...mono,
+      justifyContent: "flex-start", padding: "32px 24px", background: "#000",
+      color: "#fff", ...mono,
     }}>
       <img src={APP_ICON_URL} alt="" style={{ width: 44, height: 44, marginBottom: "20px", marginTop: "24px" }} />
-      <div style={{ fontSize: "14px", color: "#ccc", letterSpacing: "3px", marginBottom: "6px" }}>RITMOL</div>
+      <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", marginBottom: "6px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ RITMOL ]</div>
       <div style={{ fontSize: "20px", fontWeight: "bold", letterSpacing: "1px", marginBottom: "6px" }}>
         {mode === "gemini" ? "GEMINI API KEY" : mode === "syncthing" ? "LOAD FROM FILE" : "SETUP REQUIRED"}
       </div>
-      <div style={{ fontSize: "14px", color: "#ccc", marginBottom: "28px" }}>
+      <div style={{ fontSize: "16px", color: "#fff", marginBottom: "28px", fontFamily: "'Share Tech Mono', monospace" }}>
         {mode === "gemini"   ? "Enter your key to enable AI features." :
          mode === "syncthing" ? "Pull your data file to restore your config." :
          "A Gemini API key is needed to continue."}
@@ -155,7 +156,7 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
                 <button type="button" onClick={handleConnectDropbox} style={btnPrimary}>
                   CONNECT DROPBOX ↗
                 </button>
-                {dropboxError && <div style={{ color: "#c44", fontSize: "10px", marginBottom: "10px" }}>⚠ {dropboxError}</div>}
+                {dropboxError && <div style={{ color: "#fff", fontSize: "16px", marginBottom: "10px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ ERR ] {dropboxError}</div>}
                 {FSAPI_SUPPORTED && (
                   <button type="button" onClick={() => setMode("syncthing")} style={{ ...btnSecondary, marginBottom: "24px" }}>
                     LOAD FROM SYNCTHING FILE
@@ -186,7 +187,7 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
         {/* ── Syncthing pull ── */}
         {mode === "syncthing" && (
           <>
-            <div style={{ fontSize: "11px", color: "#888", lineHeight: "1.8", marginBottom: "16px" }}>
+            <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.8", marginBottom: "16px", fontFamily: "'Share Tech Mono', monospace" }}>
               Link your <code>ritmol-data.json</code> from your Syncthing folder, then pull to load your Gemini key and data.
             </div>
             <button type="button" onClick={handleSyncthingLink} style={btnPrimary}>
@@ -206,7 +207,7 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
             >
               {syncStatus === "syncing" ? "LOADING..." : syncStatus === "synced" ? "✓ LOADED — RELOADING…" : "PULL FROM FILE ↓"}
             </button>
-            {syncError && <div style={{ color: "#c44", fontSize: "10px", marginBottom: "8px" }}>⚠ {syncError}</div>}
+            {syncError && <div style={{ color: "#fff", fontSize: "16px", marginBottom: "8px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ ERR ] {syncError}</div>}
             <button type="button" onClick={() => { setMode("choose"); setSyncError(""); setSyncStatus("idle"); }} style={btnSecondary}>
               ← BACK
             </button>
@@ -215,7 +216,7 @@ function MissingKeyGate({ connectDropbox, dropboxConnected, pickSyncFile, syncPu
 
       </div>
 
-      <div style={{ fontSize: "13px", color: "#ccc", marginTop: "32px", letterSpacing: "2px" }}>
+      <div style={{ fontSize: "16px", color: "#fff", marginTop: "32px", letterSpacing: "2px", fontFamily: "'Share Tech Mono', monospace" }}>
         RITMOL v1.0 // ZERO TELEMETRY
       </div>
     </div>
@@ -243,10 +244,10 @@ function SyncingScreen() {
       }}>
         LOADING...
       </div>
-      <div style={{ fontSize: "14px", color: "#ccc", letterSpacing: "3px", marginTop: "16px" }}>
+      <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", marginTop: "16px", fontWeight: "bold" }}>
         INITIALISING SYSTEM
       </div>
-      <div style={{ fontSize: "12px", color: "#888", letterSpacing: "2px", marginTop: "8px" }}>
+      <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginTop: "8px" }}>
         PLEASE WAIT
       </div>
     </div>
@@ -361,7 +362,7 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
     let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) { meta = document.createElement("meta"); meta.setAttribute("name", "theme-color"); document.head.appendChild(meta); }
-    meta.setAttribute("content", theme === "light" ? "#f0f0f0" : "#0a0a0a");
+    meta.setAttribute("content", theme === "light" ? "#f0f0f0" : "#000");
   }, [theme]);
 
   useEffect(() => {
@@ -476,14 +477,14 @@ export default function App() {
       <ErrorBoundary>
         <div style={{
           minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
-          justifyContent: "flex-start", padding: "24px", background: "#0a0a0a",
+          justifyContent: "flex-start", padding: "24px", background: "#000",
         }}>
           <div style={{
             width: "100%", maxWidth: "380px", padding: "24px",
-            background: "#050505", border: "1px solid #444",
+            background: "#000", border: "2px solid #fff",
             fontFamily: "'Share Tech Mono', monospace",
           }}>
-            <div style={{ fontSize: "11px", color: "#888", letterSpacing: "3px", marginBottom: "8px" }}>
+            <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", marginBottom: "8px", fontWeight: "bold" }}>
               CONFIGURE AI
             </div>
             <div style={{ fontSize: "22px", fontWeight: "bold", marginBottom: "18px", letterSpacing: "1px" }}>
@@ -552,7 +553,7 @@ export default function App() {
   return (
     <AppContext.Provider value={ctx}>
       <GlobalStyles />
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#0a0a0a", color: "#e8e8e8", overflow: "hidden" }}>
+      <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#000", color: "#fff", overflow: "hidden" }}>
         {isReloading && (
           <div
             aria-label="Syncing — please wait"
@@ -571,12 +572,12 @@ export default function App() {
             }}
           >
             <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", fontWeight: "bold" }}>SYNC COMPLETE</div>
-            <div style={{ fontSize: "18px", color: "#fff", marginTop: "12px", fontWeight: "bold" }}>RELOADING...</div>
+            <div style={{ fontSize: "24px", color: "#fff", marginTop: "12px", fontWeight: "bold", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "3px" }}>[ RELOADING... ]</div>
           </div>
         )}
         {banner && <Banner banner={banner} onClose={() => setBanner(null)} />}
         {IS_DEV && (
-          <div style={{ background: "#2a2a0a", color: "#b8b830", fontSize: "10px", letterSpacing: "1px", padding: "4px 12px", textAlign: "center", borderBottom: "1px solid #444" }}>
+          <div style={{ background: "#000", color: "#fff", fontSize: "16px", letterSpacing: "2px", padding: "8px 12px", textAlign: "center", borderBottom: "2px solid #fff", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>
             DEV MODE — separate localStorage (ritmol_dev_*)
           </div>
         )}

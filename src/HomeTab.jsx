@@ -29,11 +29,11 @@ export default function HomeTab() {
 
       {/* Greeting */}
       <div style={{ borderBottom: "3px solid #fff", paddingBottom: "16px" }}>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>{greeting}</div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "28px", fontWeight: "bold", marginTop: "4px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", letterSpacing: "3px", fontWeight: "bold" }}>[ {greeting} ]</div>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "36px", fontWeight: "bold", marginTop: "4px", letterSpacing: "2px" }}>
           {profile?.name || "Hunter"}
         </div>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", color: "#fff", marginTop: "4px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "18px", color: "#fff", marginTop: "4px", letterSpacing: "2px", fontWeight: "bold" }}>
           {rank.badge} {rank.decor} {rank.title}
         </div>
       </div>
@@ -47,7 +47,7 @@ export default function HomeTab() {
           <div style={{ fontFamily: "'IM Fell English', serif", fontSize: "18px", fontStyle: "italic", color: "#fff", lineHeight: "1.7" }}>
             &ldquo;{sanitizeForDisplay(dailyQuote.quote ?? "", 500)}&rdquo;
           </div>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#ccc", marginTop: "12px" }}>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", marginTop: "12px" }}>
             — {sanitizeForDisplay(dailyQuote.author ?? "", 100)}
           </div>
         </div>
@@ -65,7 +65,7 @@ export default function HomeTab() {
             fontFamily: "'Share Tech Mono', monospace",
             background: "#000",
           }}>
-            <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "2px", marginBottom: "4px" }}>EXAM WARNING</div>
+            <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "4px", fontWeight: "bold" }}>[ EXAM WARNING ]</div>
             <div style={{ fontSize: "18px", marginTop: "4px", fontWeight: "bold" }}>⚠ {safeTitle}</div>
             <div style={{ fontSize: "14px", color: "#fff", marginTop: "4px" }}>T-{days} days. Prepare accordingly.</div>
           </div>
@@ -81,11 +81,11 @@ export default function HomeTab() {
           { label: "ACHIEV", value: totalAchievements },
         ].map((s) => (
           <div key={s.label} style={{
-            border: "2px solid #fff", padding: "12px", textAlign: "center",
+            border: "2px solid #fff", padding: "16px", textAlign: "center",
             fontFamily: "'Share Tech Mono', monospace",
           }}>
-            <div style={{ fontSize: "22px", fontWeight: "bold" }}>{s.value}</div>
-            <div style={{ fontSize: "12px", color: "#ccc", letterSpacing: "1px", marginTop: "4px" }}>{s.label}</div>
+            <div style={{ fontSize: "28px", fontWeight: "bold" }}>{s.value}</div>
+            <div style={{ fontSize: "14px", color: "#fff", letterSpacing: "2px", marginTop: "4px" }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -97,7 +97,7 @@ export default function HomeTab() {
       <div style={{ display: "flex", alignItems: "center", gap: "16px", border: "2px solid #fff", padding: "16px" }}>
         <HabitRing done={doneHabits} total={totalHabits} />
         <div style={{ fontFamily: "'Share Tech Mono', monospace" }}>
-          <div style={{ fontSize: "13px", color: "#ccc" }}>TODAY&apos;S PROTOCOLS</div>
+          <div style={{ fontSize: "16px", color: "#fff", fontWeight: "bold" }}>[ TODAY&apos;S PROTOCOLS ]</div>
           <div style={{ fontSize: "26px", fontWeight: "bold" }}>{doneHabits} / {totalHabits}</div>
           <div style={{ fontSize: "14px", color: "#fff" }}>{totalHabits - doneHabits} remaining</div>
         </div>
@@ -106,7 +106,7 @@ export default function HomeTab() {
       {/* Daily goal */}
       {state.dailyGoal && (
         <div style={{ border: "2px solid #fff", padding: "16px", fontFamily: "'Share Tech Mono', monospace" }}>
-          <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "2px", marginBottom: "6px" }}>DAILY OBJECTIVE</div>
+          <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "6px", fontWeight: "bold" }}>[ DAILY OBJECTIVE ]</div>
           <div style={{ fontSize: "17px", marginTop: "4px", lineHeight: "1.6" }}>
             {sanitizeForDisplay(state.dailyGoal ?? "", 200)}
           </div>
@@ -122,13 +122,13 @@ export default function HomeTab() {
           {state.dailyMissions.map((m) => (
             <div key={m.id} style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "10px 0", borderBottom: "2px solid #333",
-              fontFamily: "'Share Tech Mono', monospace", fontSize: "15px",
-              color: m.done ? "#888" : "#fff",
+              padding: "12px 0", borderBottom: "2px solid #fff",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+              color: "#fff",
               textDecoration: m.done ? "line-through" : "none",
             }}>
-              <span>{m.done ? "✓" : "○"} {m.desc}</span>
-              <span style={{ color: m.done ? "#888" : "#fff", fontWeight: "bold" }}>+{m.xp}</span>
+              <span>{m.done ? "[ ✓ ]" : "[ _ ]"} {m.desc}</span>
+              <span style={{ color: "#fff", fontWeight: "bold" }}>+{m.xp} XP</span>
             </div>
           ))}
         </div>
@@ -147,16 +147,17 @@ export default function HomeTab() {
                 key={h.id}
                 onClick={(e) => !done && logHabit(h.id, e)}
                 style={{
-                  padding: "14px 4px", border: "2px solid #fff",
+                  padding: "14px 4px", border: done ? "3px solid #fff" : "2px solid #fff",
                   background: done ? "#fff" : "#000",
                   color: done ? "#000" : "#fff",
-                  fontFamily: "'Share Tech Mono', monospace", fontSize: "12px",
-                  textAlign: "center", cursor: done ? "default" : "pointer",
-                  minHeight: "72px",
+                  fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+                  minHeight: "64px", cursor: done ? "default" : "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: "4px",
                 }}
               >
                 <div style={{ fontSize: "22px" }}>{h.icon}</div>
-                <div style={{ fontSize: "11px", marginTop: "4px", fontWeight: "bold" }}>{h.label.split(" ").slice(0, 2).join(" ")}</div>
+                <div style={{ fontSize: "16px", marginTop: "4px", fontWeight: "bold" }}>{h.label.split(" ").slice(0, 2).join(" ")}</div>
               </button>
             );
           })}
@@ -216,15 +217,15 @@ function TokenUsageBar({ usage }) {
 
   return (
     <div style={{ border: "2px solid #fff", padding: "12px 16px", fontFamily: "'Share Tech Mono', monospace" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: "#fff", marginBottom: "8px", fontWeight: "bold" }}>
-        <span>NEURAL ENERGY TODAY</span>
-        <span>~{pctDisplay}% of {(DISPLAY_LIMIT / 1000).toFixed(0)}k</span>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "16px", color: "#fff", marginBottom: "8px", fontWeight: "bold", letterSpacing: "1px" }}>
+        <span>[ NEURAL ENERGY ]</span>
+        <span>{pctDisplay}% / {(DISPLAY_LIMIT / 1000).toFixed(0)}k</span>
       </div>
-      <div style={{ height: "6px", background: "#333" }}>
+      <div style={{ height: "8px", background: "#555" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: barColor }} />
       </div>
-      <div style={{ fontSize: "12px", color: "#ccc", marginTop: "6px" }}>
-        ~{tokens.toLocaleString()} tokens used · resets midnight
+      <div style={{ fontSize: "16px", color: "#fff", marginTop: "6px", fontFamily: "'Share Tech Mono', monospace" }}>
+        {tokens.toLocaleString()} TOKENS · RESETS MIDNIGHT
       </div>
       {!isToday && (
         <div style={{ fontSize: "12px", color: "#fff", marginTop: "4px", fontWeight: "bold" }}>
@@ -241,13 +242,13 @@ function HabitRing({ done, total }) {
   const pct = total ? done / total : 0;
   return (
     <svg width="80" height="80" style={{ flexShrink: 0 }}>
-      <circle cx="40" cy="40" r={r} fill="none" stroke="#444" strokeWidth="5" />
-      <circle cx="40" cy="40" r={r} fill="none" stroke="#fff" strokeWidth="5"
+      <circle cx="40" cy="40" r={r} fill="none" stroke="#555" strokeWidth="6" />
+      <circle cx="40" cy="40" r={r} fill="none" stroke="#fff" strokeWidth="6"
         strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
         strokeLinecap="butt" transform="rotate(-90 40 40)"
       />
-      <text x="40" y="45" textAnchor="middle" fill="#fff"
-        style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", fontWeight: "bold" }}>
+      <text x="40" y="46" textAnchor="middle" fill="#fff"
+        style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "18px", fontWeight: "bold" }}>
         {Math.round(pct * 100)}%
       </text>
     </svg>
@@ -285,7 +286,7 @@ function CountdownTimer({ timer, onExpire }) {
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
   return (
-    <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", padding: "10px 0", display: "flex", justifyContent: "space-between", borderBottom: "2px solid #333" }}>
+    <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", padding: "10px 0", display: "flex", justifyContent: "space-between", borderBottom: "2px solid #fff" }}>
       <span>{sanitizeForDisplay(timer.emoji ?? "", 2)} {sanitizeForDisplay(timer.label ?? "", 200)}</span>
       <span style={{ color: "#fff", fontWeight: "bold" }}>{mins}:{secs.toString().padStart(2, "0")}</span>
     </div>

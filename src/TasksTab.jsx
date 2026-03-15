@@ -125,7 +125,7 @@ export default function TasksTab() {
   return (
     <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ fontFamily: "'Share Tech Mono', monospace", borderBottom: "3px solid #fff", paddingBottom: "16px" }}>
-        <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>MISSION CONTROL</div>
+        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ MISSION CONTROL ]</div>
         <div style={{ fontSize: "28px", fontWeight: "bold", marginTop: "4px" }}>TASKS & GOALS</div>
       </div>
 
@@ -135,7 +135,7 @@ export default function TasksTab() {
           <button type="button" key={s} onClick={() => setActiveSection(s)} style={{
             flex: 1, padding: "12px",
             background: activeSection === s ? "#fff" : "transparent",
-            color: activeSection === s ? "#000" : "#ccc",
+            color: activeSection === s ? "#000" : "#fff",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", letterSpacing: "2px", fontWeight: "bold",
             border: "none", cursor: "pointer", minHeight: "48px",
           }}>
@@ -171,7 +171,7 @@ export default function TasksTab() {
           {/* Active tasks */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {activeTasks.length === 0 && (
-              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", color: "#ccc", padding: "20px", border: "2px solid #fff", textAlign: "center" }}>
+              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", padding: "20px", border: "2px solid #fff", textAlign: "center" }}>
                 No active tasks. RITMOL will assign missions.
               </div>
             )}
@@ -187,7 +187,7 @@ export default function TasksTab() {
                 </button>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: "17px", color: "#fff", lineHeight: "1.5" }}>{task.text}</div>
-                  <div style={{ fontSize: "13px", color: "#ccc", marginTop: "4px" }}>
+                  <div style={{ fontSize: "16px", color: "#fff", marginTop: "4px" }}>
                     {priorityLabel[task.priority]} {task.priority?.toUpperCase()} {task.due ? `· due ${task.due}` : ""} {task.addedBy === "ritmol" ? "· RITMOL" : ""}
                   </div>
                 </div>
@@ -199,7 +199,7 @@ export default function TasksTab() {
           {/* Done tasks */}
           {doneTasks.length > 0 && (
             <div>
-              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#ccc", letterSpacing: "2px", marginBottom: "10px", borderTop: "2px solid #fff", paddingTop: "12px" }}>COMPLETED</div>
+              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "10px", borderTop: "2px solid #fff", paddingTop: "12px", fontWeight: "bold" }}>[ COMPLETED ]</div>
               <button
                 type="button"
                 onClick={() => setState((s) => ({ ...s, tasks: (s.tasks || []).filter((t) => !t.done) }))}
@@ -219,9 +219,9 @@ export default function TasksTab() {
                 CLEAR ALL COMPLETED ({doneTasks.length})
               </button>
               {doneTasks.slice(-5).map((task) => (
-                <div key={task.id} style={{ padding: "12px 0", borderBottom: "2px solid #333", fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#888", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ textDecoration: "line-through" }}>✓ {task.text}</span>
-                  <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#ccc", background: "none", border: "none", fontSize: "20px", minHeight: "48px", minWidth: "48px" }}>×</button>
+                <div key={task.id} style={{ padding: "12px 0", borderBottom: "2px solid #fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", textDecoration: "line-through", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>✓ {task.text}</span>
+                  <button type="button" onClick={() => deleteTask(task.id)} style={{ color: "#fff", background: "none", border: "none", fontSize: "20px", minHeight: "48px", minWidth: "48px" }}>×</button>
                 </div>
               ))}
             </div>
@@ -263,7 +263,7 @@ export default function TasksTab() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {activeGoals.length === 0 && (
-              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "15px", color: "#ccc", padding: "20px", border: "2px solid #fff", textAlign: "center" }}>
+              <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", padding: "20px", border: "2px solid #fff", textAlign: "center" }}>
                 No active goals. Tell RITMOL about your homework.
               </div>
             )}
@@ -278,12 +278,12 @@ export default function TasksTab() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: "17px", marginBottom: "4px", fontWeight: "bold" }}>{goal.title}</div>
-                      <div style={{ fontSize: "13px", color: "#ccc" }}>
+                      <div style={{ fontSize: "16px", color: "#fff" }}>
                         {goal.course && `${goal.course} · `}
                         {daysLeft !== null && (daysLeft <= 0 ? "OVERDUE" : `${daysLeft}d left`)}
                       </div>
                       {goal.submissionCount > 0 && (
-                        <div style={{ fontSize: "13px", color: "#888", marginTop: "4px" }}>
+                        <div style={{ fontSize: "16px", color: "#fff", marginTop: "4px" }}>
                           Submissions: {goal.submissionCount} {goal.submissionCount >= 2 ? "· TA visit recommended" : ""}
                         </div>
                       )}

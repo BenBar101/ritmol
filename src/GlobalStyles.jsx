@@ -38,8 +38,10 @@ const GLOBAL_CSS = `
     margin: 0;
     padding: 0;
     overflow: hidden;           /* root handles its own scroll */
-    background: #0a0a0a;
-    color: #e8e8e8;
+    background: #000;
+    color: #fff;
+    font-size: 18px;
+    font-family: 'Share Tech Mono', monospace;
   }
 
   /* ── Mobile: prevent text-size bump on rotation ─────────── */
@@ -60,7 +62,7 @@ const GLOBAL_CSS = `
   }
 
   /* ── Scrollbars: high-contrast for E-ink ────────────────── */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: #000; }
   ::-webkit-scrollbar-thumb { background: #fff; border-radius: 0; }
   * { scrollbar-width: thin; scrollbar-color: #fff #000; }
@@ -110,7 +112,7 @@ function ensureHeadMeta() {
   setMeta("apple-mobile-web-app-capable", "yes");
   setMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
   // Theme colour (dark default; updated dynamically when theme changes)
-  setMeta("theme-color", "#0a0a0a");
+  setMeta("theme-color", "#000");
 }
 
 export function GlobalStyles() {

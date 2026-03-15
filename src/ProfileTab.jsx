@@ -40,14 +40,14 @@ export default function ProfileTab() {
       }}>
         <GeometricCorners style="geometric" />
         <div style={{ fontFamily: "'Share Tech Mono', monospace", textAlign: "center" }}>
-          <div style={{ fontSize: "13px", color: "#ccc", letterSpacing: "3px" }}>HUNTER CARD</div>
+          <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", fontWeight: "bold" }}>[ HUNTER CARD ]</div>
           <div style={{ fontSize: "32px", fontWeight: "bold", margin: "8px 0" }}>{profile?.name || "Hunter"}</div>
           <div style={{ fontSize: "16px", color: "#fff" }}>{rank.decor} {rank.title}</div>
-          <div style={{ fontSize: "14px", color: "#ccc", marginTop: "4px" }}>{profile?.major ?? ""}</div>
+          <div style={{ fontSize: "16px", color: "#fff", marginTop: "4px" }}>{profile?.major ?? ""}</div>
           <div style={{ margin: "20px 0 8px", fontSize: "14px", color: "#fff", display: "flex", justifyContent: "space-between", fontWeight: "bold" }}>
             <span>LEVEL {level}</span><span>{getLevelProgress(state.xp, xpPerLevel)}/{xpPerLevel} XP</span>
           </div>
-          <div style={{ height: "6px", background: "#333" }}>
+          <div style={{ height: "6px", background: "#555" }}>
             <div style={{ width: `${(getLevelProgress(state.xp, xpPerLevel) / xpPerLevel) * 100}%`, height: "100%", background: "#fff" }} />
           </div>
           <div style={{ fontSize: "28px", fontWeight: "bold", marginTop: "8px" }}>{rank.badge}</div>
@@ -61,7 +61,7 @@ export default function ProfileTab() {
           <button type="button" key={s} onClick={() => setSection(s)} style={{
             padding: "10px 14px", border: "2px solid #fff",
             background: section === s ? "#fff" : "transparent",
-            color: section === s ? "#000" : "#ccc",
+            color: section === s ? "#000" : "#fff",
             fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", letterSpacing: "1px", fontWeight: "bold",
             whiteSpace: "nowrap", flexShrink: 0, cursor: "pointer", minHeight: "48px",
           }}>
@@ -176,24 +176,25 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
           { label: "SESSIONS", value: totalSessions },
           { label: "STUDY HRS", value: `${Math.round(studyHours / 60)}h` },
         ].map((s) => (
-          <div key={s.label} style={{ border: "1px solid #1a1a1a", padding: "10px", fontFamily: "'Share Tech Mono', monospace" }}>
+          <div key={s.label} style={{ border: "2px solid #fff", padding: "14px", fontFamily: "'Share Tech Mono', monospace" }}>
             <div style={{ fontSize: "18px", fontWeight: "bold" }}>{s.value}</div>
-            <div style={{ fontSize: "8px", color: "#444", letterSpacing: "1px", marginTop: "2px" }}>{s.label}</div>
+            <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginTop: "2px", fontWeight: "bold" }}>{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Buy streak shield — cost set by AI, one use per day when protecting streak */}
-      <div style={{ border: "1px solid #333", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
-        <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px", marginBottom: "8px" }}>STREAK SHIELD</div>
-        <div style={{ fontSize: "11px", color: "#888", marginBottom: "8px" }}>Cost: {effectiveShieldCost} XP (AI may change after purchase). Max one shield use per calendar day.</div>
+      <div style={{ border: "2px solid #fff", padding: "14px", fontFamily: "'Share Tech Mono', monospace" }}>
+        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "8px", fontWeight: "bold" }}>[ STREAK SHIELD ]</div>
+        <div style={{ fontSize: "16px", color: "#fff", marginBottom: "8px" }}>COST: {effectiveShieldCost} XP — MAX ONE PER DAY.</div>
         <button
           type="button"
           onClick={buyShield}
           disabled={!canBuyShield || !apiKey}
           style={{
-            padding: "8px 12px", border: "1px solid #444", background: canBuyShield && apiKey ? "#fff" : "#1a1a1a",
-            color: canBuyShield && apiKey ? "#000" : "#333", fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", letterSpacing: "1px", cursor: canBuyShield && apiKey ? "pointer" : "default",
+            padding: "12px 16px", border: canBuyShield && apiKey ? "2px solid #fff" : "2px solid #444", background: canBuyShield && apiKey ? "#fff" : "#000",
+            color: canBuyShield && apiKey ? "#000" : "#444", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "2px", cursor: canBuyShield && apiKey ? "pointer" : "default",
+            minHeight: "48px",
           }}
         >
           BUY SHIELD — {effectiveShieldCost} XP
@@ -201,26 +202,26 @@ function ProfileOverview({ state, setState, profile, level, streakShieldCost, ap
       </div>
 
       {/* Rank ladder */}
-      <div style={{ border: "1px solid #1a1a1a", padding: "12px" }}>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "10px" }}>RANK LADDER</div>
+      <div style={{ border: "2px solid #fff", padding: "14px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "10px", fontWeight: "bold" }}>[ RANK LADDER ]</div>
         {RANKS.map((r) => (
           <div key={r.title} style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "5px 0", borderBottom: "1px solid #0f0f0f",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
-            color: level >= r.min ? "#fff" : "#333",
+            padding: "8px 0", borderBottom: "2px solid #fff",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+            color: "#fff",
           }}>
             <span>{level >= r.min ? "✓" : "○"} {r.title}</span>
-            <span style={{ fontSize: "10px", color: "#444" }}>{r.decor} LV.{r.min}</span>
+            <span style={{ fontSize: "14px", color: "#fff" }}>{r.decor} LV.{r.min}</span>
           </div>
         ))}
       </div>
 
       {/* Semester goal */}
       {profile.semesterGoal && (
-        <div style={{ border: "1px solid #222", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
-          <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "6px" }}>SEMESTER OBJECTIVE</div>
-          <div style={{ fontSize: "13px", fontStyle: "italic", color: "#aaa", fontFamily: "'IM Fell English', serif" }}>
+        <div style={{ border: "2px solid #fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
+          <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "6px", fontWeight: "bold" }}>[ SEMESTER OBJECTIVE ]</div>
+          <div style={{ fontSize: "16px", fontStyle: "italic", color: "#fff", fontFamily: "'IM Fell English', serif" }}>
             {/* Fix [PR-1]: strip Unicode BiDi override characters (U+202A–U+202E, U+2066–U+2069)
                 and zero-width chars before display. A crafted sync file can embed RIGHT-TO-LEFT
                 OVERRIDE (U+202E) in semesterGoal to visually disguise text — e.g. making
@@ -245,11 +246,11 @@ function AchievementsSection({ state }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "10px", color: "#444" }}>
+      <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", fontWeight: "bold" }}>
         {achievements.length} UNLOCKED
       </div>
       {achievements.length === 0 && (
-        <div style={{ border: "1px dashed #222", padding: "24px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#333" }}>
+        <div style={{ border: "2px solid #fff", padding: "24px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff" }}>
           No achievements yet. RITMOL is watching.
         </div>
       )}
@@ -257,24 +258,24 @@ function AchievementsSection({ state }) {
         const r = ACHIEVEMENT_RARITIES[ach.rarity] || ACHIEVEMENT_RARITIES.common;
         return (
           <div key={ach.id} style={{
-            border: `1px solid ${r.glow}`, padding: "12px",
+            border: "2px solid #fff", padding: "14px",
             fontFamily: "'Share Tech Mono', monospace",
-            background: "#0a0a0a",
+            background: "#000",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ fontSize: "24px" }}>{sanitizeForPrompt(String(ach.icon ?? ''), 4)}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "13px" }}>{sanitizeForPrompt(String(ach.title ?? ''), 300)}</span>
-                  <span style={{ fontSize: "8px", color: r.glow, letterSpacing: "1px" }}>{r.label}</span>
+                  <span style={{ fontSize: "16px", fontWeight: "bold" }}>{sanitizeForPrompt(String(ach.title ?? ''), 300)}</span>
+                  <span style={{ fontSize: "14px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>{r.label}</span>
                 </div>
-                <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
+                <div style={{ fontSize: "16px", color: "#fff", marginTop: "4px" }}>
                   {typeof ach.desc === "string"
                     ? sanitizeForPrompt(ach.desc, 300)
                     : ""}
                 </div>
                 {ach.flavorText && typeof ach.flavorText === "string" && (
-                  <div style={{ fontSize: "10px", color: "#444", marginTop: "4px", fontStyle: "italic", fontFamily: "'IM Fell English', serif" }}>
+                  <div style={{ fontSize: "14px", color: "#fff", marginTop: "4px", fontFamily: "'Share Tech Mono', monospace" }}>
                     &ldquo;{sanitizeForPrompt(ach.flavorText, 300)}&rdquo;
                   </div>
                 )}
@@ -293,7 +294,6 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
   const [gCalLoading, setGCalLoading] = useState(false);
 
   const events = [...(state.calendarEvents || [])].sort((a, b) => new Date(a.start) - new Date(b.start));
-  const typeColors = { exam: "#fff", lecture: "#aaa", homework: "#888", tirgul: "#777", other: "#555" };
 
   function addEvent() {
     if (!form.title || !form.start) return;
@@ -419,28 +419,29 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
         onClick={syncGoogleCalendar}
         disabled={gCalLoading || (typeof navigator !== "undefined" && navigator.onLine === false)}
         style={{
-        padding: "10px", border: "1px solid #555",
-        background: state.gCalConnected ? "#1a1a1a" : "transparent",
-        color: state.gCalConnected ? "#aaa" : "#888",
-        fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px",
+        padding: "12px", border: "2px solid #fff",
+        background: "transparent",
+        color: "#fff",
+        fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "1px",
+        minHeight: "48px",
       }}>
         {gCalLoading ? "SYNCING..." : state.gCalConnected ? "✓ GOOGLE CALENDAR SYNCED" : "SYNC GOOGLE CALENDAR"}
       </button>
 
       {/* Add manual event */}
-      <div style={{ border: "1px solid #222", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#444", letterSpacing: "2px" }}>ADD EVENT</div>
+      <div style={{ border: "2px solid #fff", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>[ ADD EVENT ]</div>
         <input
           value={form.title}
           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
           placeholder="Event title..."
-          style={{ background: "#111", border: "1px solid #222", color: "#e8e8e8", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", outline: "none" }}
+          style={{ background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
         />
         <div style={{ display: "flex", gap: "6px" }}>
           <select
             value={form.type}
             onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-            style={{ flex: 1, background: "#111", border: "1px solid #222", color: "#aaa", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", outline: "none" }}
+            style={{ flex: 1, background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
           >
             <option value="exam">EXAM</option>
             <option value="lecture">LECTURE</option>
@@ -452,7 +453,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
             type="datetime-local"
             value={form.start}
             onChange={(e) => setForm((f) => ({ ...f, start: e.target.value }))}
-            style={{ flex: 2, background: "#111", border: "1px solid #222", color: "#aaa", padding: "8px", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", outline: "none" }}
+            style={{ flex: 2, background: "#000", border: "2px solid #fff", color: "#fff", padding: "12px", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", outline: "none" }}
           />
         </div>
         <button type="button" onClick={addEvent} style={primaryBtn}>ADD EVENT</button>
@@ -461,7 +462,7 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
       {/* Events list */}
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         {events.length === 0 && (
-          <div style={{ border: "1px dashed #222", padding: "16px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#333" }}>
+          <div style={{ border: "2px solid #fff", padding: "16px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff" }}>
             No events. Sync calendar or add manually.
           </div>
         )}
@@ -472,20 +473,20 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
           const daysLeft = validStart ? Math.ceil((startDate - Date.now()) / 86400000) : null;
           return (
             <div key={ev.id} style={{
-              border: `1px solid ${typeColors[ev.type] || "#333"}`, padding: "10px",
+              border: "2px solid #fff", padding: "12px",
               fontFamily: "'Share Tech Mono', monospace",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
               <div>
-                <div style={{ fontSize: "12px" }}>{ev.title}</div>
-                <div style={{ fontSize: "9px", color: "#555", marginTop: "2px" }}>
+                <div style={{ fontSize: "16px", fontWeight: "bold" }}>{ev.title}</div>
+                <div style={{ fontSize: "14px", color: "#fff", marginTop: "4px" }}>
                   {ev.type?.toUpperCase()} · {startDisplay}
                   {daysLeft !== null && daysLeft >= 0 && daysLeft <= 14 && (
-                    <span style={{ color: daysLeft <= 3 ? "#fff" : "#888" }}> · {daysLeft}d</span>
+                    <span style={{ color: "#fff", fontWeight: daysLeft <= 3 ? "bold" : "normal" }}> · {daysLeft}d</span>
                   )}
                 </div>
               </div>
-              <button type="button" onClick={() => deleteEvent(ev.id)} style={{ color: "#333", background: "none", border: "none", fontSize: "14px" }}>×</button>
+              <button type="button" onClick={() => deleteEvent(ev.id)} style={{ color: "#fff", background: "none", border: "none", fontSize: "18px", minHeight: "48px", minWidth: "48px" }}>×</button>
             </div>
           );
         })}
@@ -740,9 +741,9 @@ Respond ONLY with JSON:
         fontFamily: "'Share Tech Mono', monospace", position: "relative",
       }}>
         <GeometricCorners style="geometric" />
-        <div style={{ fontSize: "11px", color: "#555", letterSpacing: "3px" }}>CHRONICLE ENGINE</div>
+        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "3px", fontFamily: "'Share Tech Mono', monospace", fontWeight: "bold" }}>[ CHRONICLE ENGINE ]</div>
         <div style={{ fontSize: "40px", margin: "16px 0" }}>◈</div>
-        <div style={{ fontSize: "12px", color: "#888", marginBottom: "16px" }}>
+        <div style={{ fontSize: "16px", color: "#fff", marginBottom: "16px", fontFamily: "'Share Tech Mono', monospace" }}>
           {canAfford ? `${gachaCost} XP per pull` : `Need ${gachaCost - state.xp} more XP`}
         </div>
         <button
@@ -752,14 +753,14 @@ Respond ONLY with JSON:
           style={{
             width: "100%", padding: "14px",
             background: canAfford && !pulling ? "#fff" : "#1a1a1a",
-            color: canAfford && !pulling ? "#000" : "#444",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", letterSpacing: "2px",
+            color: canAfford && !pulling ? "#000" : "#fff",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "2px",
             border: "none", cursor: canAfford && !pulling ? "pointer" : "default",
           }}
         >
           {pulling ? "PULLING..." : `PULL — ${gachaCost} XP`}
         </button>
-        <div style={{ fontSize: "10px", color: "#333", marginTop: "8px" }}>
+        <div style={{ fontSize: "16px", color: "#fff", marginTop: "8px", fontFamily: "'Share Tech Mono', monospace" }}>
           {collection.length} cards collected
         </div>
       </div>
@@ -769,8 +770,8 @@ Respond ONLY with JSON:
 
       {/* Collection toggle */}
         <button type="button" onClick={() => setShowCollection(!showCollection)} style={{
-        padding: "10px", border: "1px solid #333", background: "transparent",
-        color: "#666", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
+        padding: "12px", border: "2px solid #fff", background: "transparent",
+        color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
       }}>
         {showCollection ? "HIDE COLLECTION" : `VIEW COLLECTION (${collection.length})`}
       </button>
@@ -778,7 +779,7 @@ Respond ONLY with JSON:
       {showCollection && (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {collection.length === 0 && (
-            <div style={{ border: "1px dashed #222", padding: "20px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#333" }}>
+            <div style={{ border: "2px solid #fff", padding: "20px", textAlign: "center", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff" }}>
               No cards yet. Pull to collect.
             </div>
           )}
@@ -801,18 +802,19 @@ Respond ONLY with JSON:
                       onClick={() => setCollectionPage((p) => Math.max(0, p - 1))}
                       disabled={safePage === 0}
                       style={{
-                        padding: "4px 10px",
-                        border: "1px solid #333",
-                        background: safePage === 0 ? "#0a0a0a" : "transparent",
-                        color: safePage === 0 ? "#333" : "#888",
+                        padding: "8px 14px",
+                        border: safePage === 0 ? "2px solid #444" : "2px solid #fff",
+                        background: safePage === 0 ? "#000" : "transparent",
+                        color: safePage === 0 ? "#444" : "#fff",
                         fontFamily: "'Share Tech Mono', monospace",
-                        fontSize: "9px",
+                        fontSize: "16px",
                         cursor: safePage === 0 ? "default" : "pointer",
+                        minHeight: "48px",
                       }}
                     >
                       ◀ PREV
                     </button>
-                    <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#555" }}>
+                    <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff" }}>
                       {safePage + 1} / {pageCount}
                     </span>
                     <button
@@ -820,13 +822,14 @@ Respond ONLY with JSON:
                       onClick={() => setCollectionPage((p) => Math.min(pageCount - 1, p + 1))}
                       disabled={safePage === pageCount - 1}
                       style={{
-                        padding: "4px 10px",
-                        border: "1px solid #333",
-                        background: safePage === pageCount - 1 ? "#0a0a0a" : "transparent",
-                        color: safePage === pageCount - 1 ? "#333" : "#888",
+                        padding: "8px 14px",
+                        border: safePage === pageCount - 1 ? "2px solid #444" : "2px solid #fff",
+                        background: safePage === pageCount - 1 ? "#000" : "transparent",
+                        color: safePage === pageCount - 1 ? "#444" : "#fff",
                         fontFamily: "'Share Tech Mono', monospace",
-                        fontSize: "9px",
+                        fontSize: "16px",
                         cursor: safePage === pageCount - 1 ? "default" : "pointer",
+                        minHeight: "48px",
                       }}
                     >
                       NEXT ▶
@@ -863,24 +866,24 @@ function GachaCard({ card, compact }) {
 
   return (
     <div style={{
-      border: `1px solid ${r.glow}`, padding: "16px",
+      border: "2px solid #fff", padding: "16px",
       background: s.background, fontFamily: s.fontFamily,
       cursor: compact ? "pointer" : "default",
     }} onClick={() => compact && setExpanded(!expanded)}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
         <div>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px" }}>{safeRenderStr(card.title)}</div>
-          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#555", marginTop: "2px" }}>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", fontWeight: "bold" }}>{safeRenderStr(card.title)}</div>
+          <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "14px", color: "#fff", marginTop: "4px", fontWeight: "bold" }}>
             {card.type === "chronicle" ? `CHRONICLE · ${safeRenderStr(card.source)}` : "RANK COSMETIC"} · {r.label}
           </div>
         </div>
-        {compact && <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", color: "#444" }}>{expanded ? "▲" : "▼"}</span>}
+        {compact && <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff" }}>{expanded ? "[ ▲ ]" : "[ ▼ ]"}</span>}
       </div>
 
       {expanded && (
         <>
           {card.asciiArt && (
-            <pre style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "12px", color: "#aaa", margin: "8px 0", lineHeight: "1.4", whiteSpace: "pre-wrap" }}>
+            <pre style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", color: "#fff", margin: "8px 0", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
               {(() => {
                 const safeAscii = safeRenderStr(card.asciiArt)
                   .replace(/\n{3,}/g, "\n\n")
@@ -891,7 +894,7 @@ function GachaCard({ card, compact }) {
               })()}
             </pre>
           )}
-          <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#ccc", marginTop: "8px", whiteSpace: "pre-wrap" }}>
+          <div style={{ fontSize: "16px", lineHeight: "1.7", color: "#fff", marginTop: "8px", whiteSpace: "pre-wrap" }}>
             {safeRenderStr(card.content)}
           </div>
         </>
@@ -1038,16 +1041,16 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontFamily: "'Share Tech Mono', monospace" }}>
-      <div style={{ fontSize: "9px", color: "#555", letterSpacing: "2px" }}>APPEARANCE</div>
+      <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>[ APPEARANCE ]</div>
       <div style={{ display: "flex", gap: "8px" }}>
         <button
           type="button"
           onClick={() => setTheme("dark")}
           style={{
-            flex: 1, padding: "10px", border: `2px solid ${theme === "dark" ? "#fff" : "#333"}`,
+            flex: 1, padding: "12px", border: "2px solid #fff",
             background: theme === "dark" ? "#fff" : "transparent",
-            color: theme === "dark" ? "#000" : "#888",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+            color: theme === "dark" ? "#000" : "#fff",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "1px", cursor: "pointer", minHeight: "48px",
           }}
         >
           DARK
@@ -1057,9 +1060,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
           onClick={() => setTheme("light")}
           style={{
             flex: 1, padding: "10px", border: `2px solid ${theme === "light" ? "#000" : "#333"}`,
-            background: theme === "light" ? "#000" : "transparent",
-            color: theme === "light" ? "#fff" : "#888",
-            fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "1px", cursor: "pointer",
+            background: theme === "light" ? "#fff" : "transparent",
+            color: theme === "light" ? "#000" : "#fff",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "1px", cursor: "pointer", minHeight: "48px",
           }}
         >
           LIGHT
@@ -1068,7 +1071,7 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
       <div style={{ height: "1px", background: "#333", margin: "8px 0" }} />
       {/* ── SYNC ── */}
-      <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px" }}>SYNC</div>
+      <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>[ SYNC ]</div>
 
       {dropboxConnected ? (
         /* Dropbox connected */
@@ -1076,11 +1079,11 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
           <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.8" }}>
             SYNC — DROPBOX
           </div>
-          <div style={{ fontSize: "10px", color: "#aaa", marginBottom: "8px" }}>
+          <div style={{ fontSize: "16px", color: "#fff", marginBottom: "8px" }}>
             ● Connected
           </div>
-          <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.8" }}>
-            Last synced: <span style={{ color: syncStatus === "error" ? "#888" : "#aaa" }}>{syncStatusLabel}</span>
+          <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.8", fontFamily: "'Share Tech Mono', monospace" }}>
+            LAST SYNCED: <span style={{ color: "#fff", fontWeight: "bold" }}>{syncStatusLabel}</span>
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
             <button
@@ -1094,9 +1097,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
               }}
               disabled={typeof navigator !== "undefined" && navigator.onLine === false}
               style={{
-                flex: 1, padding: "10px", border: "1px solid #555",
-                background: "transparent", color: "#ccc",
-                fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                flex: 1, padding: "12px", border: "2px solid #fff",
+                background: "transparent", color: "#fff",
+                fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                minHeight: "48px",
               }}
             >
               PUSH ↑
@@ -1112,9 +1116,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
               }}
               disabled={typeof navigator !== "undefined" && navigator.onLine === false}
               style={{
-                flex: 1, padding: "10px", border: "1px solid #444",
-                background: "transparent", color: "#888",
-                fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                flex: 1, padding: "12px", border: "2px solid #444",
+                background: "transparent", color: "#fff",
+                fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                minHeight: "48px",
               }}
             >
               PULL ↓
@@ -1123,9 +1128,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
               type="button"
               onClick={disconnectDropbox}
               style={{
-                padding: "10px", border: "1px solid #333",
-                background: "transparent", color: "#555",
-                fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
+                padding: "12px", border: "2px solid #fff",
+                background: "transparent", color: "#fff",
+                fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: "pointer",
+                minHeight: "48px",
               }}
             >
               DISCONNECT
@@ -1140,24 +1146,25 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
             onClick={connectDropbox}
             style={{
               width: "100%", padding: "12px", border: "2px solid #fff", background: "#fff", color: "#000",
-              fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", letterSpacing: "2px", cursor: "pointer",
+              fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", letterSpacing: "2px", cursor: "pointer", minHeight: "48px",
             }}
           >
             CONNECT DROPBOX
           </button>
-          <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.8" }}>
-            Last synced: <span style={{ color: syncStatus === "error" ? "#888" : "#aaa" }}>{syncStatusLabel}</span>
+          <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.8", fontFamily: "'Share Tech Mono', monospace" }}>
+            LAST SYNCED: <span style={{ color: "#fff", fontWeight: "bold" }}>{syncStatusLabel}</span>
           </div>
-          <div style={{ height: "1px", background: "#333", margin: "4px 0" }} />
-          <div style={{ fontSize: "9px", color: "#444", letterSpacing: "1px" }}>
+          <div style={{ height: "2px", background: "#fff", margin: "4px 0" }} />
+          <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "1px", fontWeight: "bold" }}>
             {FSAPI_SUPPORTED ? "or use local file" : "or export / import manually"}
           </div>
           {FSAPI_SUPPORTED ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <button type="button" onClick={onPickSyncFile} style={{
-                  padding: "10px", border: "1px solid #555", background: "transparent",
-                  color: "#aaa", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
+                  padding: "12px", border: "2px solid #fff", background: "transparent",
+                  color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: "pointer",
+                  minHeight: "48px",
                 }}>
                   PICK FILE
                 </button>
@@ -1172,8 +1179,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
                   }}
                   disabled={typeof navigator !== "undefined" && navigator.onLine === false}
                   style={{
-                    padding: "10px", border: "1px solid #555", background: "transparent",
-                    color: "#ccc", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                    padding: "12px", border: "2px solid #fff", background: "transparent",
+                    color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                    minHeight: "48px",
                   }}
                 >
                   PUSH ↑
@@ -1189,17 +1197,19 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
                   }}
                   disabled={typeof navigator !== "undefined" && navigator.onLine === false}
                   style={{
-                    padding: "10px", border: "1px solid #444", background: "transparent",
-                    color: "#888", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                    padding: "12px", border: "2px solid #444", background: "transparent",
+                    color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: (typeof navigator !== "undefined" && navigator.onLine === false) ? "default" : "pointer",
+                    minHeight: "48px",
                   }}
                 >
                   PULL ↓
                 </button>
                 <button type="button" onClick={onForgetSyncFile} style={{
-                  padding: "10px", border: "1px solid #333",
-                  background: confirmForgetSync ? "#3a1111" : "transparent",
-                  color: confirmForgetSync ? "#c44" : "#555",
-                  fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
+                  padding: "12px", border: "2px solid #fff",
+                  background: "transparent",
+                  color: "#fff",
+                  fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: "pointer",
+                  minHeight: "48px",
                 }}>
                   {confirmForgetSync ? "CONFIRM?" : "FORGET"}
                 </button>
@@ -1207,12 +1217,13 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ fontSize: "10px", color: "#555", border: "1px dashed #333", padding: "8px", lineHeight: "1.7" }}>
+              <div style={{ fontSize: "16px", color: "#fff", border: "2px solid #fff", padding: "12px", lineHeight: "1.7", fontFamily: "'Share Tech Mono', monospace" }}>
                 ⚠ Your browser does not support direct file access.
               </div>
               <button type="button" onClick={() => SyncManager.download((msg) => showBanner(msg, "alert"))} style={{
-                padding: "10px", border: "1px solid #555", background: "transparent",
-                color: "#aaa", fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
+                padding: "12px", border: "2px solid #fff", background: "transparent",
+                color: "#fff", fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: "pointer",
+                minHeight: "48px",
               }}>
                 EXPORT ↓
               </button>
@@ -1229,9 +1240,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
                 disabled={importLoading || syncStatus === "syncing"}
                 onClick={() => { if (!importLoading && syncStatus !== "syncing") importRef.current?.click(); }}
                 style={{
-                  padding: "10px", border: "1px solid #444", background: "transparent",
-                  color: importLoading || syncStatus === "syncing" ? "#444" : "#888",
-                  fontFamily: "'Share Tech Mono', monospace", fontSize: "11px",
+                  padding: "12px", border: "2px solid #fff", background: "transparent",
+                  color: "#fff",
+                  fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+                  minHeight: "48px",
                   cursor: importLoading || syncStatus === "syncing" ? "default" : "pointer",
                 }}
               >
@@ -1242,9 +1254,9 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
         </>
       )}
 
-      <div style={{ marginTop: "12px", padding: "12px", border: "1px dashed #222" }}>
-        <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px", marginBottom: "8px" }}>DEPLOY GUIDE</div>
-        <div style={{ fontSize: "11px", color: "#555", lineHeight: "1.8" }}>
+      <div style={{ marginTop: "12px", padding: "12px", border: "2px solid #fff" }}>
+        <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", marginBottom: "8px", fontWeight: "bold" }}>[ DEPLOY GUIDE ]</div>
+        <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.8", fontFamily: "'Share Tech Mono', monospace" }}>
           1. Push this repo to GitHub<br />
           2. Enable GitHub Pages (Settings → Pages → Source: GitHub Actions)<br />
           3. Deploy — done. No server needed.<br />
@@ -1253,10 +1265,10 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
       </div>
 
       <div style={{ height: "1px", background: "#333", margin: "8px 0" }} />
-      <div style={{ fontSize: "9px", color: "#444", letterSpacing: "2px" }}>GOOGLE CALENDAR</div>
-      <div style={{ fontSize: "10px", color: "#555", lineHeight: "1.8" }}>
+      <div style={{ fontSize: "16px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>[ GOOGLE CALENDAR ]</div>
+      <div style={{ fontSize: "16px", color: "#fff", lineHeight: "1.8", fontFamily: "'Share Tech Mono', monospace" }}>
         Paste your Google OAuth Client ID to enable Calendar sync.<br />
-        Get one free at <span style={{ color: "#888" }}>console.cloud.google.com</span> → APIs & Services → Credentials.
+        Get one free at <span style={{ color: "#fff", fontWeight: "bold" }}>console.cloud.google.com</span> → APIs & Services → Credentials.
       </div>
       <input
         type="text"
@@ -1265,17 +1277,18 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
         placeholder="xxxxx.apps.googleusercontent.com"
         style={{
           width: "100%", padding: "8px", background: "#0a0a0a",
-          border: "1px solid #333", color: "#ccc", boxSizing: "border-box",
-          fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
+          border: "2px solid #fff", color: "#fff", boxSizing: "border-box",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
         }}
       />
       <button
         type="button"
         onClick={saveClientId}
         style={{
-          padding: "8px", border: "1px solid #444", background: "transparent",
-          color: "#888", fontFamily: "'Share Tech Mono', monospace",
-          fontSize: "10px", letterSpacing: "1px", cursor: "pointer",
+          padding: "12px", border: "2px solid #fff", background: "transparent",
+          color: "#fff", fontFamily: "'Share Tech Mono', monospace",
+          fontSize: "16px", letterSpacing: "1px", cursor: "pointer",
+          minHeight: "48px",
         }}
       >
         SAVE CLIENT ID
@@ -1283,10 +1296,11 @@ function SettingsSection({ profile, setState, showBanner, syncStatus, lastSynced
 
       <button type="button" onClick={resetAll} style={{
         marginTop: "8px", padding: "10px",
-        border: `1px solid ${confirmReset ? "#c44" : "#333"}`,
+        border: "2px solid #fff",
         background: confirmReset ? "#3a1111" : "transparent",
-        color: confirmReset ? "#c44" : "#444",
-        fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", cursor: "pointer",
+        color: "#fff",
+        fontFamily: "'Share Tech Mono', monospace", fontSize: "16px", cursor: "pointer",
+        minHeight: "48px",
         transition: "none",
       }}>
         {confirmReset ? "CONFIRM RESET? (click again)" : "RESET ALL DATA"}
