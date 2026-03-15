@@ -29,7 +29,7 @@ function safeDate(s) {
   return isNaN(d.getTime()) ? null : s;
 }
 
-export async function fetchGCalEvents(accessToken, maxResults = 30) {
+export async function fetchGCalEvents(accessToken, maxResults = 100) {
   // Fix: guard against null/empty token — a missing token would send
   // "Authorization: Bearer null" which gives a misleading 401 error.
   if (!accessToken || typeof accessToken !== "string" || !accessToken.trim()) {
@@ -38,7 +38,11 @@ export async function fetchGCalEvents(accessToken, maxResults = 30) {
   const safeMax = Math.min(Math.max(1, Number(maxResults) || 30), 100);
   try {
     const now = new Date().toISOString();
-    const future = new Date(Date.now() + 14 * 86400000).toISOString();
+    // Fix [GC-2]: expanded from 14 days to 90 days so semester-scale events
+    // (exams, assignment due dates, course deadlines) are actually fetched.
+    // The previous 14-day window caused "Synced 0 events" for calendars that
+    // only contain events further out than two weeks.
+    const future = new Date(Date.now() + 90 * 86400000).toISOString();
     const params = new URLSearchParams({
       timeMin: now,
       timeMax: future,
