@@ -1,4 +1,5 @@
 import { IS_DEV, DEV_PREFIX, LS, storageKey } from "../utils/storage";
+import { callGemini } from "./gemini";
 
 // Local-date helper so quote cache rollover aligns with user's local midnight.
 const localToday = () => {
@@ -7,53 +8,135 @@ const localToday = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// DAILY QUOTE  (Quotable API — no tokens consumed)
+// DAILY QUOTE  (Quotable API — minimal tokens consumed)
 // ═══════════════════════════════════════════════════════════════
-// Uses the free, open Quotable REST API (https://api.quotable.kameswari.in)
-// instead of asking Gemini to hallucinate quotes, which:
-//   (a) wastes daily token budget
-//   (b) produces unverifiable, sometimes fabricated attributions
+// Strategy:
+//   1. If the user has a Gemini key, use a tiny Gemini call (~50 in / ~30 out tokens)
+//      to resolve book titles, topics, and interests into real author names that the
+//      Quotable API can search. E.g. "Dune" → "Frank Herbert", "physics" → ["Richard
+//      Feynman", "Carl Sagan"]. Result is cached for the day so it only runs once.
+//   2. Search Quotable by each resolved author name.
+//   3. Fall back to a themed random quote (technology, science, philosophy, etc.)
+//      if no author matches — still zero Gemini tokens for the fallback path.
 //
 // In-flight guard: stored on a module-level ref that is reset on each call-site abort.
 let _quoteInFlight = false;
 
 // Quotable tags that fit the STEM / stoic / self-improvement theme of RITMOL.
-const QUOTABLE_FALLBACK_TAGS = ["technology","science","education","wisdom","inspirational","philosophy"];
+const QUOTABLE_FALLBACK_TAGS = ["technology", "science", "education", "wisdom", "inspirational", "philosophy"];
 
 const EMERGENCY_FALLBACK = {
   quote: "The secret of getting ahead is getting started.",
   author: "Mark Twain",
   source: "",
-  confident: false, // signals to HomeTab that this is a static fallback
+  confident: false,
 };
 
 // Wait out a 429. Reads Retry-After header (seconds); defaults to 10 s.
-// Never waits more than 15 s so the app does not hang.
 async function _wait429(res) {
   const retryAfter = parseInt(res.headers?.get?.("Retry-After") ?? "10", 10);
   const ms = Math.min(isNaN(retryAfter) ? 10_000 : retryAfter * 1000, 15_000);
   await new Promise((r) => setTimeout(r, ms));
 }
 
-// Extract candidate author name tokens from a free-text "books/authors" string.
-function _extractAuthorTokens(booksStr) {
-  if (!booksStr || typeof booksStr !== "string") return [];
-  return booksStr
-    .split(/[,;|\n]+/)
+// ── Step 0: use Gemini to resolve books/interests → author names ──────────────
+// Returns an array of author name strings. Cached in localStorage for the day.
+// Falls back to raw token extraction if Gemini is unavailable or fails.
+async function _resolveAuthors(apiKey, profile, onTokens) {
+  const books     = (profile?.books     || "").trim();
+  const interests = (profile?.interests || "").trim();
+  const combined  = [books, interests].filter(Boolean).join(", ");
+  if (!combined) return [];
+
+  // Cache key: resolved author list for today
+  const resolvedKey = storageKey(`jv_quote_authors_${localToday()}`);
+  const cached = LS.get(resolvedKey);
+  if (cached && Array.isArray(cached)) return cached;
+
+  // If we have a Gemini key, ask it to map titles/topics → authors
+  if (apiKey) {
+    try {
+      const prompt =
+        `The user likes: "${combined}"\n` +
+        `List up to 6 real authors whose quotes would resonate with someone who likes these books, topics, or interests. ` +
+        `For book titles, return the book's author. For topics like "physics" or "stoicism", return 2-3 well-known authors in that field. ` +
+        `Return ONLY a JSON array of author name strings, nothing else. Example: ["Frank Herbert","Richard Feynman","Marcus Aurelius"]`;
+
+      const { text, tokensUsed } = await callGemini(
+        apiKey,
+        [{ role: "user", content: prompt }],
+        "You map books and interests to author names. Respond only with a JSON array of strings.",
+        true, // jsonMode
+        AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+      );
+
+      if (onTokens && tokensUsed) onTokens(tokensUsed);
+
+      // Parse — strip any accidental markdown fences
+      const clean = text.replace(/```json|```/gi, "").trim();
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed) && parsed.length && parsed.every(s => typeof s === "string")) {
+        // eslint-disable-next-line no-control-regex
+        const safe = parsed.map(s => s.replace(/[<>\u0000-\u001F]/g, "").slice(0, 80)).filter(Boolean).slice(0, 6);
+        LS.set(resolvedKey, safe);
+        return safe;
+      }
+    } catch {
+      // Gemini unavailable or parse failed — fall through to raw extraction
+    }
+  }
+
+  // No Gemini key (or failed): extract the last meaningful word of each segment
+  // as a best-effort author surname guess.
+  const raw = combined
+    .split(/[,;\n|/]+/)
     .map(s => s.trim())
-    .filter(t => t && t.length >= 3)
-    .slice(0, 6); // cap: no more than 6 attempts
+    .filter(t => t.length >= 3)
+    .slice(0, 6);
+  // Don't cache raw results — they're unreliable; let the next mount retry with Gemini.
+  return raw;
 }
 
-// eslint-disable-next-line no-unused-vars
-export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
-  // _apiKey and _onTokens kept in signature for call-site compatibility but unused —
-  // Quotable is free and consumes no Gemini tokens.
+// ── Quotable: search for an author and return a random quote from them ────────
+const _makeSignal = () => (AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined);
+
+async function _quoteByAuthor(authorName) {
+  const searchUrl = `https://api.quotable.kameswari.in/search/authors?query=${encodeURIComponent(authorName)}&limit=5`;
+  const searchRes = await fetch(searchUrl, { signal: _makeSignal() });
+  if (!searchRes.ok) return null;
+  const searchData = await searchRes.json();
+  const authors = searchData.results || [];
+  if (!authors.length) return null;
+
+  // Pick the best slug match: prefer one that shares a word with the query
+  const words = authorName.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+  const match = authors.find(a => a.slug && words.some(w => a.slug.toLowerCase().includes(w))) || authors[0];
+  if (!match?.slug) return null;
+
+  const quoteUrl = `https://api.quotable.kameswari.in/quotes/random?author=${encodeURIComponent(match.slug)}&maxLength=250&limit=1`;
+  const quoteRes = await fetch(quoteUrl, { signal: _makeSignal() });
+  if (!quoteRes.ok) return null;
+  const arr = await quoteRes.json();
+  const q = Array.isArray(arr) ? arr[0] : arr?.results?.[0];
+  if (q?.content && q?.author) return { quote: q.content, author: q.author, source: q.authorSlug || "" };
+  return null;
+}
+
+function isValidQuote(q) {
+  return q && typeof q.quote === "string" && q.quote.trim() && typeof q.author === "string" && q.author.trim();
+}
+
+// eslint-disable-next-line no-control-regex
+const stripCtrl = (s) =>
+  String(s)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "")
+    .replace(/[<>]/g, "");
+
+// ── Public API ────────────────────────────────────────────────────────────────
+export async function fetchDailyQuote(apiKey, profile, onTokens) {
   const key = storageKey(`jv_quote_${localToday()}`);
 
   // Evict stale quote cache keys from previous days.
-  // Fix: collect all keys first BEFORE deleting — iterating localStorage while
-  // modifying it is undefined behaviour in some browsers (key indices can shift).
   try {
     const quotePrefix = IS_DEV ? `${DEV_PREFIX}jv_quote_` : "jv_quote_";
     const staleKeys = [];
@@ -61,120 +144,67 @@ export async function fetchDailyQuote(_apiKey, profile, _onTokens) {
       const k = localStorage.key(i);
       if (k && k.startsWith(quotePrefix) && k !== key) staleKeys.push(k);
     }
-    // Delete only after the snapshot is complete.
     staleKeys.forEach((k) => localStorage.removeItem(k));
-  } catch { /* localStorage may be unavailable — silently skip eviction */ }
+  } catch { /* localStorage may be unavailable */ }
 
-  // Quote cache stays in localStorage intentionally — it is ephemeral,
-  // evicted daily, and not part of the IDB user data store.
   const cached = LS.get(key);
   if (cached) return cached;
 
   if (_quoteInFlight) return null;
-  // Do not attempt network calls when offline and do not cache the static fallback —
-  // return null so the caller displays the fallback transiently without writing it
-  // to localStorage. The next mount will retry once connectivity is restored.
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    return null;
-  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return null;
   _quoteInFlight = true;
 
-  // Validate quote shape before caching to avoid storing malformed objects
-  function isValidQuote(q) {
-    return q && typeof q.quote === "string" && q.quote.trim() &&
-           typeof q.author === "string" && q.author.trim();
-  }
-
-  // Create a fresh timeout signal per fetch so each attempt gets its own independent budget.
-  const makeSignal = () => AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined;
-
   try {
-    // ── Step 1: try to find a quote by an author from the user's books/interests ──
-    const tokens = _extractAuthorTokens(profile?.books || "");
-    let hit = null;
+    // ── Step 1: resolve books/interests → author names (Gemini if available) ──
+    const authors = await _resolveAuthors(apiKey, profile, onTokens);
 
-    for (const token of tokens) {
+    // ── Step 2: try each resolved author against Quotable ──────────────────────
+    let hit = null;
+    for (const author of authors) {
       if (hit) break;
       try {
-        const searchUrl = `https://api.quotable.kameswari.in/search/authors?query=${encodeURIComponent(token)}&limit=3`;
-        const searchRes = await fetch(searchUrl, { signal: makeSignal() });
-        if (!searchRes.ok) continue;
-        const searchData = await searchRes.json();
-        const authors = searchData.results || [];
-        if (!authors.length) continue;
-
-        // Match: any word from the full token appears in the slug, or fall back to first result
-        const tokenWords = token.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
-        const match = authors.find(a => a.slug && tokenWords.some(w => a.slug.toLowerCase().includes(w)))
-          || authors[0];
-        if (!match?.slug) continue;
-
-        const quoteUrl = `https://api.quotable.kameswari.in/quotes/random?author=${encodeURIComponent(match.slug)}&maxLength=250&limit=1`;
-        const quoteRes = await fetch(quoteUrl, { signal: makeSignal() });
-        if (!quoteRes.ok) continue;
-        const quoteArr = await quoteRes.json();
-        const q = Array.isArray(quoteArr) ? quoteArr[0] : quoteArr?.results?.[0];
-        if (q?.content && q?.author) {
-          const candidate = { quote: q.content, author: q.author, source: q.authorSlug || "" };
-          if (isValidQuote(candidate)) hit = candidate;
-        }
-      } catch {
-        // Network error on one token — try the next
-      }
+        const q = await _quoteByAuthor(author);
+        if (q && isValidQuote(q)) hit = q;
+      } catch { /* network error on one author — try the next */ }
     }
 
-    // ── Step 2: fall back to a themed random quote if author lookup missed ──
+    // ── Step 3: themed random fallback ────────────────────────────────────────
     if (!hit) {
       const tag = QUOTABLE_FALLBACK_TAGS[Math.floor(Math.random() * QUOTABLE_FALLBACK_TAGS.length)];
       const fallbackUrl = `https://api.quotable.kameswari.in/quotes/random?tags=${tag}&maxLength=200&limit=1`;
       try {
-        const fallbackRes = await fetch(fallbackUrl, { signal: makeSignal() });
+        let fallbackRes = await fetch(fallbackUrl, { signal: _makeSignal() });
         if (fallbackRes.status === 429) {
-          // Rate-limited — wait and retry once
           await _wait429(fallbackRes);
-          const retryRes = await fetch(fallbackUrl, { signal: makeSignal() });
-          if (retryRes.ok) {
-            const fallbackArr = await retryRes.json();
-            const q = Array.isArray(fallbackArr) ? fallbackArr[0] : fallbackArr?.results?.[0];
-            if (q?.content && q?.author) {
-              const candidate = { quote: q.content, author: q.author, source: q.authorSlug || "" };
-              if (isValidQuote(candidate)) hit = candidate;
-            }
-          }
-        } else if (fallbackRes.ok) {
-          const fallbackArr = await fallbackRes.json();
-          const q = Array.isArray(fallbackArr) ? fallbackArr[0] : fallbackArr?.results?.[0];
+          fallbackRes = await fetch(fallbackUrl, { signal: _makeSignal() });
+        }
+        if (fallbackRes.ok) {
+          const arr = await fallbackRes.json();
+          const q = Array.isArray(arr) ? arr[0] : arr?.results?.[0];
           if (q?.content && q?.author) {
             const candidate = { quote: q.content, author: q.author, source: q.authorSlug || "" };
             if (isValidQuote(candidate)) hit = candidate;
           }
         }
-      } catch { /* Network error on token lookup — try next */ }
+      } catch { /* network error on fallback */ }
     }
 
     if (hit) {
-      // Strip control characters and limit lengths before persisting to localStorage.
-      // A compromised or spoofed API response should not be able to store content that
-      // could be injected into the system prompt or rendered with unexpected characters.
-      // eslint-disable-next-line no-control-regex
-      const stripCtrl = (s) => String(s).replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF\u202A-\u202E\u2066-\u2069]/g, "").replace(/[<>]/g, "");
       const safe = {
         quote:  stripCtrl(hit.quote).slice(0, 500),
         author: stripCtrl(hit.author).slice(0, 100),
-        source: stripCtrl(hit.source).slice(0, 100),
+        source: stripCtrl(hit.source || "").slice(0, 100),
         confident: true,
       };
       LS.set(key, safe);
       return safe;
     }
   } catch {
-    // Outer catch: unexpected error — fall through to reset flag and return null.
+    // Unexpected outer error — fall through
   } finally {
-    // Always reset the in-flight flag so future calls are not permanently blocked.
     _quoteInFlight = false;
   }
-  // All network paths failed — cache and return the static emergency fallback
-  // so the quote area is never permanently blank.
+
   LS.set(key, EMERGENCY_FALLBACK);
   return EMERGENCY_FALLBACK;
 }

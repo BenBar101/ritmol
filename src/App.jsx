@@ -395,7 +395,7 @@ export default function App() {
   useEffect(() => {
     if (!profile || quoteFetchedRef.current) return;
     quoteFetchedRef.current = true;
-    fetchDailyQuote(null, profile, null)
+    fetchDailyQuote(apiKey || null, profile, trackTokens || null)
       .then((result) => {
         if (result === null) {
           // fetchDailyQuote returns null when offline (no cache yet) or in-flight.
@@ -415,7 +415,7 @@ export default function App() {
         quoteFetchedRef.current = false;
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!profile]);
+  }, [!!profile, !!apiKey]);
 
   useEffect(() => {
     const handler = () => showBanner("SYSTEM ALERT: Storage full! (~5MB). Clear old chat history or sessions.", "alert");
