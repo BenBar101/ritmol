@@ -324,6 +324,27 @@ export default function ChatTab() {
           }}>
             ›
           </button>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              title="Clear chat history"
+              onClick={() => {
+                if (window.confirm("Clear all chat history? RITMOL will lose context of this conversation.")) {
+                  setState((s) => ({ ...s, chatHistory: [] }));
+                }
+              }}
+              disabled={loading}
+              style={{
+                width: "48px", height: "48px", border: "1px solid #555",
+                background: "transparent", color: "#888",
+                fontFamily: "'Share Tech Mono', monospace", fontSize: "16px",
+                cursor: loading ? "default" : "pointer",
+              }}
+              aria-label="Clear chat"
+            >
+              ⌫
+            </button>
+          )}
         </div>
       </div>
     </div>
