@@ -29,45 +29,87 @@ function safeDate(s) {
   return isNaN(d.getTime()) ? null : s;
 }
 
-export async function fetchGCalEvents(accessToken, maxResults = 100) {
-  // Fix: guard against null/empty token — a missing token would send
-  // "Authorization: Bearer null" which gives a misleading 401 error.
+// Fetches all calendars the user is subscribed to (their calendar list).
+// Returns an array of { id, title, color } objects.
+export async function fetchCalendarList(accessToken) {
   if (!accessToken || typeof accessToken !== "string" || !accessToken.trim()) {
     throw new Error("GCAL_TOKEN_EXPIRED");
   }
-  const safeMax = Math.min(Math.max(1, Number(maxResults) || 30), 100);
   try {
-    const now = new Date().toISOString();
-    // Fix [GC-2]: expanded from 14 days to 90 days so semester-scale events
-    // (exams, assignment due dates, course deadlines) are actually fetched.
-    // The previous 14-day window caused "Synced 0 events" for calendars that
-    // only contain events further out than two weeks.
-    const future = new Date(Date.now() + 90 * 86400000).toISOString();
-    const params = new URLSearchParams({
-      timeMin: now,
-      timeMax: future,
-      maxResults: String(safeMax),
-      singleEvents: "true",
-      orderBy: "startTime",
-    });
     const res = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+      "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&minAccessRole=reader",
       {
         headers: { Authorization: `Bearer ${accessToken}` },
-        // Fix: add request timeout so a slow/unresponsive GCal API doesn't block
-        // the UI indefinitely. 15 s is generous for a calendar list fetch.
         signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
       }
     );
     if (!res.ok) {
       if (res.status === 401) throw new Error("GCAL_TOKEN_EXPIRED");
-      const label = res.status === 403 ? "GCAL_PERMISSION_DENIED"
-                  : res.status === 429 ? "GCAL_RATE_LIMITED"
-                  : `GCAL_HTTP_${res.status}`;
-      throw new Error(label);
+      throw new Error(res.status === 403 ? "GCAL_PERMISSION_DENIED" : `GCAL_HTTP_${res.status}`);
     }
     const data = await res.json();
-    return (data.items || []).map((e) => ({
+    return (data.items || []).map((cal) => ({
+      id:    typeof cal.id === "string" ? cal.id : "",
+      title: stripCtrl(cal.summary || "Untitled").slice(0, 100),
+      color: typeof cal.backgroundColor === "string" ? cal.backgroundColor : "#ffffff",
+    })).filter((cal) => cal.id);
+  } catch (e) {
+    if (e?.message?.startsWith("GCAL_")) throw e;
+    throw new Error("GCAL_NETWORK_ERROR");
+  }
+}
+
+// Fetches events from one or more calendars.
+// calendarIds: string[] of calendar IDs to fetch from (defaults to ["primary"]).
+export async function fetchGCalEvents(accessToken, calendarIds = ["primary"], maxResults = 100) {
+  // Fix: guard against null/empty token — a missing token would send
+  // "Authorization: Bearer null" which gives a misleading 401 error.
+  if (!accessToken || typeof accessToken !== "string" || !accessToken.trim()) {
+    throw new Error("GCAL_TOKEN_EXPIRED");
+  }
+  // Ensure we always have at least "primary" to fetch from.
+  const ids = Array.isArray(calendarIds) && calendarIds.length > 0 ? calendarIds : ["primary"];
+  const safeMax = Math.min(Math.max(1, Number(maxResults) || 100), 100);
+
+  const now = new Date().toISOString();
+  // Fix [GC-2]: expanded from 14 days to 90 days so semester-scale events
+  // (exams, assignment due dates, course deadlines) are actually fetched.
+  const future = new Date(Date.now() + 90 * 86400000).toISOString();
+
+  // Fetch all calendars in parallel, then merge and de-duplicate by event id.
+  const seenIds = new Set();
+  try {
+    const results = await Promise.all(
+      ids.map(async (calId) => {
+        const params = new URLSearchParams({
+          timeMin: now,
+          timeMax: future,
+          maxResults: String(safeMax),
+          singleEvents: "true",
+          orderBy: "startTime",
+        });
+        // Encode the calendar ID for use in the URL path.
+        const encodedId = encodeURIComponent(calId);
+        const res = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodedId}/events?${params}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+          }
+        );
+        if (!res.ok) {
+          if (res.status === 401) throw new Error("GCAL_TOKEN_EXPIRED");
+          const label = res.status === 403 ? "GCAL_PERMISSION_DENIED"
+                      : res.status === 429 ? "GCAL_RATE_LIMITED"
+                      : `GCAL_HTTP_${res.status}`;
+          throw new Error(label);
+        }
+        const data = await res.json();
+        return (data.items || []);
+      })
+    );
+
+    return results.flat().map((e) => ({
       // Fix [GC-1]: sanitize all fields from the API response before they reach state
       // and localStorage. Although Google's API is trusted, user-controlled calendar
       // content (event titles, external-calendar entries) can contain BiDi overrides,
@@ -78,7 +120,13 @@ export async function fetchGCalEvents(accessToken, maxResults = 100) {
       end:   safeDate(e.end?.dateTime   || e.end?.date),
       type:  detectEventType(e.summary || ""),
       source: "gcal",
-    })).filter(e => e.start !== null); // drop events with invalid start dates
+    }))
+    .filter((e) => e.start !== null)           // drop events with invalid start dates
+    .filter((e) => {                            // de-duplicate across calendars
+      if (seenIds.has(e.id)) return false;
+      seenIds.add(e.id);
+      return true;
+    });
   } catch (e) {
     if (e?.message?.startsWith("GCAL_")) throw e;
     throw new Error("GCAL_NETWORK_ERROR");

@@ -50,6 +50,7 @@ export function initState() {
     pendingHabitSuggestions: idbGet(storageKey("jv_habit_suggestions"), []),
     chronicles: idbGet(storageKey("jv_chronicles"), []),
     gCalConnected: idbGet(storageKey("jv_gcal_connected"), false),
+    gCalSelectedIds: idbGet(storageKey("jv_gcal_selected_ids"), null),
     // Fix [ST-2]: include aiXpToday: 0 and warnedAt: [] in the default so
     // consuming code (consumeAiXpBudget, trackTokens) always sees a fully-formed
     // object and never reads undefined.aiXpToday.

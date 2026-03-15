@@ -60,6 +60,7 @@ function persistState(s) {
     idbSet(storageKey("jv_timers"),             Array.isArray(s.activeTimers) ? s.activeTimers.filter(t => typeof t.endsAt === "number" && t.endsAt > Date.now() - 3_600_000) : []);
     idbSet(storageKey("jv_habit_suggestions"),  Array.isArray(s.pendingHabitSuggestions) ? s.pendingHabitSuggestions : []);
     idbSet(storageKey("jv_gcal_connected"),     s.gCalConnected);
+    idbSet(storageKey("jv_gcal_selected_ids"),  s.gCalSelectedIds);
     idbSet(storageKey("jv_habits_init"),        s.habitsInitialized);
     idbSet(storageKey("jv_dynamic_costs"), s.dynamicCosts ?? null);
     idbSet(storageKey("jv_last_shield_use_date"), s.lastShieldUseDate ?? null);
@@ -123,6 +124,7 @@ export function useAppState() {
             activeTimers: [],
             pendingHabitSuggestions: [],
             gCalConnected: false,
+            gCalSelectedIds: null,
             habitsInitialized: false,
             dynamicCosts: {
               xpPerLevel: DEFAULT_XP_PER_LEVEL,

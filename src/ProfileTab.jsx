@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAppContext } from "./context/AppContext";
 import { todayUTC, localDateFromUTC, getGeminiApiKey, setGeminiApiKey, getMaxDateSeen } from "./utils/storage";
 import { ACHIEVEMENT_RARITIES, STYLE_CSS, DAILY_TOKEN_LIMIT, RANKS, sampleGachaRarity } from "./constants";
 import { DATA_DISCLOSURE_SEEN_KEY, THEME_KEY } from "./constants";
 import { getLevelProgress } from "./utils/xp";
 import { callGemini } from "./api/gemini";
-import { fetchGCalEvents, loadGoogleGIS } from "./api/gcal";
+import { fetchGCalEvents, fetchCalendarList, loadGoogleGIS } from "./api/gcal";
 import { SyncManager, FSAPI_SUPPORTED } from "./sync/SyncManager";
 import GeometricCorners from "./GeometricCorners";
 import { primaryBtn } from "./Onboarding";
@@ -292,6 +292,10 @@ function AchievementsSection({ state }) {
 function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, showBanner, executeCommands }) {
   const [form, setForm] = useState({ title: "", type: "exam", start: "", end: "" });
   const [gCalLoading, setGCalLoading] = useState(false);
+  // Discovered calendars from the user's Google account (populated after OAuth).
+  const [calendarList, setCalendarList] = useState([]);
+  // Pending token held while the user is choosing calendars in the picker.
+  const pendingTokenRef = React.useRef(null);
 
   const events = [...(state.calendarEvents || [])].sort((a, b) => new Date(a.start) - new Date(b.start));
 
@@ -317,19 +321,62 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
     setForm({ title: "", type: "exam", start: "", end: "" });
   }
 
-  async function syncGoogleCalendar() {
+  // After the user picks calendars, fetch events and persist the selection.
+  async function applyCalendarSelection(chosenIds, accessToken) {
+    const ids = chosenIds.length > 0 ? chosenIds : ["primary"];
+    setGCalLoading(true);
+    try {
+      const events = await fetchGCalEvents(accessToken, ids);
+      setState((s) => {
+        const manualEvents = (s.calendarEvents || []).filter((e) => e.source === "manual");
+        return { ...s, calendarEvents: [...manualEvents, ...events], gCalConnected: true, gCalSelectedIds: ids };
+      });
+      showBanner(`Synced ${events.length} events from ${ids.length} calendar${ids.length !== 1 ? "s" : ""}.`, "success");
+    } catch (e) {
+      handleGCalError(e);
+    } finally {
+      pendingTokenRef.current = null;
+      setGCalLoading(false);
+    }
+  }
+
+  function handleGCalError(e) {
+    if (e?.message === "GCAL_TOKEN_EXPIRED") {
+      setState((s) => ({ ...s, gCalConnected: false }));
+      showBanner("Google Calendar token expired. Re-sync to reconnect.", "alert"); return;
+    }
+    if (e?.message === "GCAL_PERMISSION_DENIED") {
+      showBanner("Calendar sync failed: insufficient permissions or quota exceeded. Check your Google Cloud Console.", "alert"); return;
+    }
+    if (e?.message === "GCAL_RATE_LIMITED") {
+      showBanner("Calendar sync failed: rate limit hit. Wait a moment and try again.", "alert"); return;
+    }
+    if (e?.message?.startsWith("GCAL_HTTP_")) {
+      showBanner(`Calendar sync failed: server returned ${e.message.replace("GCAL_HTTP_", "HTTP ")}. Try again later.`, "alert"); return;
+    }
+    if (e?.message === "GCAL_NETWORK_ERROR") {
+      showBanner("Calendar sync failed: network error. Check your connection and try again.", "alert"); return;
+    }
+    let msg = e?.error?.message ?? e?.result?.error?.message ?? e?.message ?? e?.reason;
+    if (msg == null && e && typeof e === "object") {
+      const err = e?.error ?? e?.result?.error;
+      if (typeof err === "string") msg = err;
+      else if (err && typeof err === "object") msg = err.message ?? err.error_description ?? JSON.stringify(err).slice(0, 100);
+      else { const d = e?.details?.[0]; msg = d?.message ?? d?.description ?? (d ? JSON.stringify(d) : null); }
+    }
+    if (msg == null) msg = typeof e === "string" ? e : (e && typeof e === "object" ? JSON.stringify(e).slice(0, 80) : String(e));
+    const short = msg.length > 60 ? msg.slice(0, 57) + "…" : msg;
+    showBanner(`Calendar sync failed: ${short} Check Client ID and authorized origins in Google Cloud Console.`, "alert");
+  }
+
+  async function syncGoogleCalendar(forcePicker = false) {
     const clientId = profile?.googleClientId || (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
     if (!clientId) { showBanner("No Google Client ID configured.", "alert"); return; }
-    // Fix: validate clientId format before passing to Google OAuth — a crafted value from
-    // the profile object (e.g. via an old sync file) could trigger unexpected behaviour.
-    // Google OAuth client IDs always match *.apps.googleusercontent.com
     if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(clientId)) {
-      showBanner("Invalid Google Client ID format. Check your ritmol-data.json.", "alert");
-      return;
+      showBanner("Invalid Google Client ID format. Check your ritmol-data.json.", "alert"); return;
     }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      showBanner("No network connection. Google Calendar sync requires connectivity.", "alert");
-      return;
+      showBanner("No network connection. Google Calendar sync requires connectivity.", "alert"); return;
     }
     setGCalLoading(true);
     try {
@@ -338,86 +385,44 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
         const tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId,
           scope: "https://www.googleapis.com/auth/calendar.readonly",
-          callback: (resp) => {
-            if (resp.error) reject(new Error(resp.error));
-            else resolve(resp);
-          },
+          callback: (resp) => { if (resp.error) reject(new Error(resp.error)); else resolve(resp); },
         });
-        // Use "consent" on first connect so the OAuth consent screen always appears.
-        // Once connected (gCalConnected === true), use "" for a silent re-auth that
-        // skips the consent screen if the user already granted access.
         tokenClient.requestAccessToken({ prompt: state.gCalConnected ? "" : "consent" });
       });
-      let accessToken = tokenResponse.access_token;
+      const accessToken = tokenResponse.access_token;
       if (!accessToken) throw new Error("No access token");
-      const events = await fetchGCalEvents(accessToken);
-      accessToken = null; // clear reference promptly
-      try {
-        setState((s) => {
-          const manualEvents = (s.calendarEvents || []).filter((e) => e.source === "manual");
-          return { ...s, calendarEvents: [...manualEvents, ...events], gCalConnected: true };
-        });
-      } catch {
-        // If state update fails, ensure we don't leave gCalConnected stuck true
-        setState((s) => ({ ...s, gCalConnected: false }));
-        throw new Error("GCAL_STATE_UPDATE_FAILED");
+
+      // Fetch the full calendar list so the user can choose which to include.
+      const cals = await fetchCalendarList(accessToken);
+      setCalendarList(cals);
+
+      const previousIds = state.gCalSelectedIds;
+      if (!forcePicker && previousIds && previousIds.length > 0) {
+        // User already has a saved selection — re-sync silently with it.
+        await applyCalendarSelection(previousIds, accessToken);
+      } else {
+        // First time, or "Change Calendars" was clicked — show the picker.
+        pendingTokenRef.current = accessToken;
+        setGCalLoading(false);
       }
-      showBanner(`Synced ${events.length} events from Google Calendar.`, "success");
     } catch (e) {
-      if (e?.message === "GCAL_TOKEN_EXPIRED") {
-        setState((s) => ({ ...s, gCalConnected: false }));
-        showBanner("Google Calendar token expired. Re-sync to reconnect.", "alert");
-        setGCalLoading(false);
-        return;
-      }
-      // Fix #9: surface specific GCal HTTP errors with actionable messages
-      if (e?.message === "GCAL_PERMISSION_DENIED") {
-        showBanner("Calendar sync failed: insufficient permissions or quota exceeded. Check your Google Cloud Console.", "alert");
-        setGCalLoading(false);
-        return;
-      }
-      if (e?.message === "GCAL_RATE_LIMITED") {
-        showBanner("Calendar sync failed: rate limit hit. Wait a moment and try again.", "alert");
-        setGCalLoading(false);
-        return;
-      }
-      if (e?.message?.startsWith("GCAL_HTTP_")) {
-        showBanner(`Calendar sync failed: server returned ${e.message.replace("GCAL_HTTP_", "HTTP ")}. Try again later.`, "alert");
-        setGCalLoading(false);
-        return;
-      }
-      if (e?.message === "GCAL_NETWORK_ERROR") {
-        showBanner("Calendar sync failed: network error. Check your connection and try again.", "alert");
-        setGCalLoading(false);
-        return;
-      }
-      let msg = e?.error?.message ?? e?.result?.error?.message ?? e?.message ?? e?.reason;
-      if (msg == null && e && typeof e === "object") {
-        const err = e?.error ?? e?.result?.error;
-        if (typeof err === "string") msg = err;
-        else if (err && typeof err === "object") msg = err.message ?? err.error_description ?? JSON.stringify(err).slice(0, 100);
-        else {
-          const d = e?.details?.[0];
-          msg = d?.message ?? d?.description ?? (d ? JSON.stringify(d) : null);
-        }
-      }
-      if (msg == null) msg = typeof e === "string" ? e : (e && typeof e === "object" ? JSON.stringify(e).slice(0, 80) : String(e));
-      const short = msg.length > 60 ? msg.slice(0, 57) + "…" : msg;
-      showBanner(`Calendar sync failed: ${short} Check Client ID and authorized origins in Google Cloud Console.`, "alert");
+      handleGCalError(e);
+      setGCalLoading(false);
     }
-    setGCalLoading(false);
   }
 
   function deleteEvent(id) {
     setState((s) => ({ ...s, calendarEvents: (s.calendarEvents || []).filter((e) => e.id !== id) }));
   }
 
+  const showPicker = calendarList.length > 0 && pendingTokenRef.current !== null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       <button
         type="button"
         onClick={syncGoogleCalendar}
-        disabled={gCalLoading || (typeof navigator !== "undefined" && navigator.onLine === false)}
+        disabled={gCalLoading || showPicker || (typeof navigator !== "undefined" && navigator.onLine === false)}
         style={{
         padding: "12px", border: "2px solid #fff",
         background: "transparent",
@@ -427,6 +432,37 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
       }}>
         {gCalLoading ? "SYNCING..." : state.gCalConnected ? "✓ GOOGLE CALENDAR SYNCED" : "SYNC GOOGLE CALENDAR"}
       </button>
+
+      {/* Change-calendars button (shown when already connected and picker is not open) */}
+      {state.gCalConnected && !showPicker && (
+        <button
+          type="button"
+          onClick={() => syncGoogleCalendar(true)}
+          style={{
+            padding: "10px", border: "1px solid #555", background: "transparent", color: "#aaa",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", letterSpacing: "1px", cursor: "pointer",
+          }}>
+          CHANGE CALENDARS ({(state.gCalSelectedIds || []).length} selected)
+        </button>
+      )}
+
+      {/* Calendar picker — shown after OAuth until the user confirms */}
+      {showPicker && (
+        <CalendarPicker
+          calendars={calendarList}
+          initialSelected={state.gCalSelectedIds || calendarList.map((c) => c.id)}
+          onConfirm={(chosenIds) => {
+            const token = pendingTokenRef.current;
+            pendingTokenRef.current = null;
+            setCalendarList([]);
+            applyCalendarSelection(chosenIds, token);
+          }}
+          onCancel={() => {
+            pendingTokenRef.current = null;
+            setCalendarList([]);
+          }}
+        />
+      )}
 
       {/* Add manual event */}
       <div style={{ border: "2px solid #fff", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -490,6 +526,84 @@ function CalendarSection({ state, setState, profile, apiKey, buildSystemPrompt, 
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// Displays the user's Google Calendar subscriptions and lets them toggle which ones to sync.
+function CalendarPicker({ calendars, initialSelected, onConfirm, onCancel }) {
+  const [selected, setSelected] = useState(() => new Set(initialSelected));
+
+  function toggle(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const mono = { fontFamily: "'Share Tech Mono', monospace" };
+
+  return (
+    <div style={{ border: "2px solid #fff", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div style={{ ...mono, fontSize: "16px", fontWeight: "bold", letterSpacing: "2px", color: "#fff" }}>
+        [ SELECT CALENDARS ]
+      </div>
+      <div style={{ fontSize: "13px", color: "#aaa", ...mono }}>
+        Choose which calendars to sync. All selected by default.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
+        {calendars.map((cal) => {
+          const checked = selected.has(cal.id);
+          return (
+            <div
+              key={cal.id}
+              onClick={() => toggle(cal.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: "10px",
+                padding: "10px", border: `2px solid ${checked ? "#fff" : "#444"}`,
+                cursor: "pointer", background: checked ? "rgba(255,255,255,0.05)" : "transparent",
+              }}>
+              {/* Colour dot from Google Calendar */}
+              <span style={{
+                width: "12px", height: "12px", borderRadius: "50%", flexShrink: 0,
+                background: cal.color || "#fff",
+                border: "1px solid rgba(255,255,255,0.3)",
+              }} />
+              <span style={{ ...mono, fontSize: "14px", color: "#fff", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {cal.title}
+              </span>
+              <span style={{ ...mono, fontSize: "18px", color: checked ? "#fff" : "#555", flexShrink: 0 }}>
+                {checked ? "■" : "□"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button
+          type="button"
+          onClick={() => onConfirm([...selected])}
+          disabled={selected.size === 0}
+          style={{
+            flex: 1, padding: "12px", border: "2px solid #fff",
+            background: selected.size > 0 ? "#fff" : "transparent",
+            color: selected.size > 0 ? "#000" : "#555",
+            ...mono, fontSize: "15px", letterSpacing: "1px", cursor: selected.size > 0 ? "pointer" : "default",
+          }}>
+          SYNC {selected.size} CALENDAR{selected.size !== 1 ? "S" : ""}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            padding: "12px 16px", border: "1px solid #555",
+            background: "transparent", color: "#aaa",
+            ...mono, fontSize: "15px", cursor: "pointer",
+          }}>
+          CANCEL
+        </button>
       </div>
     </div>
   );
