@@ -175,7 +175,11 @@ export function useSync({ latestStateRef, rehydrate, showBanner }) {
       LS.set(storageKey("jv_last_synced"), String(ts));
       setLastSynced(ts);
       setSyncStatus("synced");
-      showBanner("Pushed to Syncthing file.", "success");
+      const _pushTransport = getTransport();
+      showBanner(
+        _pushTransport === "dropbox" ? "Pushed to Dropbox." : "Pushed to sync file.",
+        "success"
+      );
     } catch (e) {
       if (e.message === "SYNC_SKIPPED") {
         setSyncStatus("idle");

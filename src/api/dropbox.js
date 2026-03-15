@@ -62,12 +62,18 @@ const METADATA_ENDPOINT = "https://api.dropboxapi.com/2/files/get_metadata";
 const CREATE_FOLDER_ENDPOINT = "https://api.dropboxapi.com/2/files/create_folder_v2";
 
 const PREFIX = import.meta.env.DEV ? "ritmol_dev_" : "ritmol_";
+// Access token is short-lived and security-sensitive — keep in sessionStorage.
 const SS_ACCESS_TOKEN = `${PREFIX}dbx_access_token`;
-const SS_REFRESH_TOKEN = `${PREFIX}dbx_refresh_token`;
-const SS_EXPIRES_AT = `${PREFIX}dbx_expires_at`;
-const SS_LAST_REV = `${PREFIX}dbx_last_rev`;
 const SS_CODE_VERIFIER = `${PREFIX}dbx_code_verifier`;
 const SS_OAUTH_STATE = `${PREFIX}dbx_oauth_state`;
+const SS_LAST_REV = `${PREFIX}dbx_last_rev`;
+
+// Refresh token and expiry live in localStorage so auth survives tab/browser close.
+// The refresh token alone cannot be exchanged without the PKCE code_verifier
+// (which is ephemeral / sessionStorage-only), so persisting it in localStorage
+// does not materially weaken the security model beyond the access token itself.
+const LS_REFRESH_TOKEN = `${PREFIX}dbx_refresh_token`;
+const LS_EXPIRES_AT = `${PREFIX}dbx_expires_at`;
 
 async function _fetchWithTimeout(url, options = {}, ms = 20_000) {
   let timeoutSignal;
@@ -121,14 +127,15 @@ async function generateCodeChallenge(verifier) {
 export function getTokens() {
   try {
     const accessToken = sessionStorage.getItem(SS_ACCESS_TOKEN);
-    const refreshToken = sessionStorage.getItem(SS_REFRESH_TOKEN);
-    const expiresAt = sessionStorage.getItem(SS_EXPIRES_AT);
-    if (!accessToken || !refreshToken || !expiresAt) return null;
-    if (refreshToken.length === 0) return null;
+    const refreshToken = localStorage.getItem(LS_REFRESH_TOKEN);
+    const expiresAt = localStorage.getItem(LS_EXPIRES_AT);
+    // We need at minimum a refresh token to be considered authenticated.
+    // An expired (or missing) access token can be refreshed using the refresh token.
+    if (!refreshToken || refreshToken.length === 0) return null;
     return {
-      accessToken,
+      accessToken: accessToken || null,
       refreshToken,
-      expiresAt: Number(expiresAt),
+      expiresAt: expiresAt ? Number(expiresAt) : 0,
     };
   } catch {
     return null;
@@ -145,26 +152,26 @@ export function setTokens({ access_token, refresh_token, expires_in }) {
     const resolvedRefresh =
       (typeof refresh_token === "string" && refresh_token.length > 0)
         ? refresh_token
-        : (sessionStorage.getItem(SS_REFRESH_TOKEN) || null);
+        : (localStorage.getItem(LS_REFRESH_TOKEN) || null);
     if (resolvedRefresh) {
-      sessionStorage.setItem(SS_REFRESH_TOKEN, resolvedRefresh);
+      localStorage.setItem(LS_REFRESH_TOKEN, resolvedRefresh);
     }
 
     const expiresAt = Date.now() + (typeof expires_in === "number" && expires_in > 0 ? expires_in : 14_400) * 1000;
-    sessionStorage.setItem(SS_EXPIRES_AT, String(expiresAt));
+    localStorage.setItem(LS_EXPIRES_AT, String(expiresAt));
   } catch {
-    /* sessionStorage unavailable */
+    /* localStorage/sessionStorage unavailable */
   }
 }
 
 export function clearTokens() {
   try {
     sessionStorage.removeItem(SS_ACCESS_TOKEN);
-    sessionStorage.removeItem(SS_REFRESH_TOKEN);
-    sessionStorage.removeItem(SS_EXPIRES_AT);
-    sessionStorage.removeItem(SS_LAST_REV);
     sessionStorage.removeItem(SS_CODE_VERIFIER);
     sessionStorage.removeItem(SS_OAUTH_STATE);
+    sessionStorage.removeItem(SS_LAST_REV);
+    localStorage.removeItem(LS_REFRESH_TOKEN);
+    localStorage.removeItem(LS_EXPIRES_AT);
   } catch {
     /* ignore */
   }
@@ -322,7 +329,8 @@ export async function ensureFreshToken() {
   const tokens = getTokens();
   if (!tokens) return;
   const bufferMs = 5 * 60 * 1000;
-  if (tokens.expiresAt - bufferMs <= Date.now()) {
+  // Refresh if: access token is missing (new browser session) OR it's about to expire.
+  if (!tokens.accessToken || tokens.expiresAt - bufferMs <= Date.now()) {
     await refreshAccessToken();
   }
 }
