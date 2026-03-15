@@ -313,7 +313,7 @@ export async function refreshAccessToken() {
   // when there is no client secret (which there isn't for PKCE apps).
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    refresh_token: tokens.refreshToken,
+    refresh_token: refreshToken,
     client_id: DROPBOX_CLIENT_ID,
   });
 
@@ -335,7 +335,7 @@ export async function refreshAccessToken() {
     try {
       setTokens({
         access_token: data.access_token,
-        refresh_token: data.refresh_token ?? tokens.refreshToken,
+        refresh_token: data.refresh_token ?? refreshToken,
         expires_in: data.expires_in ?? 14400,
       });
     } catch {
