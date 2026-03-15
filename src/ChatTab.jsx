@@ -163,22 +163,42 @@ export default function ChatTab() {
         if (mountedRef.current) setLoading(false);
         return;
       }
-      const redactedMsg = (e?.message || "")
+      const rawMsg = e?.message || "";
+      const redactedMsg = rawMsg
         .replace(/AIza[A-Za-z0-9_-]{35,45}/g, "[key]")
         .replace(/eyJ[\w.-]+/g, "[token]")
         .replace(/ya29\.[A-Za-z0-9_-]{20,}/g, "[oauth]");
-      console.error("RITMOL error:", redactedMsg);
-      const safeMsg = redactedMsg.slice(0, 60) || "System error";
+
+      // Map known error patterns to friendly in-chat messages.
+      let friendlyMsg;
+      if (redactedMsg.includes("429") || redactedMsg.toLowerCase().includes("quota") || redactedMsg.toLowerCase().includes("rate")) {
+        friendlyMsg = "Rate limit hit — you've exceeded the Gemini free quota. Wait a minute and try again, or check your Google AI billing.";
+      } else if (redactedMsg.includes("401") || redactedMsg.includes("403") || redactedMsg.toLowerCase().includes("api key")) {
+        friendlyMsg = "Invalid API key — check your Gemini key in the Profile settings.";
+      } else if (redactedMsg.includes("400")) {
+        friendlyMsg = "Bad request — the message couldn't be processed. Try rephrasing.";
+      } else if (redactedMsg.toLowerCase().includes("blocked")) {
+        friendlyMsg = "Message blocked by Gemini safety filters. Try rephrasing.";
+      } else if (navigator.onLine === false || redactedMsg.toLowerCase().includes("network") || redactedMsg.toLowerCase().includes("failed to fetch")) {
+        friendlyMsg = "No network connection — check your internet and try again.";
+      } else if (redactedMsg.toLowerCase().includes("timeout") || redactedMsg.toLowerCase().includes("aborted")) {
+        friendlyMsg = "Request timed out — Gemini took too long. Try again.";
+      } else if (redactedMsg.toLowerCase().includes("retries")) {
+        friendlyMsg = "Gemini is busy right now. Wait a moment and try again.";
+      } else {
+        friendlyMsg = "Something went wrong. Try again in a moment.";
+      }
+
       const errMsg = {
         role: "assistant",
-        content: `Connection error: ${safeMsg}. ${navigator.onLine === false ? "You appear to be offline." : "Check API key or retry."}`,
+        content: `⚠ ${friendlyMsg}`,
         ts: Date.now(),
         seq: ++_msgSeq,
         date: localDateFromUTC(),
+        isError: true,
       };
       if (mountedRef.current) {
         setState((s) => ({ ...s, chatHistory: [...s.chatHistory, errMsg].slice(-1000) }));
-        showBanner("Request failed — tap to retry or check connection.", "alert");
       }
     } finally {
       inFlightRef.current = false;
@@ -353,6 +373,7 @@ export default function ChatTab() {
 
 function ChatMessage({ msg }) {
   const isRitmol = msg.role === "assistant";
+  const isError  = msg.isError === true;
   // Defence-in-depth: strip control characters and BiDi overrides / zero-width chars
   // from displayed content to prevent visual spoofing or odd terminal behaviours even
   // though React escapes HTML in text nodes. Do not strip printable ASCII like &, <, >
@@ -370,16 +391,18 @@ function ChatMessage({ msg }) {
       gap: "3px",
     }}>
       {isRitmol && (
-        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", color: "#fff", letterSpacing: "2px", fontWeight: "bold" }}>
-          RITMOL ◈
+        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "13px", color: isError ? "#ff9900" : "#fff", letterSpacing: "2px", fontWeight: "bold" }}>
+          {isError ? "RITMOL !" : "RITMOL ◈"}
         </div>
       )}
       <div style={{
         maxWidth: "88%", padding: "14px 16px",
-        background: isRitmol ? "#000" : "#fff",
-        border: isRitmol ? "2px solid #fff" : "2px solid #000",
+        background: "#000",
+        border: isError ? "2px solid #ff9900" : isRitmol ? "2px solid #fff" : "2px solid #000",
         fontFamily: "'Share Tech Mono', monospace",
-        fontSize: "16px", lineHeight: "1.6", color: isRitmol ? "#fff" : "#000",
+        fontSize: "16px", lineHeight: "1.6",
+        color: isError ? "#ff9900" : isRitmol ? "#fff" : "#000",
+        background: isRitmol ? "#000" : "#fff",
       }}>
         {safeContent}
       </div>
