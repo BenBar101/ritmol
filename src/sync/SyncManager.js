@@ -215,7 +215,10 @@ function buildPayload(includeGeminiKey = false) {
   const payload = { _schemaVersion: SYNC_SCHEMA_VERSION };
   if (includeGeminiKey) {
     const key = getGeminiApiKey();
-    if (key && typeof key === "string" && /^AIza[A-Za-z0-9_-]{35,45}$/.test(key.trim())) {
+    // Accept any AIza… key between 20 and 60 chars after the prefix so future
+    // Google key format changes don't silently drop the key from the payload.
+    // The strict 35–45 char window was causing valid keys to be omitted.
+    if (key && typeof key === "string" && /^AIza[A-Za-z0-9_-]{20,60}$/.test(key.trim())) {
       payload.geminiKey = key.trim();
     }
   }
@@ -451,7 +454,7 @@ function extractSecretsFromPayload(payload) {
     const trimmed = payload.geminiKey.trim();
     // Accept a range of plausible key lengths so future format changes don't
     // silently break the config gate. We never log the key value itself.
-    if (/^AIza[A-Za-z0-9_-]{35,45}$/.test(trimmed)) {
+    if (/^AIza[A-Za-z0-9_-]{20,60}$/.test(trimmed)) {
       setGeminiApiKey(trimmed);
     } else {
       // Key was present but failed the format check — surface a console warning
