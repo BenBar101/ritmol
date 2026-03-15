@@ -273,7 +273,7 @@ export function GeminiKeySetupScreen({ onSave }) {
 
   function handleSave() {
     const trimmed = key.trim();
-    if (!/^AIza[A-Za-z0-9_-]{35,45}$/.test(trimmed)) {
+    if (!/^AIza[A-Za-z0-9_-]{20,60}$/.test(trimmed)) {
       setError("Invalid key format. Get one free at aistudio.google.com/apikey");
       return;
     }

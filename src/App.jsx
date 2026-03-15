@@ -418,6 +418,29 @@ export default function App() {
   }
 
 
+  // Onboarding must be checked BEFORE the !apiKey gate.
+  // New users hit onboarding first (which has its own Dropbox → Gemini → profile
+  // flow). The !apiKey gate is only for returning users whose sessionStorage
+  // was cleared (e.g. new browser tab) without a sync file to pull from.
+  if (showOnboarding) {
+    return (
+      <ErrorBoundary>
+        <Onboarding
+          onComplete={(profile) => {
+            setState((s) => ({ ...s, profile }));
+            setShowOnboarding(false);
+          }}
+          onGeminiKeySaved={async (key, profile) => {
+            setGeminiApiKey(key);
+            if (profile) setState((s) => ({ ...s, profile }));
+            await syncPush();
+          }}
+          connectDropbox={connectDropbox}
+        />
+      </ErrorBoundary>
+    );
+  }
+
   if (showGeminiKeySetup) {
     return (
       <ErrorBoundary>
@@ -461,24 +484,6 @@ export default function App() {
             setGeminiApiKey(key);
             await syncPush();
           }}
-        />
-      </ErrorBoundary>
-    );
-  }
-  if (showOnboarding) {
-    return (
-      <ErrorBoundary>
-        <Onboarding
-          onComplete={(profile) => {
-            setState((s) => ({ ...s, profile }));
-            setShowOnboarding(false);
-          }}
-          onGeminiKeySaved={async (key, profile) => {
-            setGeminiApiKey(key);
-            if (profile) setState((s) => ({ ...s, profile }));
-            await syncPush();
-          }}
-          connectDropbox={connectDropbox}
         />
       </ErrorBoundary>
     );
